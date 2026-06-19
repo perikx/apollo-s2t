@@ -1,0 +1,42 @@
+{
+  "hotkeys": {
+    "dictate": "f8",
+    "polish": "f9",
+    "prompt": "f10"
+  },
+  "deepgram": {
+    "api_key": "YOUR_DEEPGRAM_KEY",
+    "mode": "batch",
+    "model": "nova-3",
+    "language": "multi",
+    "smart_format": true,
+    "punctuate": true
+  },
+  "smoothing": {
+    "provider": "openrouter",
+    "api_key": "YOUR_OPENROUTER_KEY",
+    "model": "deepseek/deepseek-v4-flash",
+    "base_url": "https://openrouter.ai/api/v1/chat/completions",
+    "temperature": 0.3
+  },
+  "prompt_profiles": {
+    "active": "default",
+    "dir": "prompts",
+    "include_karpathy": true
+  },
+  "audio": {
+    "samplerate": 16000,
+    "channels": 1,
+    "device": null
+  },
+  "insertion": {
+    "method": "paste",
+    "live": false,
+    "live_corrections": false,
+    "type_delay": 0.0,
+    "restore_clipboard": true,
+    "restore_delay": 0.4
+  },
+  "min_record_seconds": 0.3,
+  "beep": true
+}
