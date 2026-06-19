@@ -79,6 +79,20 @@ Switch the active profile via the **tray icon → "F10 prompt profile"**, or set
 `prompt_profiles.active` in `config.json`. Edits to a profile file take effect on
 the next F10 press — no restart needed.
 
+### Output language (dictate in any language → English code)
+
+`prompt_profiles.output_language` controls the language of the **F10 prompt**, which
+in turn drives the language of the code, comments and identifiers the target AI writes
+(language *keywords* like `def`/`function` are always English regardless):
+
+- `"english"` (default) — speak Chinese, German, anything → you still get an **English**
+  prompt, so the coding AI produces an English codebase.
+- `"match"` — the prompt keeps the **language you dictated in** (e.g. Chinese in →
+  Chinese prompt, Karpathy guidelines included, in Chinese).
+- any language name (`"中文"`, `"German"`, …) — force that specific language.
+
+This only affects F10. F9 (polish) always keeps your original language.
+
 ---
 
 ## Configuration
@@ -94,6 +108,7 @@ the next F10 press — no restart needed.
 | `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). |
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
+| `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
 | `insertion.live` | `true` = F8 types word-by-word live. `false` = silent dictation, inserted in full on release (most robust). |
 | `insertion.live_corrections` | `false` = never backspace (no Windows system sound). `true` = tidy casing during pauses (cleaner, but some apps beep on backspace). |
 | `insertion.type_delay` | Per-character delay when live-typing (seconds). Raise to e.g. `0.005` if an app drops characters. |

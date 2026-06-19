@@ -22,7 +22,8 @@
   "prompt_profiles": {
     "active": "default",
     "dir": "prompts",
-    "include_karpathy": true
+    "include_karpathy": true,
+    "output_language": "english"
   },
   "audio": {
     "samplerate": 16000,

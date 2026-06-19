@@ -197,9 +197,22 @@ def load_profile_text(cfg, base_dir):
 
 
 def build_prompt_system(cfg, base_dir):
-    """Assemble the F10 system prompt: base instruction + Karpathy + active profile."""
+    """Assemble the F10 system prompt: base + output-language + Karpathy + active profile."""
+    pp = cfg.get("prompt_profiles", {})
     parts = [PROMPTS["prompt"]]
-    if cfg.get("prompt_profiles", {}).get("include_karpathy", True):
+    # Force the prompt's output language so e.g. Chinese dictation still yields an
+    # English prompt -> English code, comments and identifiers. "match"/"auto" = keep
+    # the dictation's language.
+    out_lang = (pp.get("output_language") or "english").strip()
+    if out_lang.lower() in ("match", "auto", "same", "keep"):
+        parts.append("Write the prompt in the same language as the dictation.")
+    elif out_lang:
+        parts.append(
+            "Always write the prompt itself in %s, regardless of the language spoken in "
+            "the dictation, so the target coding AI produces %s code, comments and "
+            "identifiers." % (out_lang, out_lang)
+        )
+    if pp.get("include_karpathy", True):
         parts.append(KARPATHY_GUIDELINES)
     profile = load_profile_text(cfg, base_dir)
     if profile:
