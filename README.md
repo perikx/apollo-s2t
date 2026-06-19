@@ -89,7 +89,7 @@ the next F10 press — no restart needed.
 |-------|---------|
 | `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
-| `deepgram.language` | `"multi"` (multilingual, mixes e.g. German + English terms) or a fixed code like `"en"`, `"de"`. |
+| `deepgram.language` | A language code (`"en"`, `"de"`, `"zh"`, …) or `"multi"`. See [Languages](#languages) below. |
 | `deepgram.model` | STT model, default `nova-3`. |
 | `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). |
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
@@ -100,6 +100,28 @@ the next F10 press — no restart needed.
 | `audio.device` | `null` = default microphone. Otherwise a device index/name (see below). |
 | `beep` | `false` disables the beeps. |
 | `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
+
+### Languages
+
+Apollo works in any language Deepgram supports — set `deepgram.language` to a single
+code for best accuracy:
+
+| Language | Code |
+|----------|------|
+| English / German / Spanish / French | `en` / `de` / `es` / `fr` |
+| Italian / Portuguese / Dutch / Russian | `it` / `pt` / `nl` / `ru` |
+| Hindi / Japanese | `hi` / `ja` |
+| Chinese (Mandarin, Simplified) | `zh`, `zh-CN`, `zh-Hans` |
+| Chinese (Mandarin, Traditional) | `zh-TW`, `zh-Hant` |
+| Chinese (Cantonese) | `zh-HK` |
+
+`"multi"` auto-detects a *mix* of languages (English, German, Spanish, French, Italian,
+Portuguese, Dutch, Russian, Hindi, Japanese) — handy when you blend terms, but it does
+**not** include Chinese. For Chinese, set an explicit code like `zh`.
+
+> **Non-Latin scripts (Chinese, Japanese, …):** keep `insertion.live: false` (the
+> default). Live word-by-word typing simulates keystrokes and doesn't handle CJK
+> reliably — the default paste mode inserts any Unicode text perfectly.
 
 **Find your microphone index** (if the wrong device is used):
 ```

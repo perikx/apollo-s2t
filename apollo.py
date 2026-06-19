@@ -870,7 +870,9 @@ def run_setup():
         cfg["smoothing"]["model"] = model
 
     print("\n3) Language")
-    print("   'multi' = multilingual (mixes e.g. German + English terms), or a code like 'en', 'de'")
+    print("   A single code is most accurate. Common: en, de, es, fr, it, pt, nl, ru, hi, ja,")
+    print("   zh (Chinese Simplified), zh-Hant (Traditional), zh-HK (Cantonese).")
+    print("   Or 'multi' for a mix of EN/DE/ES/FR/IT/PT/NL/RU/HI/JA (note: 'multi' excludes Chinese).")
     lang = input("   Language [%s]: " % cfg["deepgram"].get("language", "multi")).strip()
     if lang:
         cfg["deepgram"]["language"] = lang
