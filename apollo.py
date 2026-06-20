@@ -714,10 +714,19 @@ class App:
     # ---- armed-Modus: Text laden und auf das Abfeuern warten -----------------
     def deliver_armed(self, text):
         """If you're still in the window you dictated from, paste right away (no
-        click needed). Otherwise load the text and wait to be fired."""
+        click needed) - but keep the text on the clipboard so Ctrl+V still works.
+        Otherwise load it and wait to be fired by a click or Ctrl+V."""
         if self._origin_hwnd and get_foreground_window() == self._origin_hwnd:
-            paste_text(text, self.cfg.get("insertion", {}))
-            log.info("Pasted into the window you dictated from (%d chars).", len(text))
+            try:
+                pyperclip.copy(text)            # load it; do NOT restore afterwards
+            except Exception as e:
+                log.error("Clipboard copy failed: %s", e)
+                beep("error", self.beep_enabled)
+                return
+            threading.Event().wait(0.05)
+            keyboard.send("ctrl+v")
+            log.info("Pasted into the window you dictated from; still on the clipboard "
+                     "for Ctrl+V (%d chars).", len(text))
             return
         self.arm(text)
 
