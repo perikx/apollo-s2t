@@ -159,20 +159,15 @@ PROMPTS = {
     ),
 }
 
-# Karpathy coding guidelines, appended to the F10 system prompt so every prompt this
-# tool builds for a coding AI carries good-behavior instructions.
+# Karpathy coding guidelines. These shape HOW the F10 prompt is written (concise,
+# surgical, assumption-aware) - they must NOT be dumped verbatim into the output.
 # Source: https://x.com/karpathy/status/2015883857489522876
 KARPATHY_GUIDELINES = (
-    "If the prompt you produce is meant for a coding AI, explicitly instruct that AI to "
-    "follow these principles:\n"
-    "1. Think before coding: state assumptions explicitly and ask when uncertain; if multiple "
-    "interpretations exist, surface them instead of silently picking one.\n"
-    "2. Simplicity first: write the minimum code that solves the problem - no speculative "
-    "features, abstractions, or configurability that wasn't requested.\n"
-    "3. Surgical changes: touch only what is necessary; don't refactor or reformat unrelated "
-    "code; match the existing style.\n"
-    "4. Goal-driven execution: define verifiable success criteria (e.g. a test that must pass) "
-    "and loop until they are met."
+    "Shape the prompt in the spirit of these principles, but DO NOT copy them into the "
+    "output or append a generic checklist - keep the prompt about the user's actual request: "
+    "favor the smallest, most surgical change; make the task and desired result unambiguous; "
+    "surface assumptions instead of guessing; and, only where it genuinely fits the task, add "
+    "one short line on how success is verified."
 )
 
 
