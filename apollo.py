@@ -140,6 +140,25 @@ def print_banner():
         pass
 
 
+_INSTANCE_MUTEX = None
+
+
+def ensure_single_instance():
+    """Exit if another Apollo instance is already running, so the global hotkeys
+    aren't hooked (and fired) multiple times."""
+    global _INSTANCE_MUTEX
+    if os.name != "nt":
+        return
+    try:
+        k = ctypes.windll.kernel32
+        _INSTANCE_MUTEX = k.CreateMutexW(None, False, "Apollo_s2t_single_instance")
+        if k.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            log.error("Another Apollo instance is already running - exiting this one.")
+            sys.exit(0)
+    except Exception as e:
+        log.debug("single-instance check skipped: %s", e)
+
+
 # --------------------------------------------------------------------------
 # LLM prompts for F9 (polish) / F10 (structure as prompt)
 # --------------------------------------------------------------------------
@@ -928,6 +947,7 @@ def run_tray(on_quit, app):
 # --------------------------------------------------------------------------
 def main():
     print_banner()
+    ensure_single_instance()
     config = load_config()
     app = App(config)
 
