@@ -45,12 +45,6 @@ except Exception:
     HAVE_MOUSE = False
 
 try:
-    import uiautomation  # optional: smart text-field detection for armed mode
-    HAVE_UIA = True
-except Exception:
-    HAVE_UIA = False
-
-try:
     import pystray
     from PIL import Image, ImageDraw
     HAVE_TRAY = True
@@ -74,7 +68,6 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("ptt")
-logging.getLogger("comtypes").setLevel(logging.WARNING)  # silence UIA codegen noise
 
 
 # --------------------------------------------------------------------------
@@ -615,37 +608,6 @@ def focus_window(hwnd):
         return False
 
 
-def is_focused_editable():
-    """True if the focused UI element is an editable text control, False if not,
-    None if it can't be determined. Uses UI Automation (works inside Chromium/
-    Electron apps like Claude Code where window-class checks don't)."""
-    if not HAVE_UIA:
-        return None
-    try:
-        # UIA needs COM initialized per thread; this runs from worker threads.
-        with uiautomation.UIAutomationInitializerInThread(debug=False):
-            el = uiautomation.GetFocusedControl()
-            if not el:
-                return False
-            try:
-                if el.ControlType == uiautomation.ControlType.EditControl:
-                    return True
-            except Exception:
-                pass
-            # a writable Value pattern is the most reliable "editable" signal and
-            # covers most web/Electron text inputs
-            try:
-                vp = el.GetValuePattern()
-                if vp is not None and not getattr(vp, "IsReadOnly", True):
-                    return True
-            except Exception:
-                pass
-            return False
-    except Exception as e:
-        log.debug("is_focused_editable failed: %s", e)
-        return None
-
-
 # --------------------------------------------------------------------------
 # Text einfuegen (Zwischenablage + Strg+V)
 # --------------------------------------------------------------------------
@@ -723,9 +685,6 @@ class App:
         #             back into it, even if you switched away meanwhile.
         self.insert_target = ins.get("target", "focused")
         self._origin_hwnd = None
-        # smart armed mode: auto-paste when already in a text field, and only fire a
-        # click when it lands in one (needs UI Automation). Falls back to blind clicks.
-        self.smart = HAVE_UIA and ins.get("smart_paste", True)
         # Live-Tippen (Wort fuer Wort) nur fuer reines Diktat (F8) und nur im Streaming.
         # Im armed-Modus deaktiviert (es wird erst beim Abfeuern eingefuegt).
         self.insert_live = (ins.get("live", True) and self.streaming
@@ -754,11 +713,11 @@ class App:
 
     # ---- armed-Modus: Text laden und auf das Abfeuern warten -----------------
     def deliver_armed(self, text):
-        """Smart: if a text field is already focused, paste right away (no click).
-        Otherwise load the text and wait to be fired."""
-        if self.smart and is_focused_editable():
+        """If you're still in the window you dictated from, paste right away (no
+        click needed). Otherwise load the text and wait to be fired."""
+        if self._origin_hwnd and get_foreground_window() == self._origin_hwnd:
             paste_text(text, self.cfg.get("insertion", {}))
-            log.info("Pasted into focused field (%d chars).", len(text))
+            log.info("Pasted into the window you dictated from (%d chars).", len(text))
             return
         self.arm(text)
 
@@ -779,9 +738,8 @@ class App:
             self._disarm_timer.daemon = True
             self._disarm_timer.start()
         beep("ready", self.beep_enabled)
-        how = ("click into a text field to insert" if armed_click and self.smart
-               else "click to insert" if armed_click else "press Ctrl+V to insert")
-        log.info("Loaded %d chars - %s, or press Ctrl+V.", len(text), how)
+        log.info("Loaded %d chars - %s, or press Ctrl+V.", len(text),
+                 "click into a field to insert" if armed_click else "press Ctrl+V to insert")
 
     def _arm_click_locked(self):
         """Hook the next left-button release to fire one paste. Returns True if armed."""
@@ -799,18 +757,15 @@ class App:
         return True
 
     def _try_fire_on_click(self):
-        """Fire the loaded paste on a click. In smart mode, only if the click landed
-        in a text field (otherwise stay loaded so the shot isn't wasted)."""
+        """Fire the loaded paste on the next click (after the focus settles)."""
         time.sleep(0.12)                    # let the click settle the focus first
-        if self.smart and not is_focused_editable():
-            return                          # not a text field -> keep it loaded
         with self._arm_lock:
             if self._pending_text is None:
                 return
             self._pending_text = None
             self._cancel_arm_locked()
         keyboard.send("ctrl+v")
-        log.info("Fired armed text into field on click.")
+        log.info("Fired armed text on click.")
 
     def _cancel_arm_locked(self):
         """Unhook the click handler and cancel the timeout. Caller holds _arm_lock."""
@@ -839,8 +794,8 @@ class App:
                 return  # Tasten-Wiederholung oder zweite Taste -> ignorieren
             self.recording = True
             self.active_mode = mode
-            # remember the window we started in (for insertion.target = "origin")
-            if self.insert_target == "origin":
+            # remember the window we started in (origin target + armed auto-paste)
+            if self.insert_target == "origin" or self.insert_mode == "armed":
                 self._origin_hwnd = get_foreground_window()
             beep("start", self.beep_enabled)
             try:
@@ -1044,12 +999,8 @@ def main():
     log.info("LLM:        %s", config.get("smoothing", {}).get("model", "-"))
     log.info("F10 profile: %s", config.get("prompt_profiles", {}).get("active", "default"))
     if app.insert_mode == "armed":
-        log.info("Insertion:  armed%s (Ctrl+V to fire%s)",
-                 ", smart" if app.smart else "",
-                 ", or click into a field" if app.click_to_paste else "")
-        if app.click_to_paste and not app.smart:
-            log.warning("Smart field-detection off (install 'uiautomation' for it). "
-                        "Clicks fire blindly; a click outside a field wastes the shot.")
+        log.info("Insertion:  armed (paste if you stay; else Ctrl+V%s)",
+                 " or click" if app.click_to_paste else "")
     if app.insert_target == "origin":
         log.info("Target:     origin window (pastes back where you started)")
     log.info("Hold -> speak -> release. Quit via tray icon.")
