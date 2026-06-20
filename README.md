@@ -111,7 +111,8 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
 | `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"armed"` = keep the text loaded, fire it yourself. See [Armed mode](#armed-mode-load-now-paste-later). |
 | `insertion.target` | `"focused"` (default) = paste wherever focus is. `"origin"` = paste back into the window you were in when you started talking. See [Paste back](#paste-back-into-the-window-you-started-in). |
-| `insertion.click_to_paste` | (armed mode) `true` = your next left click inserts the text. Needs the `mouse` package. |
+| `insertion.click_to_paste` | (armed mode) `true` = a left click inserts the text. Needs the `mouse` package. |
+| `insertion.smart_paste` | (armed mode) `true` (default) = auto-paste when a text field is already focused, and only fire a click that lands in a text field. Needs the `uiautomation` package. |
 | `insertion.armed_timeout` | (armed mode) seconds the click stays armed before it disarms (the text stays on the clipboard). Default `30`. |
 | `insertion.live` | `true` = F8 types word-by-word live. `false` = silent dictation, inserted in full on release (most robust). |
 | `insertion.live_corrections` | `false` = never backspace (no Windows system sound). `true` = tidy casing during pauses (cleaner, but some apps beep on backspace). |
@@ -124,19 +125,22 @@ This only affects F10. F9 (polish) always keeps your original language.
 
 By default (`"instant"`) Apollo pastes into whatever field is focused **the moment it
 finishes** — so you have to already be in the text field. With `insertion.mode: "armed"`
-it instead **loads** the text and waits, like a loaded round:
+it instead behaves like a loaded round:
 
-- The text stays on the clipboard, so you can fire it with **`Ctrl+V`** any time, in any app.
-- With `insertion.click_to_paste: true`, your **next left click** inserts it automatically
-  (handy: dictate, then click into the field). Needs the `mouse` package
-  (`pip install mouse`, already in `requirements.txt`).
+- **Already in a text field?** It pastes right away — no click needed.
+- **Not in a field?** It stays loaded. With `smart_paste` on, it fires on the next click
+  that lands in a **real text field**; a click anywhere else doesn't waste it — it stays
+  loaded until you hit a field (or press `Ctrl+V`). Meanwhile you can keep using your PC.
+- **`Ctrl+V`** fires it any time, in any app — and never wastes it (outside a field, paste
+  just does nothing and the text stays loaded).
 - A short rising beep signals "loaded". It disarms after `armed_timeout` seconds, but the
   text stays on the clipboard either way.
 
-> Note: click-to-paste fires on your *next click anywhere* — Windows can't reliably tell
-> a text field from a button, so a click on a non-text spot just pastes nothing (harmless).
-> Enabling it adds a global mouse hook (the app then sees click events); leave it off if
-> you prefer `Ctrl+V` only.
+Smart detection uses **UI Automation** (`pip install uiautomation`, in `requirements.txt`)
+to tell whether the focused element is editable — this works inside Chromium/Electron apps
+like Claude Code where simpler checks can't. If `uiautomation` isn't installed, armed mode
+falls back to firing on *any* click (a click outside a field then wastes the shot). Click
+support also needs the `mouse` package, and adds a global mouse hook.
 
 ### Paste back into the window you started in
 

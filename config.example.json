@@ -35,6 +35,7 @@
     "mode": "instant",
     "target": "focused",
     "click_to_paste": false,
+    "smart_paste": true,
     "armed_timeout": 30,
     "live": false,
     "live_corrections": false,
