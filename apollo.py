@@ -994,6 +994,17 @@ def run_setup():
         if v:
             cfg["hotkeys"][action] = v.lower()
 
+    print("\n5) Text insertion")
+    print("   instant = paste into the focused field immediately (you must be in the field)")
+    print("   armed   = keep the text loaded; fire it with Ctrl+V or your next click")
+    ins = cfg.setdefault("insertion", {})
+    m = input("   Mode [instant/armed] [%s]: " % ins.get("mode", "instant")).strip().lower()
+    if m in ("instant", "armed"):
+        ins["mode"] = m
+    if ins.get("mode") == "armed":
+        c = input("   Also insert on your next left click (needs 'mouse')? [y/N]: ").strip().lower()
+        ins["click_to_paste"] = c in ("y", "yes", "j", "ja")
+
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
 
