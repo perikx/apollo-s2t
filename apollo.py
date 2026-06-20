@@ -622,23 +622,25 @@ def is_focused_editable():
     if not HAVE_UIA:
         return None
     try:
-        el = uiautomation.GetFocusedControl()
-        if not el:
+        # UIA needs COM initialized per thread; this runs from worker threads.
+        with uiautomation.UIAutomationInitializerInThread(debug=False):
+            el = uiautomation.GetFocusedControl()
+            if not el:
+                return False
+            try:
+                if el.ControlType == uiautomation.ControlType.EditControl:
+                    return True
+            except Exception:
+                pass
+            # a writable Value pattern is the most reliable "editable" signal and
+            # covers most web/Electron text inputs
+            try:
+                vp = el.GetValuePattern()
+                if vp is not None and not getattr(vp, "IsReadOnly", True):
+                    return True
+            except Exception:
+                pass
             return False
-        try:
-            if el.ControlType == uiautomation.ControlType.EditControl:
-                return True
-        except Exception:
-            pass
-        # a writable Value pattern is the most reliable "editable" signal and
-        # covers most web/Electron text inputs
-        try:
-            vp = el.GetValuePattern()
-            if vp is not None and not getattr(vp, "IsReadOnly", True):
-                return True
-        except Exception:
-            pass
-        return False
     except Exception as e:
         log.debug("is_focused_editable failed: %s", e)
         return None
