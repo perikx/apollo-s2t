@@ -33,6 +33,7 @@
   "insertion": {
     "method": "paste",
     "mode": "instant",
+    "target": "focused",
     "click_to_paste": false,
     "armed_timeout": 30,
     "live": false,

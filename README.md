@@ -110,6 +110,7 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
 | `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
 | `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"armed"` = keep the text loaded, fire it yourself. See [Armed mode](#armed-mode-load-now-paste-later). |
+| `insertion.target` | `"focused"` (default) = paste wherever focus is. `"origin"` = paste back into the window you were in when you started talking. See [Paste back](#paste-back-into-the-window-you-started-in). |
 | `insertion.click_to_paste` | (armed mode) `true` = your next left click inserts the text. Needs the `mouse` package. |
 | `insertion.armed_timeout` | (armed mode) seconds the click stays armed before it disarms (the text stays on the clipboard). Default `30`. |
 | `insertion.live` | `true` = F8 types word-by-word live. `false` = silent dictation, inserted in full on release (most robust). |
@@ -136,6 +137,22 @@ it instead **loads** the text and waits, like a loaded round:
 > a text field from a button, so a click on a non-text spot just pastes nothing (harmless).
 > Enabling it adds a global mouse hook (the app then sees click events); leave it off if
 > you prefer `Ctrl+V` only.
+
+### Paste back into the window you started in
+
+With `insertion.target: "origin"`, Apollo remembers the **window that was focused when
+you pressed the hotkey** and pastes back into it — even if you tabbed away meanwhile.
+Handy for e.g. dictating into Claude Code, then glancing at your browser while it
+transcribes: the text still lands in Claude Code.
+
+- Works at the **window** level. If your target is its own desktop window (Claude Code,
+  an editor, a chat app), the text returns to its input field.
+- It can't pick a specific **browser tab** among many — it refocuses the window (active
+  tab), not a sub-view inside a web app.
+- Refocusing uses a best-effort Windows call; in rare cases Windows blocks the focus
+  change and Apollo falls back to pasting into the current window (logged).
+- Use with F9/F10 (or F8 with `insertion.live: false`) — live word-by-word typing always
+  goes to whatever is focused *while* you speak.
 
 ### Languages
 

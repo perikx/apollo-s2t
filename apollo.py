@@ -13,6 +13,7 @@ insert via clipboard + Ctrl+V into the focused text field.
 Run 'python apollo.py --setup' for the interactive first-time setup.
 """
 
+import ctypes
 import io
 import json
 import logging
@@ -553,6 +554,47 @@ class LiveTyper:
 
 
 # --------------------------------------------------------------------------
+# Fenster-Fokus (fuer insertion.target = "origin")
+# --------------------------------------------------------------------------
+def get_foreground_window():
+    """Handle of the currently focused window (None if unavailable / non-Windows)."""
+    if os.name != "nt":
+        return None
+    try:
+        return ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        return None
+
+
+def focus_window(hwnd):
+    """Best-effort: bring hwnd to the foreground so the next paste lands there.
+    Uses AttachThreadInput to work around Windows' focus-stealing prevention."""
+    if not hwnd or os.name != "nt":
+        return False
+    try:
+        u = ctypes.windll.user32
+        k = ctypes.windll.kernel32
+        if u.IsIconic(hwnd):
+            u.ShowWindow(hwnd, 9)  # SW_RESTORE
+        fg = u.GetForegroundWindow()
+        if fg == hwnd:
+            return True
+        cur = k.GetCurrentThreadId()
+        t_fg = u.GetWindowThreadProcessId(fg, None)
+        t_tgt = u.GetWindowThreadProcessId(hwnd, None)
+        u.AttachThreadInput(cur, t_fg, True)
+        u.AttachThreadInput(cur, t_tgt, True)
+        u.SetForegroundWindow(hwnd)
+        u.BringWindowToTop(hwnd)
+        u.AttachThreadInput(cur, t_fg, False)
+        u.AttachThreadInput(cur, t_tgt, False)
+        return u.GetForegroundWindow() == hwnd
+    except Exception as e:
+        log.debug("focus_window failed: %s", e)
+        return False
+
+
+# --------------------------------------------------------------------------
 # Text einfuegen (Zwischenablage + Strg+V)
 # --------------------------------------------------------------------------
 def paste_text(text, ins_cfg):
@@ -624,6 +666,11 @@ class App:
         self.insert_mode = ins.get("mode", "instant")
         self.click_to_paste = ins.get("click_to_paste", False)
         self.armed_timeout = ins.get("armed_timeout", 30)
+        # "focused" = paste wherever focus is at insertion time (default).
+        # "origin"  = remember the window focused when you pressed the key and paste
+        #             back into it, even if you switched away meanwhile.
+        self.insert_target = ins.get("target", "focused")
+        self._origin_hwnd = None
         # Live-Tippen (Wort fuer Wort) nur fuer reines Diktat (F8) und nur im Streaming.
         # Im armed-Modus deaktiviert (es wird erst beim Abfeuern eingefuegt).
         self.insert_live = (ins.get("live", True) and self.streaming
@@ -721,6 +768,9 @@ class App:
                 return  # Tasten-Wiederholung oder zweite Taste -> ignorieren
             self.recording = True
             self.active_mode = mode
+            # remember the window we started in (for insertion.target = "origin")
+            if self.insert_target == "origin":
+                self._origin_hwnd = get_foreground_window()
             beep("start", self.beep_enabled)
             try:
                 if self.streaming:
@@ -826,6 +876,11 @@ class App:
             if self.insert_mode == "armed":
                 self.arm(text)                 # load and wait for click / Ctrl+V
             else:
+                if self.insert_target == "origin" and self._origin_hwnd:
+                    if focus_window(self._origin_hwnd):
+                        time.sleep(0.12)       # let the window settle before pasting
+                    else:
+                        log.warning("Could not refocus origin window; pasting into current focus.")
                 paste_text(text, self.cfg.get("insertion", {}))
                 log.info("Eingefuegt (%d Zeichen, gesamt %.0f ms ab Loslassen).",
                          len(text), (time.time() - t0) * 1000)
@@ -919,6 +974,8 @@ def main():
     if app.insert_mode == "armed":
         log.info("Insertion:  armed (Ctrl+V to fire%s)",
                  ", or click into a field" if app.click_to_paste else "")
+    if app.insert_target == "origin":
+        log.info("Target:     origin window (pastes back where you started)")
     log.info("Hold -> speak -> release. Quit via tray icon.")
     log.info("=" * 60)
 
