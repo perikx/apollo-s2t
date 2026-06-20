@@ -32,6 +32,9 @@
   },
   "insertion": {
     "method": "paste",
+    "mode": "instant",
+    "click_to_paste": false,
+    "armed_timeout": 30,
     "live": false,
     "live_corrections": false,
     "type_delay": 0.0,

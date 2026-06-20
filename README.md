@@ -109,12 +109,33 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
 | `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
+| `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"armed"` = keep the text loaded, fire it yourself. See [Armed mode](#armed-mode-load-now-paste-later). |
+| `insertion.click_to_paste` | (armed mode) `true` = your next left click inserts the text. Needs the `mouse` package. |
+| `insertion.armed_timeout` | (armed mode) seconds the click stays armed before it disarms (the text stays on the clipboard). Default `30`. |
 | `insertion.live` | `true` = F8 types word-by-word live. `false` = silent dictation, inserted in full on release (most robust). |
 | `insertion.live_corrections` | `false` = never backspace (no Windows system sound). `true` = tidy casing during pauses (cleaner, but some apps beep on backspace). |
 | `insertion.type_delay` | Per-character delay when live-typing (seconds). Raise to e.g. `0.005` if an app drops characters. |
 | `audio.device` | `null` = default microphone. Otherwise a device index/name (see below). |
 | `beep` | `false` disables the beeps. |
 | `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
+
+### Armed mode (load now, paste later)
+
+By default (`"instant"`) Apollo pastes into whatever field is focused **the moment it
+finishes** — so you have to already be in the text field. With `insertion.mode: "armed"`
+it instead **loads** the text and waits, like a loaded round:
+
+- The text stays on the clipboard, so you can fire it with **`Ctrl+V`** any time, in any app.
+- With `insertion.click_to_paste: true`, your **next left click** inserts it automatically
+  (handy: dictate, then click into the field). Needs the `mouse` package
+  (`pip install mouse`, already in `requirements.txt`).
+- A short rising beep signals "loaded". It disarms after `armed_timeout` seconds, but the
+  text stays on the clipboard either way.
+
+> Note: click-to-paste fires on your *next click anywhere* — Windows can't reliably tell
+> a text field from a button, so a click on a non-text spot just pastes nothing (harmless).
+> Enabling it adds a global mouse hook (the app then sees click events); leave it off if
+> you prefer `Ctrl+V` only.
 
 ### Languages
 
@@ -174,7 +195,9 @@ the focused window via the clipboard (your previous clipboard is restored afterw
 `.gitignore`. Don't share it. If a key leaks, regenerate it in the Deepgram /
 OpenRouter dashboard. Apollo needs a global keyboard hook to detect the push-to-talk
 key — it only reacts to the configured hotkeys and does not log other keystrokes
-(the source is right here for you to verify).
+(the source is right here for you to verify). The optional `insertion.click_to_paste`
+adds a global mouse hook (only to catch your next click after a dictation); it is off by
+default.
 
 ---
 

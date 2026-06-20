@@ -6,3 +6,4 @@ requests>=2.31
 websocket-client>=1.7
 pystray>=0.19
 Pillow>=10.0
+mouse>=0.7        # optional: only used for insertion.click_to_paste

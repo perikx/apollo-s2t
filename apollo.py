@@ -38,6 +38,12 @@ except Exception:
     HAVE_WINSOUND = False
 
 try:
+    import mouse  # optional: only used for insertion.click_to_paste
+    HAVE_MOUSE = True
+except Exception:
+    HAVE_MOUSE = False
+
+try:
     import pystray
     from PIL import Image, ImageDraw
     HAVE_TRAY = True
@@ -585,6 +591,9 @@ def beep(kind, enabled):
             winsound.Beep(900, 70)
         elif kind == "stop":
             winsound.Beep(600, 70)
+        elif kind == "ready":          # text loaded, waiting to be fired
+            winsound.Beep(1100, 55)
+            winsound.Beep(1350, 55)
         elif kind == "error":
             winsound.Beep(350, 160)
             winsound.Beep(280, 160)
@@ -609,8 +618,16 @@ class App:
         )
         self.streaming = config.get("deepgram", {}).get("mode", "streaming") == "streaming"
         ins = config.get("insertion", {})
+        # "instant" (default) = paste straight into the focused field on release.
+        # "armed"   = keep the text loaded on the clipboard; fire it yourself with
+        #             Ctrl+V (always) or, with click_to_paste, on your next left click.
+        self.insert_mode = ins.get("mode", "instant")
+        self.click_to_paste = ins.get("click_to_paste", False)
+        self.armed_timeout = ins.get("armed_timeout", 30)
         # Live-Tippen (Wort fuer Wort) nur fuer reines Diktat (F8) und nur im Streaming.
-        self.insert_live = ins.get("live", True) and self.streaming
+        # Im armed-Modus deaktiviert (es wird erst beim Abfeuern eingefuegt).
+        self.insert_live = (ins.get("live", True) and self.streaming
+                            and self.insert_mode != "armed")
         self.type_delay = ins.get("type_delay", 0.0)
         self.live_corrections = ins.get("live_corrections", False)
         self.beep_enabled = config.get("beep", True)
@@ -620,6 +637,11 @@ class App:
         self.active_mode = None
         self.live = None
         self.typer = None
+        # armed-Modus Zustand
+        self._pending_text = None
+        self._click_handle = None
+        self._disarm_timer = None
+        self._arm_lock = threading.Lock()
 
     def _live_for(self, mode):
         return self.insert_live and mode == "dictate"
@@ -627,6 +649,71 @@ class App:
     def set_profile(self, name):
         self.cfg.setdefault("prompt_profiles", {})["active"] = name
         log.info("Active F10 prompt profile: %s", name)
+
+    # ---- armed-Modus: Text laden und auf das Abfeuern warten -----------------
+    def arm(self, text):
+        """Load the text onto the clipboard and wait. The user fires it with Ctrl+V
+        (always) or, if click_to_paste is on, on the next left click."""
+        try:
+            pyperclip.copy(text)
+        except Exception as e:
+            log.error("Clipboard copy failed, cannot load text: %s", e)
+            beep("error", self.beep_enabled)
+            return
+        with self._arm_lock:
+            self._cancel_arm_locked()           # replace any previous load
+            self._pending_text = text
+            armed_click = self.click_to_paste and self._arm_click_locked()
+            self._disarm_timer = threading.Timer(self.armed_timeout, self.disarm)
+            self._disarm_timer.daemon = True
+            self._disarm_timer.start()
+        beep("ready", self.beep_enabled)
+        log.info("Loaded %d chars - %s, or press Ctrl+V.", len(text),
+                 "click into a field to insert" if armed_click else "press Ctrl+V to insert")
+
+    def _arm_click_locked(self):
+        """Hook the next left-button release to fire one paste. Returns True if armed."""
+        if not HAVE_MOUSE:
+            log.warning("click_to_paste needs the 'mouse' package (pip install mouse). "
+                        "Text is on the clipboard - use Ctrl+V.")
+            return False
+
+        def on_left_up():
+            with self._arm_lock:
+                if self._pending_text is None:
+                    return
+                self._pending_text = None
+                self._cancel_arm_locked()
+            def _fire():
+                time.sleep(0.15)            # let the click settle the focus first
+                keyboard.send("ctrl+v")
+                log.info("Fired armed text on click.")
+            threading.Thread(target=_fire, daemon=True).start()
+
+        self._click_handle = mouse.on_button(on_left_up, buttons=(mouse.LEFT,),
+                                              types=(mouse.UP,))
+        return True
+
+    def _cancel_arm_locked(self):
+        """Unhook the click handler and cancel the timeout. Caller holds _arm_lock."""
+        if self._click_handle is not None and HAVE_MOUSE:
+            try:
+                mouse.unhook(self._click_handle)
+            except Exception:
+                pass
+        self._click_handle = None
+        if self._disarm_timer is not None:
+            self._disarm_timer.cancel()
+            self._disarm_timer = None
+
+    def disarm(self):
+        """Stop waiting for a click. The text stays on the clipboard for Ctrl+V."""
+        with self._arm_lock:
+            was_pending = self._pending_text is not None
+            self._pending_text = None
+            self._cancel_arm_locked()
+        if was_pending:
+            log.info("Armed text timed out (still on clipboard, Ctrl+V works).")
 
     def on_press(self, mode):
         with self._lock:
@@ -736,9 +823,12 @@ class App:
                 except Exception as e:
                     log.error("Glaettung fehlgeschlagen, nutze Rohtext. Grund: %s", e)
 
-            paste_text(text, self.cfg.get("insertion", {}))
-            log.info("Eingefuegt (%d Zeichen, gesamt %.0f ms ab Loslassen).",
-                     len(text), (time.time() - t0) * 1000)
+            if self.insert_mode == "armed":
+                self.arm(text)                 # load and wait for click / Ctrl+V
+            else:
+                paste_text(text, self.cfg.get("insertion", {}))
+                log.info("Eingefuegt (%d Zeichen, gesamt %.0f ms ab Loslassen).",
+                         len(text), (time.time() - t0) * 1000)
         except requests.HTTPError as e:
             body = e.response.text if e.response is not None else ""
             log.error("HTTP-Fehler: %s | %s", e, body[:500])
@@ -826,11 +916,18 @@ def main():
              ", live typing on dictate" if app.insert_live else "")
     log.info("LLM:        %s", config.get("smoothing", {}).get("model", "-"))
     log.info("F10 profile: %s", config.get("prompt_profiles", {}).get("active", "default"))
+    if app.insert_mode == "armed":
+        log.info("Insertion:  armed (Ctrl+V to fire%s)",
+                 ", or click into a field" if app.click_to_paste else "")
     log.info("Hold -> speak -> release. Quit via tray icon.")
     log.info("=" * 60)
 
     def on_quit(icon=None):
         log.info("Quitting %s ...", APP_NAME)
+        try:
+            app.disarm()
+        except Exception:
+            pass
         try:
             keyboard.unhook_all()
         except Exception:
