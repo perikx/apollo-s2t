@@ -17,6 +17,8 @@ First public release.
 - **Multi-language STT** via Deepgram, including Chinese (`zh`), Japanese, and more.
 - **Armed insertion mode** — load the dictation and paste it when you stay in the window,
   or fire it later with `Ctrl+V`.
+- **Custom vocabulary** — boost recognition of names and jargon via `deepgram.keyterms` (Nova-3).
 - Interactive **setup wizard** (`python apollo.py --setup`) with sign-up links.
 - Tray icon, optional autostart, and a single-instance guard.
+- Clear, actionable error messages for API, network and microphone failures.
 - Colored ASCII startup banner, MIT license, English docs.

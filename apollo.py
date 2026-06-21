@@ -306,6 +306,14 @@ def to_wav_bytes(data, samplerate, channels):
 # --------------------------------------------------------------------------
 # Deepgram (STT)
 # --------------------------------------------------------------------------
+def keyterms_for(dg):
+    """Key terms to boost recognition of (names, jargon). Nova-3 only ('keyterm')."""
+    terms = [t for t in (dg.get("keyterms") or []) if t]
+    if not terms or "nova-3" not in dg.get("model", "nova-3"):
+        return []
+    return terms[:100]  # Deepgram caps keyterms at 100
+
+
 def transcribe(wav_bytes, cfg):
     params = {
         "model": cfg.get("model", "nova-3"),
@@ -316,6 +324,9 @@ def transcribe(wav_bytes, cfg):
     lang = cfg.get("language")
     if lang:
         params["language"] = lang
+    kt = keyterms_for(cfg)
+    if kt:
+        params["keyterm"] = kt
 
     resp = requests.post(
         "https://api.deepgram.com/v1/listen",
@@ -369,7 +380,10 @@ class DeepgramLive:
             params["language"] = dg["language"]
         if dg.get("punctuate", True):
             params["punctuate"] = "true"
-        return "wss://api.deepgram.com/v1/listen?" + urllib.parse.urlencode(params)
+        kt = keyterms_for(dg)
+        if kt:
+            params["keyterm"] = kt
+        return "wss://api.deepgram.com/v1/listen?" + urllib.parse.urlencode(params, doseq=True)
 
     def open_async(self):
         """Verbindet im Hintergrund und sendet anschliessend die Audio-Queue.

@@ -124,6 +124,7 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
 | `deepgram.language` | A language code (`"en"`, `"de"`, `"zh"`, …) or `"multi"`. See [Languages](#languages) below. |
 | `deepgram.model` | STT model, default `nova-3`. |
+| `deepgram.keyterms` | List of terms to recognize more reliably (names, jargon). See [Custom vocabulary](#custom-vocabulary-key-terms). |
 | `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). |
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
@@ -193,6 +194,22 @@ Portuguese, Dutch, Russian, Hindi, Japanese) — handy when you blend terms, but
 > **Non-Latin scripts (Chinese, Japanese, …):** keep `insertion.live: false` (the
 > default). Live word-by-word typing simulates keystrokes and doesn't handle CJK
 > reliably — the default paste mode inserts any Unicode text perfectly.
+
+### Custom vocabulary (key terms)
+
+Names, product names and jargon are what speech-to-text gets wrong most. Add them to
+`deepgram.keyterms` to boost their recognition:
+
+```json
+"deepgram": {
+  "model": "nova-3",
+  "keyterms": ["Apollo", "Supabase", "Politify", "useState", "Karpathy"]
+}
+```
+
+Up to 100 terms, works in any language (including Chinese). Requires a **Nova-3** model
+(it's ignored on other models). This is the cheapest single win for accuracy on *your*
+words.
 
 **Find your microphone index** (if the wrong device is used):
 ```

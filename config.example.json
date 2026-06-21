@@ -10,7 +10,8 @@
     "model": "nova-3",
     "language": "multi",
     "smart_format": true,
-    "punctuate": true
+    "punctuate": true,
+    "keyterms": []
   },
   "smoothing": {
     "provider": "openrouter",
