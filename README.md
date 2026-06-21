@@ -4,6 +4,13 @@
   <img src="assets/banner.svg" alt="Apollo s2t — speech to text, push-to-talk" width="600">
 </p>
 
+<p align="center">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/perikx/apollo-s2t?style=social">
+</p>
+
 A small **Windows** background tool for push-to-talk speech-to-text dictation.
 
 **Hold a key → speak → release → the text lands in your active text field**
@@ -19,6 +26,18 @@ All three hotkeys are configurable — see [Configuration](#configuration).
 
 **Flow:** microphone → Deepgram Nova-3 (STT) → optional OpenRouter (LLM) →
 insert via clipboard + `Ctrl+V`.
+
+## Highlights
+
+- **One key each, any model** — one Deepgram key for speech, one OpenRouter key for *any* LLM.
+- **Project-aware prompts (F10)** — turns dictation into a clean prompt, with optional
+  [Karpathy coding guidelines](#f10-prompt-profiles-project-aware-prompts) and a forced
+  [output language](#output-language-dictate-in-any-language--english-code) (e.g. speak
+  Chinese → get an English prompt).
+- **Speak any language** — English, German, … and [Chinese/Japanese/etc.](#languages).
+- **Armed mode** — [load now, paste later](#armed-mode-load-now-paste-later): dictate,
+  keep using your PC, drop it where you want with `Ctrl+V`.
+- **Stays out of the way** — tray icon, optional autostart, single-instance guard, no telemetry.
 
 > **Platform:** Windows 10/11 only. It relies on Windows global keyboard hooks,
 > `winsound`, and `.bat` launchers. macOS/Linux are not supported.
