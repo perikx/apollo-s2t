@@ -472,6 +472,30 @@ class DeepgramLive:
 _http = requests.Session()  # wiederverwendete Verbindung (Keep-Alive)
 
 
+def http_error_hint(service, exc):
+    """Turn an API error into a short, actionable one-line message."""
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return "%s: no response - check your internet connection." % service
+    code = resp.status_code
+    try:
+        body = resp.text or ""
+    except Exception:
+        body = ""
+    low = body.lower()
+    if code in (401, 403):
+        return "%s: API key rejected (HTTP %d) - check the key in config.json." % (service, code)
+    if code == 402:
+        return "%s: out of credit (HTTP 402) - top up your account." % service
+    if code == 429:
+        return "%s: rate limited (HTTP 429) - slow down or upgrade your plan." % service
+    if code == 404 or (code == 400 and "model" in low):
+        return "%s: model not found - fix the model slug in config.json." % service
+    if code == 400 and ("language" in low or "lang" in low):
+        return "%s: bad language code - check deepgram.language." % service
+    return "%s: HTTP %d - %s" % (service, code, body[:160])
+
+
 def smooth(text, system_prompt, cfg):
     resp = _http.post(
         cfg.get("base_url", "https://openrouter.ai/api/v1/chat/completions"),
@@ -824,7 +848,7 @@ class App:
                     self.recorder.on_chunk = None
                 self.recorder.start()
             except Exception as e:
-                log.exception("Mikrofon/Stream konnte nicht gestartet werden: %s", e)
+                log.error("Microphone could not start - is a mic connected and not in use? (%s)", e)
                 self.recording = False
                 self.active_mode = None
                 self.recorder.on_chunk = None
@@ -869,7 +893,7 @@ class App:
             if typer is not None:
                 text = live.finish()  # flusht letzte Worte -> Reader tippt sie via on_update
                 if live.error is not None:
-                    log.error("Streaming-Verbindung fehlgeschlagen: %s", live.error)
+                    log.error("Deepgram streaming failed (check your key/connection): %s", live.error)
                     beep("error", self.beep_enabled)
                     return
                 if not typer.typed_anything:
@@ -884,7 +908,7 @@ class App:
             if self.streaming:
                 text = live.finish() if live is not None else ""
                 if live is not None and live.error is not None:
-                    log.error("Streaming-Verbindung fehlgeschlagen: %s", live.error)
+                    log.error("Deepgram streaming failed (check your key/connection): %s", live.error)
                     beep("error", self.beep_enabled)
                     return
             else:
@@ -905,8 +929,12 @@ class App:
                     if refined:
                         text = refined
                         log.info("Geglaettet (%s): %s", mode, text)
+                except requests.HTTPError as e:
+                    log.error("%s Using the raw dictation instead.", http_error_hint("OpenRouter", e))
+                except requests.RequestException as e:
+                    log.error("OpenRouter: network error (%s). Using the raw dictation.", e)
                 except Exception as e:
-                    log.error("Glaettung fehlgeschlagen, nutze Rohtext. Grund: %s", e)
+                    log.error("Smoothing failed (%s). Using the raw dictation.", e)
 
             if self.insert_mode == "armed":
                 self.deliver_armed(text)       # paste if in a field, else load and wait
@@ -920,11 +948,13 @@ class App:
                 log.info("Eingefuegt (%d Zeichen, gesamt %.0f ms ab Loslassen).",
                          len(text), (time.time() - t0) * 1000)
         except requests.HTTPError as e:
-            body = e.response.text if e.response is not None else ""
-            log.error("HTTP-Fehler: %s | %s", e, body[:500])
+            log.error(http_error_hint("Deepgram", e))
+            beep("error", self.beep_enabled)
+        except requests.RequestException as e:
+            log.error("Deepgram: network error - %s", e)
             beep("error", self.beep_enabled)
         except Exception as e:
-            log.exception("Fehler bei der Verarbeitung: %s", e)
+            log.exception("Unexpected error while processing: %s", e)
             beep("error", self.beep_enabled)
 
 
@@ -994,6 +1024,9 @@ def main():
     dg_key = config.get("deepgram", {}).get("api_key", "")
     if not dg_key or dg_key.startswith(("DEIN_", "YOUR_")):
         log.warning("No valid Deepgram key in config.json -> STT will fail. Run --setup.")
+    or_key = config.get("smoothing", {}).get("api_key", "")
+    if not or_key or or_key.startswith(("DEIN_", "YOUR_")):
+        log.warning("No valid OpenRouter key in config.json -> F9/F10 fall back to raw text. Run --setup.")
 
     log.info("=" * 60)
     log.info("%s running.", APP_NAME)
