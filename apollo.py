@@ -282,7 +282,7 @@ class Recorder:
                 self._stream.stop()
                 self._stream.close()
             except Exception as e:
-                log.warning("Fehler beim Schliessen des Streams: %s", e)
+                log.warning("Error while closing the stream: %s", e)
             self._stream = None
         if not self._frames:
             return None
@@ -441,12 +441,12 @@ class DeepgramLive:
                     continue
                 text = (alt.get("transcript") or "").strip()
                 is_final = bool(data.get("is_final"))
-                # Live-Tippen: jede (nicht-leere) Hypothese sofort melden
+                # live typing: report every (non-empty) hypothesis immediately
                 if self.on_update is not None and (text or is_final):
                     try:
                         self.on_update(text, is_final)
                     except Exception as e:
-                        log.debug("on_update Fehler: %s", e)
+                        log.debug("on_update error: %s", e)
                 if text and is_final:
                     self.transcripts.append(text)
 
@@ -454,7 +454,7 @@ class DeepgramLive:
         self._queue.put(pcm_bytes)
 
     def finish(self, timeout=2.5):
-        """Flusht ausstehendes Audio, wartet kurz auf die letzten Finals."""
+        """Flush pending audio and briefly wait for the last finals."""
         self._ws_ready.wait(timeout=3)
         if self.error is not None:
             return ""
