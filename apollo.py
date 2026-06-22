@@ -53,7 +53,7 @@ except Exception:
 
 
 # --------------------------------------------------------------------------
-# Pfade & Logging
+# Paths & logging
 # --------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -71,7 +71,7 @@ log = logging.getLogger("ptt")
 
 
 # --------------------------------------------------------------------------
-# Konfiguration
+# Configuration
 # --------------------------------------------------------------------------
 def load_config():
     if not os.path.exists(CONFIG_PATH):
@@ -242,7 +242,7 @@ def build_prompt_system(cfg, base_dir):
 
 
 # --------------------------------------------------------------------------
-# Audio-Aufnahme
+# Audio recording
 # --------------------------------------------------------------------------
 class Recorder:
     def __init__(self, samplerate, channels, device):
@@ -344,10 +344,10 @@ def transcribe(wav_bytes, cfg):
 
 
 # --------------------------------------------------------------------------
-# Deepgram (STT) - LIVE STREAMING per WebSocket
+# Deepgram (STT) - live streaming over WebSocket
 # --------------------------------------------------------------------------
-# Audio wird waehrend des Sprechens gesendet und live transkribiert. Beim
-# Loslassen muss nur noch der letzte Rest geflusht werden -> minimaler Lag.
+# Audio is sent and transcribed live while you speak. On release only the last
+# bit needs to be flushed -> minimal lag.
 _FINISH = object()
 
 
@@ -357,7 +357,7 @@ class DeepgramLive:
         self.samplerate = samplerate
         self.channels = channels
         self.interim = interim
-        self.on_update = None  # optional: callback(transcript, is_final) fuer Live-Tippen
+        self.on_update = None  # optional: callback(transcript, is_final) for live typing
         self.ws = None
         self.transcripts = []
         self.error = None
@@ -386,8 +386,8 @@ class DeepgramLive:
         return "wss://api.deepgram.com/v1/listen?" + urllib.parse.urlencode(params, doseq=True)
 
     def open_async(self):
-        """Verbindet im Hintergrund und sendet anschliessend die Audio-Queue.
-        on_press kehrt dadurch sofort zurueck; der Handshake wird versteckt."""
+        """Connect in the background and then send the audio queue. This lets
+        on_press return immediately; the handshake is hidden."""
         threading.Thread(target=self._connect_and_send, daemon=True).start()
 
     def _connect_and_send(self):
@@ -470,7 +470,7 @@ class DeepgramLive:
         return " ".join(self.transcripts).strip()
 
     def abort(self):
-        """Verbindung verwerfen (z. B. bei zu kurzer Aufnahme)."""
+        """Discard the connection (e.g. when the recording was too short)."""
         self._stop = True
         self._queue.put(None)
         try:
@@ -481,9 +481,9 @@ class DeepgramLive:
 
 
 # --------------------------------------------------------------------------
-# OpenRouter (Glaettung / Prompt-Strukturierung)
+# OpenRouter (polish / prompt structuring)
 # --------------------------------------------------------------------------
-_http = requests.Session()  # wiederverwendete Verbindung (Keep-Alive)
+_http = requests.Session()  # reused connection (keep-alive)
 
 
 def http_error_hint(service, exc):
@@ -531,29 +531,28 @@ def smooth(text, system_prompt, cfg):
     resp.raise_for_status()
     data = resp.json()
     content = data["choices"][0]["message"].get("content")
-    return (content or "").strip()  # None/leer -> Caller faellt auf Rohtext zurueck
+    return (content or "").strip()  # None/empty -> caller falls back to the raw text
 
 
 # --------------------------------------------------------------------------
-# Live-Tippen (Wort fuer Wort, mit Selbstkorrektur)
+# Live typing (word by word, with self-correction)
 # --------------------------------------------------------------------------
 class LiveTyper:
-    """Tippt Deepgram-Hypothesen live ins fokussierte Feld.
+    """Type Deepgram hypotheses live into the focused field.
 
-    Wichtig fuer die Geraeuschfreiheit: WAEHREND des Sprechens wird ausschliesslich
-    angehaengt (keine Backspaces) -> Windows loest keinen System-Ton aus. Getippt
-    werden nur "stabile" Woerter, also alle ausser dem letzten einer Zwischen-
-    Hypothese (das letzte aendert sich noch). Erst wenn ein Satzteil final ist,
-    wird das Segment EINMAL sauber abgeglichen (Gross-/Kleinschreibung, Satzzeichen)
-    - das passiert in der Sprechpause und loescht nur echten, vorhandenen Text.
+    To stay silent, only text is appended WHILE you speak (no backspaces) -> Windows
+    plays no system sound. Only "stable" words are typed, i.e. all but the last word of
+    an interim hypothesis (the last one may still change). Once a sentence part is final,
+    the segment is reconciled ONCE (casing, punctuation) - this happens during the speech
+    pause and only deletes text that was actually typed.
 
-    Mit live_corrections=False wird auch dieser Final-Abgleich weggelassen
-    (komplett backspace-frei, dafuer bleibt die Schreibweise "roh").
+    With live_corrections=False this final reconcile is skipped too (fully backspace-free,
+    but the casing stays "raw").
     """
 
     def __init__(self, type_delay=0.0, corrections=True):
-        self.seg = ""             # exakt getippter Text des laufenden Segments (inkl. evtl. Trenn-Space)
-        self.n_typed = 0          # Anzahl bereits getippter Woerter im Segment
+        self.seg = ""             # exact typed text of the current segment (incl. any leading space)
+        self.n_typed = 0          # number of words already typed in the segment
         self.committed_any = False
         self.typed_anything = False
         self.type_delay = type_delay
@@ -566,15 +565,15 @@ class LiveTyper:
             if is_final:
                 if self.corrections and transcript:
                     target = (" " if self.committed_any else "") + transcript
-                    self._reconcile(target)           # einmaliger Feinschliff in der Pause
+                    self._reconcile(target)           # one-time cleanup during the pause
                 elif len(words) > self.n_typed:
-                    self._append(words[self.n_typed:])  # backspace-frei: Rest nur anhaengen
+                    self._append(words[self.n_typed:])  # backspace-free: only append the rest
                 if self.seg.strip():
                     self.committed_any = True
                 self.seg = ""
                 self.n_typed = 0
                 return
-            # Zwischen-Hypothese: nur STABILE Woerter (ohne das letzte, volatile) anhaengen
+            # interim hypothesis: only append STABLE words (without the last, volatile one)
             stable = max(0, len(words) - 1)
             if stable > self.n_typed:
                 self._append(words[self.n_typed:stable])
@@ -585,7 +584,7 @@ class LiveTyper:
             return
         chunk = " ".join(new_words)
         if self.seg or self.committed_any:
-            chunk = " " + chunk            # Trenner zu vorigem Wort/Segment
+            chunk = " " + chunk            # separator to the previous word/segment
         keyboard.write(chunk, delay=self.type_delay)
         self.typed_anything = True
         self.seg += chunk
@@ -596,7 +595,7 @@ class LiveTyper:
         i = 0
         while i < n and cur[i] == target[i]:
             i += 1
-        for _ in range(len(cur) - i):     # loescht nur tatsaechlich getippten Text
+        for _ in range(len(cur) - i):     # only deletes text that was actually typed
             keyboard.send("backspace")
         suffix = target[i:]
         if suffix:
@@ -606,7 +605,7 @@ class LiveTyper:
 
 
 # --------------------------------------------------------------------------
-# Fenster-Fokus (fuer insertion.target = "origin")
+# Window focus (for insertion.target = "origin")
 # --------------------------------------------------------------------------
 def get_foreground_window():
     """Handle of the currently focused window (None if unavailable / non-Windows)."""
@@ -647,7 +646,7 @@ def focus_window(hwnd):
 
 
 # --------------------------------------------------------------------------
-# Text einfuegen (Zwischenablage + Strg+V)
+# Insert text (clipboard + Ctrl+V)
 # --------------------------------------------------------------------------
 def paste_text(text, ins_cfg):
     restore = ins_cfg.get("restore_clipboard", True)
@@ -661,7 +660,7 @@ def paste_text(text, ins_cfg):
             previous = None
 
     pyperclip.copy(text)
-    threading.Event().wait(0.05)  # kurze Pause, bis Clipboard sicher gesetzt ist
+    threading.Event().wait(0.05)  # brief pause so the clipboard is set before pasting
     keyboard.send("ctrl+v")
 
     if restore and previous is not None:
@@ -723,8 +722,8 @@ class App:
         #             back into it, even if you switched away meanwhile.
         self.insert_target = ins.get("target", "focused")
         self._origin_hwnd = None
-        # Live-Tippen (Wort fuer Wort) nur fuer reines Diktat (F8) und nur im Streaming.
-        # Im armed-Modus deaktiviert (es wird erst beim Abfeuern eingefuegt).
+        # Live typing (word by word) only for plain dictation (F8) and only in streaming.
+        # Disabled in armed mode (insertion happens only when fired).
         self.insert_live = (ins.get("live", True) and self.streaming
                             and self.insert_mode != "armed")
         self.type_delay = ins.get("type_delay", 0.0)
@@ -736,7 +735,7 @@ class App:
         self.active_mode = None
         self.live = None
         self.typer = None
-        # armed-Modus Zustand
+        # armed-mode state
         self._pending_text = None
         self._click_handle = None
         self._disarm_timer = None
@@ -749,7 +748,7 @@ class App:
         self.cfg.setdefault("prompt_profiles", {})["active"] = name
         log.info("Active F10 prompt profile: %s", name)
 
-    # ---- armed-Modus: Text laden und auf das Abfeuern warten -----------------
+    # ---- armed mode: load the text and wait for it to be fired ----------------
     def deliver_armed(self, text):
         """If you're still in the window you dictated from, paste right away (no
         click needed) - but keep the text on the clipboard so Ctrl+V still works.
@@ -838,7 +837,7 @@ class App:
     def on_press(self, mode):
         with self._lock:
             if self.recording:
-                return  # Tasten-Wiederholung oder zweite Taste -> ignorieren
+                return  # key auto-repeat or a second key -> ignore
             self.recording = True
             self.active_mode = mode
             # remember the window we started in (origin target + armed auto-paste)
@@ -856,7 +855,7 @@ class App:
                         self.live.on_update = self.typer.update
                     else:
                         self.typer = None
-                    self.live.open_async()           # Handshake im Hintergrund
+                    self.live.open_async()           # handshake in the background
                     self.recorder.on_chunk = self.live.send
                 else:
                     self.recorder.on_chunk = None
@@ -872,7 +871,7 @@ class App:
                 self.typer = None
                 beep("error", self.beep_enabled)
                 return
-            log.info("Aufnahme gestartet (Modus: %s, %s%s)", mode,
+            log.info("Recording started (mode: %s, %s%s)", mode,
                      "stream" if self.streaming else "batch",
                      ", live" if self._live_for(mode) else "")
 
@@ -898,27 +897,27 @@ class App:
     def _process(self, mode, samples, data, live, typer, t0):
         try:
             if samples < self.min_samples:
-                log.info("Aufnahme zu kurz oder leer, ignoriert.")
+                log.info("Recording too short or empty, ignored.")
                 if live is not None:
                     live.abort()
                 return
 
-            # ---- Live-Diktat (F8): Text wurde bereits waehrend des Sprechens getippt ----
+            # ---- live dictation (F8): text was already typed while you spoke ----
             if typer is not None:
-                text = live.finish()  # flusht letzte Worte -> Reader tippt sie via on_update
+                text = live.finish()  # flush the last words -> reader types them via on_update
                 if live.error is not None:
                     log.error("Deepgram streaming failed (check your key/connection): %s", live.error)
                     beep("error", self.beep_enabled)
                     return
                 if not typer.typed_anything:
-                    log.warning("Nichts erkannt.")
+                    log.warning("Nothing recognized.")
                     beep("error", self.beep_enabled)
                     return
-                log.info("Live-Diktat fertig (%.0f ms ab Loslassen): %s",
+                log.info("Live dictation done (%.0f ms after release): %s",
                          (time.time() - t0) * 1000, text)
                 return
 
-            # ---- Sonst: transkribieren, ggf. glaetten, einmal einfuegen ----
+            # ---- otherwise: transcribe, optionally polish, insert once ----
             if self.streaming:
                 text = live.finish() if live is not None else ""
                 if live is not None and live.error is not None:
@@ -930,7 +929,7 @@ class App:
                 text = transcribe(wav, self.cfg["deepgram"])
 
             if not text:
-                log.warning("Leeres Transkript von Deepgram.")
+                log.warning("Empty transcript from Deepgram.")
                 beep("error", self.beep_enabled)
                 return
             log.info("STT (%.0f ms): %s", (time.time() - t0) * 1000, text)
@@ -942,7 +941,7 @@ class App:
                     refined = smooth(text, system_prompt, self.cfg["smoothing"])
                     if refined:
                         text = refined
-                        log.info("Geglaettet (%s): %s", mode, text)
+                        log.info("Refined (%s): %s", mode, text)
                 except requests.HTTPError as e:
                     log.error("%s Using the raw dictation instead.", http_error_hint("OpenRouter", e))
                 except requests.RequestException as e:
@@ -959,7 +958,7 @@ class App:
                     else:
                         log.warning("Could not refocus origin window; pasting into current focus.")
                 paste_text(text, self.cfg.get("insertion", {}))
-                log.info("Eingefuegt (%d Zeichen, gesamt %.0f ms ab Loslassen).",
+                log.info("Inserted (%d chars, total %.0f ms after release).",
                          len(text), (time.time() - t0) * 1000)
         except requests.HTTPError as e:
             log.error(http_error_hint("Deepgram", e))
@@ -973,14 +972,14 @@ class App:
 
 
 # --------------------------------------------------------------------------
-# Tray-Icon
+# Tray icon
 # --------------------------------------------------------------------------
 def make_tray_image():
     img = Image.new("RGB", (64, 64), (24, 24, 28))
     d = ImageDraw.Draw(img)
-    d.ellipse((22, 8, 42, 36), fill=(240, 70, 70))      # Mikrofonkopf
-    d.rectangle((30, 36, 34, 48), fill=(240, 70, 70))   # Staender
-    d.rectangle((24, 48, 40, 52), fill=(240, 70, 70))   # Fuss
+    d.ellipse((22, 8, 42, 36), fill=(240, 70, 70))      # microphone head
+    d.rectangle((30, 36, 34, 48), fill=(240, 70, 70))   # stand
+    d.rectangle((24, 48, 40, 52), fill=(240, 70, 70))   # base
     return img
 
 
@@ -1036,10 +1035,10 @@ def main():
 
     # Startup warnings
     dg_key = config.get("deepgram", {}).get("api_key", "")
-    if not dg_key or dg_key.startswith(("DEIN_", "YOUR_")):
+    if not dg_key or dg_key.startswith("YOUR_"):
         log.warning("No valid Deepgram key in config.json -> STT will fail. Run --setup.")
     or_key = config.get("smoothing", {}).get("api_key", "")
-    if not or_key or or_key.startswith(("DEIN_", "YOUR_")):
+    if not or_key or or_key.startswith("YOUR_"):
         log.warning("No valid OpenRouter key in config.json -> F9/F10 fall back to raw text. Run --setup.")
 
     log.info("=" * 60)
