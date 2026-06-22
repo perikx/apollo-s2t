@@ -90,8 +90,8 @@ Profiles live as markdown files in [`prompts/`](prompts/). Ship with `default.md
 ```
 prompts/
   default.md
-  learning-platform.md   <- your project context
-  politify.md            <- another project
+  project1.md   <- your project context
+  project2.md            <- another project
 ```
 
 Switch the active profile via the **tray icon → "F10 prompt profile"**, or set
