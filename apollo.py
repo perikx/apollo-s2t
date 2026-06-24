@@ -1090,6 +1090,28 @@ def main():
 # --------------------------------------------------------------------------
 # Interactive setup wizard (python apollo.py --setup)
 # --------------------------------------------------------------------------
+def read_hotkey_press(action, default):
+    """Let the user press the key they want. Enter keeps the default. suppress=True
+    stops the key from reaching the console (so e.g. F7 doesn't open its history popup).
+    Falls back to typed input if global key capture isn't available."""
+    print("   %s key - press a key now (or Enter to keep [%s]): " % (action, default),
+          end="", flush=True)
+    try:
+        while True:
+            ev = keyboard.read_event(suppress=True)
+            if ev.event_type != keyboard.KEY_DOWN:
+                continue
+            name = ev.name
+            if name in ("enter", "esc"):
+                print(default)
+                return default
+            print(name)
+            return name
+    except Exception:
+        v = input("\n   (type a key name like f7 instead) [%s]: " % default).strip()
+        return v.lower() or default
+
+
 def run_setup():
     print_banner()
     print("Interactive setup - let's create your config.json.\n")
@@ -1126,12 +1148,10 @@ def run_setup():
     if lang:
         cfg["deepgram"]["language"] = lang
 
-    print("\n4) Hotkeys (press Enter to keep the default)")
+    print("\n4) Hotkeys - press the key you want for each (or Enter to keep the default)")
     for action in ("dictate", "polish", "prompt"):
         cur = cfg["hotkeys"].get(action)
-        v = input("   %s key [%s]: " % (action, cur)).strip()
-        if v:
-            cfg["hotkeys"][action] = v.lower()
+        cfg["hotkeys"][action] = read_hotkey_press(action, cur)
 
     print("\n5) Text insertion")
     print("   instant = paste into the focused field immediately (you must be in the field)")
