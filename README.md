@@ -29,6 +29,9 @@ insert via clipboard + `Ctrl+V`.
 
 ## Highlights
 
+- **Pick your speech engine** — [Deepgram](https://deepgram.com) (cloud, Chinese + streaming)
+  or [NVIDIA Parakeet via OpenRouter](#speech-engine-deepgram-or-parakeet) (one key, ~3× cheaper,
+  great English/EU). Choose it in `setup.bat`.
 - **One key each, any model** — one Deepgram key for speech, one OpenRouter key for *any* LLM.
 - **Project-aware prompts (F10)** — turns dictation into a clean prompt, with optional
   [Karpathy coding guidelines](#f10-prompt-profiles-project-aware-prompts) and a forced
@@ -121,6 +124,8 @@ This only affects F10. F9 (polish) always keeps your original language.
 | Field | Meaning |
 |-------|---------|
 | `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
+| `stt_engine` | `"deepgram"` (default) or `"parakeet"`. See [Speech engine](#speech-engine-deepgram-or-parakeet). |
+| `parakeet.model` / `parakeet.language` | Model slug (default `nvidia/parakeet-tdt-0.6b-v3`) and optional language code (empty = auto-detect). Uses your OpenRouter key. |
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
 | `deepgram.language` | A language code (`"en"`, `"de"`, `"zh"`, …) or `"multi"`. See [Languages](#languages) below. |
 | `deepgram.model` | STT model, default `nova-3`. |
@@ -139,6 +144,24 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `audio.device` | `null` = default microphone. Otherwise a device index/name (see below). |
 | `beep` | `false` disables the beeps. |
 | `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
+
+### Speech engine (Deepgram or Parakeet)
+
+`stt_engine` picks who does the transcription. The wizard asks at the start; you can also
+switch it in `config.json` and restart.
+
+| | `"deepgram"` (default) | `"parakeet"` |
+|---|---|---|
+| Hosting | Deepgram cloud | NVIDIA Parakeet via **OpenRouter** |
+| API key | its own Deepgram key | **your existing OpenRouter key** (one key for STT + LLM) |
+| Cost | low | ~3× lower (~$0.0015/min) |
+| English / EU accuracy | good | excellent (tops the Open ASR leaderboard) |
+| **Chinese** | **yes** (`zh`) | **no** (EU languages only) |
+| Live streaming | yes | no — batch only (insert on release) |
+
+So: **Parakeet** is great if you mostly dictate English/European and want one key + lower cost;
+**Deepgram** if you need Chinese or live word-by-word typing. Parakeet forces batch mode and
+uses your OpenRouter key — no separate key needed.
 
 ### Armed mode (load now, paste later)
 
