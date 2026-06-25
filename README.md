@@ -124,6 +124,7 @@ This only affects F10. F9 (polish) always keeps your original language.
 | Field | Meaning |
 |-------|---------|
 | `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
+| `hotkey_mode` | `"hold"` (default) = record while held. `"toggle"` = tap to start, tap to stop (handy for long dictation). |
 | `stt_engine` | `"deepgram"` (default) or `"openrouter"`. See [Speech engine](#speech-engine-deepgram-or-openrouter). |
 | `openrouter_stt.model` / `.language` | (openrouter engine) transcription model slug (e.g. `microsoft/mai-transcribe-1.5`) and optional language code (empty = auto-detect). Uses your OpenRouter key. |
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |

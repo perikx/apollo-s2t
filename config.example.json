@@ -4,6 +4,7 @@
     "polish": "f9",
     "prompt": "f10"
   },
+  "hotkey_mode": "hold",
   "stt_engine": "deepgram",
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-1.5",
