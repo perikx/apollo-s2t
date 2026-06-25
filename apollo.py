@@ -344,11 +344,13 @@ def transcribe(wav_bytes, cfg):
     return data["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
 
 
-def transcribe_parakeet(wav_bytes, cfg, api_key):
-    """Batch transcription via OpenRouter's audio API (e.g. NVIDIA Parakeet).
-    Uses your OpenRouter key (same as F9/F10). No streaming, EU languages only."""
+def transcribe_openrouter(wav_bytes, cfg, api_key):
+    """Batch transcription via OpenRouter's audio API. Works with any OpenRouter
+    transcription model (set cfg["model"]) - e.g. microsoft/mai-transcribe-1.5
+    (100+ languages, as of 2026-06) or nvidia/parakeet-tdt-0.6b-v3 (EU, cheapest).
+    Uses your OpenRouter key (same as F9/F10). Batch only, no streaming."""
     body = {
-        "model": cfg.get("model", "nvidia/parakeet-tdt-0.6b-v3"),
+        "model": cfg.get("model", "microsoft/mai-transcribe-1.5"),
         "input_audio": {
             "data": base64.b64encode(wav_bytes).decode("ascii"),
             "format": "wav",
@@ -735,7 +737,7 @@ class App:
         )
         self.stt_engine = config.get("stt_engine", "deepgram")
         self.streaming = config.get("deepgram", {}).get("mode", "streaming") == "streaming"
-        if self.stt_engine == "parakeet":
+        if self.stt_engine == "openrouter":
             self.streaming = False  # OpenRouter transcription is batch-only
         ins = config.get("insertion", {})
         # "instant" (default) = paste straight into the focused field on release.
@@ -953,9 +955,9 @@ class App:
                     return
             else:
                 wav = to_wav_bytes(data, self.samplerate, self.channels)
-                if self.stt_engine == "parakeet":
-                    text = transcribe_parakeet(wav, self.cfg.get("parakeet", {}),
-                                               self.cfg.get("smoothing", {}).get("api_key", ""))
+                if self.stt_engine == "openrouter":
+                    text = transcribe_openrouter(wav, self.cfg.get("openrouter_stt", {}),
+                                                 self.cfg.get("smoothing", {}).get("api_key", ""))
                 else:
                     text = transcribe(wav, self.cfg["deepgram"])
 
@@ -992,11 +994,11 @@ class App:
                 log.info("Inserted (%d chars, total %.0f ms after release).",
                          len(text), (time.time() - t0) * 1000)
         except requests.HTTPError as e:
-            svc = "OpenRouter (Parakeet)" if self.stt_engine == "parakeet" else "Deepgram"
+            svc = "OpenRouter STT" if self.stt_engine == "openrouter" else "Deepgram"
             log.error(http_error_hint(svc, e))
             beep("error", self.beep_enabled)
         except requests.RequestException as e:
-            svc = "OpenRouter (Parakeet)" if self.stt_engine == "parakeet" else "Deepgram"
+            svc = "OpenRouter STT" if self.stt_engine == "openrouter" else "Deepgram"
             log.error("%s: network error - %s", svc, e)
             beep("error", self.beep_enabled)
         except Exception as e:
@@ -1073,7 +1075,7 @@ def main():
             log.warning("No valid Deepgram key in config.json -> STT will fail. Run --setup.")
     or_key = config.get("smoothing", {}).get("api_key", "")
     if not or_key or or_key.startswith("YOUR_"):
-        used_for = "STT, F9/F10" if app.stt_engine == "parakeet" else "F9/F10"
+        used_for = "STT, F9/F10" if app.stt_engine == "openrouter" else "F9/F10"
         log.warning("No valid OpenRouter key in config.json -> %s will fail. Run --setup.", used_for)
 
     log.info("=" * 60)
@@ -1082,10 +1084,10 @@ def main():
         label = {"dictate": "dictate", "polish": "dictate + polish",
                  "prompt": "dictate + as prompt"}[mode]
         log.info("  %-4s = %s", key.upper(), label)
-    if app.stt_engine == "parakeet":
-        log.info("STT engine: parakeet via OpenRouter (%s, %s)",
-                 config.get("parakeet", {}).get("model", "nvidia/parakeet-tdt-0.6b-v3"),
-                 config.get("parakeet", {}).get("language") or "auto")
+    if app.stt_engine == "openrouter":
+        log.info("STT engine: OpenRouter (%s, %s)",
+                 config.get("openrouter_stt", {}).get("model", "microsoft/mai-transcribe-1.5"),
+                 config.get("openrouter_stt", {}).get("language") or "auto")
     else:
         log.info("STT engine: deepgram %s (%s)", config["deepgram"].get("model"),
                  config["deepgram"].get("language", "auto"))
@@ -1166,10 +1168,10 @@ def run_setup():
         cfg = json.load(f)
 
     print("\n1) Speech-to-text engine")
-    print("   deepgram = cloud STT; supports Chinese + live streaming; needs its own key")
-    print("   parakeet = via OpenRouter (one key, ~3x cheaper); great English/EU; no Chinese; batch only")
-    eng = input("   Engine [deepgram/parakeet] [%s]: " % cfg.get("stt_engine", "deepgram")).strip().lower()
-    if eng in ("deepgram", "parakeet"):
+    print("   deepgram   = Deepgram cloud; supports Chinese + live streaming; needs its own key")
+    print("   openrouter = transcribe via OpenRouter (one key for STT + LLM); batch only")
+    eng = input("   Engine [deepgram/openrouter] [%s]: " % cfg.get("stt_engine", "deepgram")).strip().lower()
+    if eng in ("deepgram", "openrouter"):
         cfg["stt_engine"] = eng
     engine = cfg.get("stt_engine", "deepgram")
 
@@ -1182,7 +1184,7 @@ def run_setup():
             cfg["deepgram"]["api_key"] = dg
         step += 1
 
-    or_for = "F9/F10 polish + Parakeet speech-to-text" if engine == "parakeet" else "F9/F10 polish/prompt"
+    or_for = "STT + F9/F10 polish" if engine == "openrouter" else "F9/F10 polish/prompt"
     print("\n%d) OpenRouter key (for %s) - one key, any model" % (step, or_for))
     print("   Get a key: https://openrouter.ai/keys    Browse models: https://openrouter.ai/models")
     ork = input("   OpenRouter API key: ").strip()
@@ -1193,22 +1195,28 @@ def run_setup():
         cfg["smoothing"]["model"] = model
     step += 1
 
-    print("\n%d) Language" % step)
-    if engine == "parakeet":
-        print("   Parakeet auto-detects EU languages. Leave empty for auto, or a code like 'de', 'en'.")
-        cur_lang = cfg.get("parakeet", {}).get("language", "")
+    if engine == "openrouter":
+        os_cfg = cfg.setdefault("openrouter_stt", {})
+        print("\n%d) Transcription model (OpenRouter audio slug)" % step)
+        print("   microsoft/mai-transcribe-1.5  - 100+ languages incl. Chinese, auto-detect (~$0.006/min)")
+        print("   nvidia/parakeet-tdt-0.6b-v3   - English/EU only, cheapest (~$0.0015/min)")
+        cur_m = os_cfg.get("model", "microsoft/mai-transcribe-1.5")
+        m = input("   Model [%s]: " % cur_m).strip()
+        os_cfg["model"] = m or cur_m
+        print("   Language: leave empty for auto-detect, or a code like 'de', 'en', 'zh'.")
+        l = input("   Language [%s]: " % (os_cfg.get("language") or "auto")).strip()
+        if l:
+            os_cfg["language"] = l
+        step += 1
     else:
+        print("\n%d) Language" % step)
         print("   A single code is most accurate. Common: en, de, es, fr, it, pt, nl, ru, hi, ja,")
         print("   zh (Chinese Simplified), zh-Hant (Traditional), zh-HK (Cantonese).")
         print("   Or 'multi' for a mix of EN/DE/ES/FR/IT/PT/NL/RU/HI/JA (note: 'multi' excludes Chinese).")
-        cur_lang = cfg["deepgram"].get("language", "multi")
-    lang = input("   Language [%s]: " % (cur_lang or "auto")).strip()
-    if lang:
-        if engine == "parakeet":
-            cfg.setdefault("parakeet", {})["language"] = lang
-        else:
+        lang = input("   Language [%s]: " % cfg["deepgram"].get("language", "multi")).strip()
+        if lang:
             cfg["deepgram"]["language"] = lang
-    step += 1
+        step += 1
 
     print("\n%d) Hotkeys - press the key you want for each (or Enter to keep the default)" % step)
     for action in ("dictate", "polish", "prompt"):

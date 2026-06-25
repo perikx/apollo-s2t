@@ -5,8 +5,8 @@
     "prompt": "f10"
   },
   "stt_engine": "deepgram",
-  "parakeet": {
-    "model": "nvidia/parakeet-tdt-0.6b-v3",
+  "openrouter_stt": {
+    "model": "microsoft/mai-transcribe-1.5",
     "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
     "language": ""
   },
