@@ -4,6 +4,12 @@
     "polish": "f9",
     "prompt": "f10"
   },
+  "stt_engine": "deepgram",
+  "parakeet": {
+    "model": "nvidia/parakeet-tdt-0.6b-v3",
+    "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
+    "language": ""
+  },
   "deepgram": {
     "api_key": "YOUR_DEEPGRAM_KEY",
     "mode": "batch",

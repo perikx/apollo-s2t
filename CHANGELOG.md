@@ -3,6 +3,18 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Choosable speech engine** (`stt_engine`): Deepgram, or **NVIDIA Parakeet via OpenRouter**
+  (one key, ~3× cheaper, top English/EU accuracy; no Chinese, batch only). Picked in the setup wizard.
+
+### Changed
+- Setup wizard: **press the key** you want for a hotkey instead of typing its name.
+
+### Fixed
+- Translated all remaining German code comments, docstrings and log messages to English.
+
 ## [0.1.0] - 2026-06-21
 
 First public release.

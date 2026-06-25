@@ -13,6 +13,7 @@ insert via clipboard + Ctrl+V into the focused text field.
 Run 'python apollo.py --setup' for the interactive first-time setup.
 """
 
+import base64
 import ctypes
 import io
 import json
@@ -341,6 +342,29 @@ def transcribe(wav_bytes, cfg):
     resp.raise_for_status()
     data = resp.json()
     return data["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
+
+
+def transcribe_parakeet(wav_bytes, cfg, api_key):
+    """Batch transcription via OpenRouter's audio API (e.g. NVIDIA Parakeet).
+    Uses your OpenRouter key (same as F9/F10). No streaming, EU languages only."""
+    body = {
+        "model": cfg.get("model", "nvidia/parakeet-tdt-0.6b-v3"),
+        "input_audio": {
+            "data": base64.b64encode(wav_bytes).decode("ascii"),
+            "format": "wav",
+        },
+    }
+    lang = cfg.get("language")
+    if lang:
+        body["language"] = lang
+    resp = requests.post(
+        cfg.get("base_url", "https://openrouter.ai/api/v1/audio/transcriptions"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=body,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return (resp.json().get("text") or "").strip()
 
 
 # --------------------------------------------------------------------------
@@ -709,7 +733,10 @@ class App:
             channels=self.channels,
             device=audio.get("device"),
         )
+        self.stt_engine = config.get("stt_engine", "deepgram")
         self.streaming = config.get("deepgram", {}).get("mode", "streaming") == "streaming"
+        if self.stt_engine == "parakeet":
+            self.streaming = False  # OpenRouter transcription is batch-only
         ins = config.get("insertion", {})
         # "instant" (default) = paste straight into the focused field on release.
         # "armed"   = keep the text loaded on the clipboard; fire it yourself with
@@ -926,7 +953,11 @@ class App:
                     return
             else:
                 wav = to_wav_bytes(data, self.samplerate, self.channels)
-                text = transcribe(wav, self.cfg["deepgram"])
+                if self.stt_engine == "parakeet":
+                    text = transcribe_parakeet(wav, self.cfg.get("parakeet", {}),
+                                               self.cfg.get("smoothing", {}).get("api_key", ""))
+                else:
+                    text = transcribe(wav, self.cfg["deepgram"])
 
             if not text:
                 log.warning("Empty transcript from Deepgram.")
@@ -961,10 +992,12 @@ class App:
                 log.info("Inserted (%d chars, total %.0f ms after release).",
                          len(text), (time.time() - t0) * 1000)
         except requests.HTTPError as e:
-            log.error(http_error_hint("Deepgram", e))
+            svc = "OpenRouter (Parakeet)" if self.stt_engine == "parakeet" else "Deepgram"
+            log.error(http_error_hint(svc, e))
             beep("error", self.beep_enabled)
         except requests.RequestException as e:
-            log.error("Deepgram: network error - %s", e)
+            svc = "OpenRouter (Parakeet)" if self.stt_engine == "parakeet" else "Deepgram"
+            log.error("%s: network error - %s", svc, e)
             beep("error", self.beep_enabled)
         except Exception as e:
             log.exception("Unexpected error while processing: %s", e)
@@ -1034,12 +1067,14 @@ def main():
         keyboard.hook_key(key, make_handler(mode), suppress=True)
 
     # Startup warnings
-    dg_key = config.get("deepgram", {}).get("api_key", "")
-    if not dg_key or dg_key.startswith("YOUR_"):
-        log.warning("No valid Deepgram key in config.json -> STT will fail. Run --setup.")
+    if app.stt_engine == "deepgram":
+        dg_key = config.get("deepgram", {}).get("api_key", "")
+        if not dg_key or dg_key.startswith("YOUR_"):
+            log.warning("No valid Deepgram key in config.json -> STT will fail. Run --setup.")
     or_key = config.get("smoothing", {}).get("api_key", "")
     if not or_key or or_key.startswith("YOUR_"):
-        log.warning("No valid OpenRouter key in config.json -> F9/F10 fall back to raw text. Run --setup.")
+        used_for = "STT, F9/F10" if app.stt_engine == "parakeet" else "F9/F10"
+        log.warning("No valid OpenRouter key in config.json -> %s will fail. Run --setup.", used_for)
 
     log.info("=" * 60)
     log.info("%s running.", APP_NAME)
@@ -1047,8 +1082,13 @@ def main():
         label = {"dictate": "dictate", "polish": "dictate + polish",
                  "prompt": "dictate + as prompt"}[mode]
         log.info("  %-4s = %s", key.upper(), label)
-    log.info("STT model:  %s (%s)", config["deepgram"].get("model"),
-             config["deepgram"].get("language", "auto"))
+    if app.stt_engine == "parakeet":
+        log.info("STT engine: parakeet via OpenRouter (%s, %s)",
+                 config.get("parakeet", {}).get("model", "nvidia/parakeet-tdt-0.6b-v3"),
+                 config.get("parakeet", {}).get("language") or "auto")
+    else:
+        log.info("STT engine: deepgram %s (%s)", config["deepgram"].get("model"),
+                 config["deepgram"].get("language", "auto"))
     log.info("Mode:       %s%s", "streaming" if app.streaming else "batch",
              ", live typing on dictate" if app.insert_live else "")
     log.info("LLM:        %s", config.get("smoothing", {}).get("model", "-"))
@@ -1125,35 +1165,58 @@ def run_setup():
     with open(example, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
-    print("\n1) Deepgram (speech-to-text)")
-    print("   Sign up for a free key ($200 credit): https://console.deepgram.com/signup")
-    dg = input("   Deepgram API key: ").strip()
-    if dg:
-        cfg["deepgram"]["api_key"] = dg
+    print("\n1) Speech-to-text engine")
+    print("   deepgram = cloud STT; supports Chinese + live streaming; needs its own key")
+    print("   parakeet = via OpenRouter (one key, ~3x cheaper); great English/EU; no Chinese; batch only")
+    eng = input("   Engine [deepgram/parakeet] [%s]: " % cfg.get("stt_engine", "deepgram")).strip().lower()
+    if eng in ("deepgram", "parakeet"):
+        cfg["stt_engine"] = eng
+    engine = cfg.get("stt_engine", "deepgram")
 
-    print("\n2) OpenRouter (LLM for F9 polish / F10 prompt) - one key, any model")
+    step = 2
+    if engine == "deepgram":
+        print("\n%d) Deepgram key (speech-to-text)" % step)
+        print("   Sign up for a free key ($200 credit): https://console.deepgram.com/signup")
+        dg = input("   Deepgram API key: ").strip()
+        if dg:
+            cfg["deepgram"]["api_key"] = dg
+        step += 1
+
+    or_for = "F9/F10 polish + Parakeet speech-to-text" if engine == "parakeet" else "F9/F10 polish/prompt"
+    print("\n%d) OpenRouter key (for %s) - one key, any model" % (step, or_for))
     print("   Get a key: https://openrouter.ai/keys    Browse models: https://openrouter.ai/models")
     ork = input("   OpenRouter API key: ").strip()
     if ork:
         cfg["smoothing"]["api_key"] = ork
-    model = input("   LLM model slug [%s]: " % cfg["smoothing"]["model"]).strip()
+    model = input("   LLM model slug for F9/F10 [%s]: " % cfg["smoothing"]["model"]).strip()
     if model:
         cfg["smoothing"]["model"] = model
+    step += 1
 
-    print("\n3) Language")
-    print("   A single code is most accurate. Common: en, de, es, fr, it, pt, nl, ru, hi, ja,")
-    print("   zh (Chinese Simplified), zh-Hant (Traditional), zh-HK (Cantonese).")
-    print("   Or 'multi' for a mix of EN/DE/ES/FR/IT/PT/NL/RU/HI/JA (note: 'multi' excludes Chinese).")
-    lang = input("   Language [%s]: " % cfg["deepgram"].get("language", "multi")).strip()
+    print("\n%d) Language" % step)
+    if engine == "parakeet":
+        print("   Parakeet auto-detects EU languages. Leave empty for auto, or a code like 'de', 'en'.")
+        cur_lang = cfg.get("parakeet", {}).get("language", "")
+    else:
+        print("   A single code is most accurate. Common: en, de, es, fr, it, pt, nl, ru, hi, ja,")
+        print("   zh (Chinese Simplified), zh-Hant (Traditional), zh-HK (Cantonese).")
+        print("   Or 'multi' for a mix of EN/DE/ES/FR/IT/PT/NL/RU/HI/JA (note: 'multi' excludes Chinese).")
+        cur_lang = cfg["deepgram"].get("language", "multi")
+    lang = input("   Language [%s]: " % (cur_lang or "auto")).strip()
     if lang:
-        cfg["deepgram"]["language"] = lang
+        if engine == "parakeet":
+            cfg.setdefault("parakeet", {})["language"] = lang
+        else:
+            cfg["deepgram"]["language"] = lang
+    step += 1
 
-    print("\n4) Hotkeys - press the key you want for each (or Enter to keep the default)")
+    print("\n%d) Hotkeys - press the key you want for each (or Enter to keep the default)" % step)
     for action in ("dictate", "polish", "prompt"):
         cur = cfg["hotkeys"].get(action)
         cfg["hotkeys"][action] = read_hotkey_press(action, cur)
+    step += 1
 
-    print("\n5) Text insertion")
+    print("\n%d) Text insertion" % step)
     print("   instant = paste into the focused field immediately (you must be in the field)")
     print("   armed   = keep the text loaded; fire it with Ctrl+V or your next click")
     ins = cfg.setdefault("insertion", {})
