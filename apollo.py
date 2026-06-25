@@ -1056,13 +1056,30 @@ def main():
         hotkeys.get("polish", "f9"): "polish",
         hotkeys.get("prompt", "f10"): "prompt",
     }
+    # "hold" (default) = record while the key is held. "toggle" = tap to start, tap to stop
+    # (handy for long dictation - no need to keep the key pressed).
+    toggle_mode = config.get("hotkey_mode", "hold") == "toggle"
 
     def make_handler(mode):
+        held = {"down": False}  # track physical key state to ignore auto-repeat
+
         def handler(event):
-            if event.event_type == keyboard.KEY_DOWN:
-                app.on_press(mode)
-            elif event.event_type == keyboard.KEY_UP:
-                app.on_release(mode)
+            if toggle_mode:
+                if event.event_type == keyboard.KEY_DOWN:
+                    if held["down"]:
+                        return  # auto-repeat while held -> ignore
+                    held["down"] = True
+                    if app.recording and app.active_mode == mode:
+                        app.on_release(mode)   # second tap -> stop
+                    else:
+                        app.on_press(mode)     # first tap -> start
+                elif event.event_type == keyboard.KEY_UP:
+                    held["down"] = False
+            else:
+                if event.event_type == keyboard.KEY_DOWN:
+                    app.on_press(mode)
+                elif event.event_type == keyboard.KEY_UP:
+                    app.on_release(mode)
         return handler
 
     for key, mode in mapping.items():
@@ -1100,7 +1117,11 @@ def main():
                  " or click" if app.click_to_paste else "")
     if app.insert_target == "origin":
         log.info("Target:     origin window (pastes back where you started)")
-    log.info("Hold -> speak -> release. Quit via tray icon.")
+    if toggle_mode:
+        log.info("Hotkeys:    toggle (tap to start, tap to stop)")
+        log.info("Tap -> speak -> tap. Quit via tray icon.")
+    else:
+        log.info("Hold -> speak -> release. Quit via tray icon.")
     log.info("=" * 60)
 
     def on_quit(icon=None):
@@ -1222,6 +1243,14 @@ def run_setup():
     for action in ("dictate", "polish", "prompt"):
         cur = cfg["hotkeys"].get(action)
         cfg["hotkeys"][action] = read_hotkey_press(action, cur)
+    step += 1
+
+    print("\n%d) Hotkey behaviour" % step)
+    print("   hold   = record while you hold the key, insert on release")
+    print("   toggle = tap to start, tap again to stop (better for long dictation)")
+    hm = input("   Mode [hold/toggle] [%s]: " % cfg.get("hotkey_mode", "hold")).strip().lower()
+    if hm in ("hold", "toggle"):
+        cfg["hotkey_mode"] = hm
     step += 1
 
     print("\n%d) Text insertion" % step)
