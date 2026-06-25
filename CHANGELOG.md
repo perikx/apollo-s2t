@@ -6,8 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Choosable speech engine** (`stt_engine`): Deepgram, or **NVIDIA Parakeet via OpenRouter**
-  (one key, ~3× cheaper, top English/EU accuracy; no Chinese, batch only). Picked in the setup wizard.
+- **Choosable speech engine** (`stt_engine`): Deepgram, or transcribe via **OpenRouter** with any
+  audio model (`openrouter_stt.model`) — e.g. `microsoft/mai-transcribe-1.5` (100+ languages incl.
+  Chinese) or `nvidia/parakeet-tdt-0.6b-v3` (cheapest, EU). One key for STT + LLM. Picked in the wizard.
 
 ### Changed
 - Setup wizard: **press the key** you want for a hotkey instead of typing its name.
