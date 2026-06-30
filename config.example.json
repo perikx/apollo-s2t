@@ -5,6 +5,7 @@
     "prompt": "f10"
   },
   "hotkey_mode": "hold",
+  "autostart_delay_seconds": 20,
   "stt_engine": "deepgram",
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-1.5",

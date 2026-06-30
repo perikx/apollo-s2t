@@ -17,6 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Setup wizard: **press the key** you want for a hotkey instead of typing its name.
 
 ### Fixed
+- **Beeps** now play through the real audio output (sounddevice) instead of `winsound.Beep`,
+  which often went silent after a reboot. Falls back to `winsound` if playback fails.
+- **Autostart reliability**: the boot launch (`--autostart`) waits `autostart_delay_seconds`
+  (default 20) before hooking keys/audio, so it works when audio/hooks aren't ready yet at login.
 - Translated all remaining German code comments, docstrings and log messages to English.
 
 ## [0.1.0] - 2026-06-21

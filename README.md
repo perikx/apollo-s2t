@@ -68,7 +68,8 @@ insert via clipboard + `Ctrl+V`.
 ## Running in the background
 
 - **Start hidden (no window):** `start.bat`
-- **Start automatically at Windows login:** `autostart-enable.bat`
+- **Start automatically at Windows login:** `autostart-enable.bat` (starts ~20 s after login
+  so audio + keyboard hooks are ready; tune with `autostart_delay_seconds`)
 - **Remove autostart:** `autostart-disable.bat`
 - **Quit:** tray icon (red microphone, bottom-right) → "Quit".
 
@@ -143,7 +144,8 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `insertion.live_corrections` | `false` = never backspace (no Windows system sound). `true` = tidy casing during pauses (cleaner, but some apps beep on backspace). |
 | `insertion.type_delay` | Per-character delay when live-typing (seconds). Raise to e.g. `0.005` if an app drops characters. |
 | `audio.device` | `null` = default microphone. Otherwise a device index/name (see below). |
-| `beep` | `false` disables the beeps. |
+| `beep` | `false` disables the beeps (played through your default audio output). |
+| `autostart_delay_seconds` | Seconds the autostart launch waits before hooking keys/audio (default `20`). Helps the boot-time setup become reliable. |
 | `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
 
 ### Speech engine (Deepgram or OpenRouter)
