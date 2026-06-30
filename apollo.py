@@ -700,24 +700,49 @@ def paste_text(text, ins_cfg):
 
 
 # --------------------------------------------------------------------------
-# Akustisches Feedback
+# Audio feedback
 # --------------------------------------------------------------------------
+# Tone sequences per event: list of (frequency Hz, duration ms).
+_BEEP_SEQ = {
+    "start": [(900, 70)],
+    "stop": [(600, 70)],
+    "ready": [(1100, 55), (1350, 55)],   # text loaded, waiting to be fired
+    "error": [(350, 160), (280, 160)],
+}
+
+
+def _tone(freq, ms, sr=44100):
+    """A short sine tone with a tiny fade in/out (avoids clicks)."""
+    n = int(sr * ms / 1000)
+    wave = 0.25 * np.sin(2 * np.pi * freq * (np.arange(n) / sr))
+    fade = min(int(sr * 0.006), n // 2)
+    if fade > 0:
+        wave[:fade] *= np.linspace(0, 1, fade)
+        wave[-fade:] *= np.linspace(1, 0, fade)
+    return wave.astype(np.float32)
+
+
 def beep(kind, enabled):
-    if not enabled or not HAVE_WINSOUND:
+    """Play feedback through the real audio output (sounddevice). This is far more
+    reliable than winsound.Beep, which often goes silent after a reboot (wrong/not-yet-
+    ready default device). Falls back to winsound.Beep if audio playback fails."""
+    if not enabled:
+        return
+    seq = _BEEP_SEQ.get(kind)
+    if not seq:
         return
     try:
-        if kind == "start":
-            winsound.Beep(900, 70)
-        elif kind == "stop":
-            winsound.Beep(600, 70)
-        elif kind == "ready":          # text loaded, waiting to be fired
-            winsound.Beep(1100, 55)
-            winsound.Beep(1350, 55)
-        elif kind == "error":
-            winsound.Beep(350, 160)
-            winsound.Beep(280, 160)
-    except Exception:
-        pass
+        sr = 44100
+        audio = np.concatenate([_tone(f, ms, sr) for f, ms in seq])
+        sd.play(audio, sr)              # async, non-blocking, current default output
+    except Exception as e:
+        log.debug("beep via sounddevice failed (%s), trying winsound", e)
+        if HAVE_WINSOUND:
+            try:
+                for f, ms in seq:
+                    winsound.Beep(f, ms)
+            except Exception:
+                pass
 
 
 # --------------------------------------------------------------------------
@@ -1048,6 +1073,13 @@ def main():
     print_banner()
     ensure_single_instance()
     config = load_config()
+    # When launched at boot (--autostart), wait for the system to settle before
+    # hooking keys / touching audio - at login the keyboard hook and the default
+    # audio device are often not ready yet, which made autostart unreliable.
+    if "--autostart" in sys.argv:
+        delay = config.get("autostart_delay_seconds", 20)
+        log.info("Autostart: waiting %ds for the system (audio, hooks) to settle...", delay)
+        time.sleep(delay)
     app = App(config)
 
     hotkeys = config.get("hotkeys", {})

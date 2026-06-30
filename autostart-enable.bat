@@ -8,8 +8,9 @@ if not exist "%PYW%" (
   pause >nul
   exit /b 1
 )
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ApolloS2T /t REG_SZ /d "\"%PYW%\" \"%APP%\"" /f
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ApolloS2T /t REG_SZ /d "\"%PYW%\" \"%APP%\" --autostart" /f
 echo.
-echo Autostart enabled. Apollo s2t will now start at Windows login.
+echo Autostart enabled. Apollo s2t will start ~20s after Windows login
+echo (the short delay lets audio + keyboard hooks become ready first).
 echo Press any key to close . . .
 pause >nul
