@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Hybrid insertion mode** (`insertion.mode: "hybrid"`): if a text field is focused it pastes
+  straight in and restores your clipboard (no clutter); if not, it keeps the text on the clipboard
+  for `Ctrl+V`. Detects browser/Electron chat boxes via UI Automation (optional `comtypes`), with a
+  system-caret + paste-and-keep fallback so text is never lost. Pick it in the wizard.
+- **Optional single-file `.exe` build** — `packaging/build-exe.bat` (PyInstaller) produces a
+  double-click `Apollo.exe` with the logo that needs no Python on the target PC.
 - **One-click `Apollo.bat`** — the first run creates the environment, asks for a single key,
   enables autostart, and launches Apollo into the tray. No more separate install/setup/start steps.
 - **App logo** (`assets/apollo.ico`) shown as the tray/taskbar icon.

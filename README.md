@@ -139,7 +139,7 @@ Full reference:
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
 | `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
-| `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"armed"` = keep the text loaded, fire it yourself. See [Armed mode](#armed-mode-load-now-paste-later). |
+| `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"hybrid"` = paste if a text field is focused, else keep it on the clipboard. `"armed"` = always keep it loaded, fire it yourself. See [Hybrid mode](#hybrid-mode-paste-if-in-a-field-else-clipboard) / [Armed mode](#armed-mode-load-now-paste-later). |
 | `insertion.target` | `"focused"` (default) = paste wherever focus is. `"origin"` = paste back into the window you were in when you started talking. See [Paste back](#paste-back-into-the-window-you-started-in). |
 | `insertion.click_to_paste` | (armed mode) `true` = a left click inserts the loaded text. Needs the `mouse` package. |
 | `insertion.armed_timeout` | (armed mode) seconds the click stays armed before it disarms (the text stays on the clipboard). Default `30`. |
@@ -170,6 +170,25 @@ Full reference:
 Model slugs and prices move fast — browse current options at
 [openrouter.ai/models](https://openrouter.ai/models) (filter for audio/transcription).
 *(model list current as of 2026-06.)*
+
+### Hybrid mode (paste if in a field, else clipboard)
+
+`insertion.mode: "hybrid"` is the best of `instant` and `armed`. When your dictation is
+ready, Apollo checks whether a **text field is focused**:
+
+- **In a text field** (a chat box, editor, search bar) → it pastes straight in and then
+  **restores your previous clipboard**, so your clipboard never fills up with dictations.
+- **Not in a text field** → it **keeps the text on the clipboard** and waits, so you can
+  `Ctrl+V` it wherever you want (a short "loaded" beep confirms it).
+- **Can't tell for sure** → it pastes *and* keeps it on the clipboard as a safety net
+  (your previous clipboard is restored when the load expires), so the text is never lost.
+
+Detection works in native apps out of the box and in **browser / Electron chat boxes**
+(ChatGPT, Claude, Discord, WhatsApp Web, …) via UI Automation — that's what the optional
+`comtypes` package (installed automatically) is for. Without it, Apollo falls back to a
+system-caret check plus the paste-and-keep safety net.
+
+Pick it in `setup.bat` (question 5) or set `insertion.mode: "hybrid"` in `config.json`.
 
 ### Armed mode (load now, paste later)
 
@@ -250,6 +269,20 @@ words.
 Put the index under `audio.device`.
 
 ---
+
+## Build a single `.exe` (optional)
+
+Everyday use doesn't need this — `Apollo.bat` already runs the app. But if you want a
+double-click **`Apollo.exe`** (with the logo) that runs on a PC *without* Python:
+
+1. Run `Apollo.bat` once so the `.venv` exists.
+2. Run **`packaging\build-exe.bat`** — it installs PyInstaller and produces
+   `dist\Apollo.exe`.
+3. Copy `Apollo.exe` anywhere and double-click it. It creates `config.json` next to
+   itself and runs the setup wizard on first launch, exactly like the script version.
+
+To customise F10 prompt profiles with the exe, put your own `prompts\*.md` files next to
+`Apollo.exe` (the bundled defaults are used otherwise).
 
 ## Troubleshooting
 
