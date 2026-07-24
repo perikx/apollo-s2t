@@ -6,7 +6,7 @@
   },
   "hotkey_mode": "hold",
   "autostart_delay_seconds": 20,
-  "stt_engine": "deepgram",
+  "stt_engine": "openrouter",
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-1.5",
     "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
@@ -24,7 +24,7 @@
   "smoothing": {
     "provider": "openrouter",
     "api_key": "YOUR_OPENROUTER_KEY",
-    "model": "deepseek/deepseek-v4-flash",
+    "model": "google/gemini-3.1-flash-lite",
     "base_url": "https://openrouter.ai/api/v1/chat/completions",
     "temperature": 0.3
   },

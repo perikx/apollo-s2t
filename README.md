@@ -24,15 +24,16 @@ A small **Windows** background tool for push-to-talk speech-to-text dictation.
 
 All three hotkeys are configurable — see [Configuration](#configuration).
 
-**Flow:** microphone → Deepgram Nova-3 (STT) → optional OpenRouter (LLM) →
-insert via clipboard + `Ctrl+V`.
+**Flow:** microphone → speech-to-text → optional LLM polish → pasted into the
+focused field (clipboard + `Ctrl+V`). **One OpenRouter key runs the whole thing.**
 
 ## Highlights
 
-- **Pick your speech engine** — [Deepgram](https://deepgram.com) (cloud, streaming) or
-  [any OpenRouter transcription model](#speech-engine-deepgram-or-openrouter) (one key for STT + LLM)
-  such as Microsoft MAI-Transcribe or NVIDIA Parakeet. Choose it in `setup.bat`.
-- **One key each, any model** — one Deepgram key for speech, one OpenRouter key for *any* LLM.
+- **One key, done** — a single [OpenRouter](https://openrouter.ai/keys) key powers both
+  speech-to-text (default: **Microsoft MAI-Transcribe**) *and* the F9/F10 LLM
+  (default: **Gemini 3.1 Flash Lite**). No second signup, no second key.
+- **Prefer Deepgram?** Live streaming and its own key are one choice away in the
+  wizard — see [Speech engine](#speech-engine-openrouter-default-or-deepgram).
 - **Project-aware prompts (F10)** — turns dictation into a clean prompt, with optional
   [Karpathy coding guidelines](#f10-prompt-profiles-project-aware-prompts) and a forced
   [output language](#output-language-dictate-in-any-language--english-code) (e.g. speak
@@ -40,7 +41,7 @@ insert via clipboard + `Ctrl+V`.
 - **Speak any language** — English, German, … and [Chinese/Japanese/etc.](#languages).
 - **Armed mode** — [load now, paste later](#armed-mode-load-now-paste-later): dictate,
   keep using your PC, drop it where you want with `Ctrl+V`.
-- **Stays out of the way** — tray icon, optional autostart, single-instance guard, no telemetry.
+- **Stays out of the way** — tray icon, autostart on by default, single-instance guard, no telemetry.
 
 > **Platform:** Windows 10/11 only. It relies on Windows global keyboard hooks,
 > `winsound`, and `.bat` launchers. macOS/Linux are not supported.
@@ -49,16 +50,16 @@ insert via clipboard + `Ctrl+V`.
 
 ## Quick start
 
-1. **Run `install.bat`** → creates `.venv` and installs all packages. Wait for "Done!".
-   > If venv creation fails: install Python from <https://www.python.org/downloads/>
-   > (tick "Add to PATH"), then run `install.bat` again.
-2. **Run `setup.bat`** → an interactive wizard asks for your API keys, language and
-   hotkeys, then writes `config.json` for you. It shows you the sign-up links:
-   - Deepgram (STT) — free $200 credit: <https://console.deepgram.com/signup>
-   - OpenRouter (LLM, one key for any model): <https://openrouter.ai/keys>
-3. **Run `start-debug.bat`** → a console window opens and shows the active hotkeys.
-4. Open Notepad, click into the text field, **hold F8** (high beep), say
+1. **Double-click `Apollo.bat`.** The first run sets up Python, asks for **one
+   OpenRouter key**, turns on autostart, and launches Apollo into the tray. That's it.
+   - Free OpenRouter key (powers speech **and** F9/F10): <https://openrouter.ai/keys>
+   > No Python yet? Install it from <https://www.python.org/downloads/> (tick "Add to
+   > PATH"), then double-click `Apollo.bat` again.
+2. Open Notepad, click into the text field, **hold F8** (high beep), say
    *"test one two three"*, **release** (low beep). The text appears after ~1–2 s.
+
+That's the whole setup. Want logs while testing? Run **`debug.bat`** for a visible
+console. Need to change your key, language or hotkeys later? Run **`setup.bat`**.
 
 > **Beep logic:** high tone = recording started (speak after it), low tone = recording
 > stopped, double low tone = error (nothing recognized or API error).
@@ -67,13 +68,14 @@ insert via clipboard + `Ctrl+V`.
 
 ## Running in the background
 
-- **Start hidden (no window):** `start.bat`
-- **Start automatically at Windows login:** `autostart-enable.bat` (starts ~20 s after login
-  so audio + keyboard hooks are ready; tune with `autostart_delay_seconds`)
-- **Remove autostart:** `autostart-disable.bat`
-- **Quit:** tray icon (red microphone, bottom-right) → "Quit".
+Apollo lives in the tray (gold microphone, bottom-right) — everything is on its menu:
 
-The tray icon also lets you switch the **F10 prompt profile** at runtime.
+- **Autostart is on by default** — Apollo starts ~20 s after login (the short delay lets
+  audio + keyboard hooks get ready; tune with `autostart_delay_seconds`). Toggle it any time
+  via the tray → **"Start at login"**.
+- **Start it now (hidden):** double-click `Apollo.bat`.
+- **Switch the F10 prompt profile** at runtime from the tray.
+- **Quit** from the tray menu.
 
 ---
 
@@ -120,19 +122,20 @@ This only affects F10. F9 (polish) always keeps your original language.
 
 ## Configuration
 
-`config.json` is created by `setup.bat`. Full reference:
+`config.json` is created for you on the first `Apollo.bat` run (or re-run `setup.bat`).
+Full reference:
 
 | Field | Meaning |
 |-------|---------|
 | `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
 | `hotkey_mode` | `"hold"` (default) = record while held. `"toggle"` = tap to start, tap to stop (handy for long dictation). |
-| `stt_engine` | `"deepgram"` (default) or `"openrouter"`. See [Speech engine](#speech-engine-deepgram-or-openrouter). |
+| `stt_engine` | `"openrouter"` (default — one key for everything) or `"deepgram"`. See [Speech engine](#speech-engine-openrouter-default-or-deepgram). |
 | `openrouter_stt.model` / `.language` | (openrouter engine) transcription model slug (e.g. `microsoft/mai-transcribe-1.5`) and optional language code (empty = auto-detect). Uses your OpenRouter key. |
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
 | `deepgram.language` | A language code (`"en"`, `"de"`, `"zh"`, …) or `"multi"`. See [Languages](#languages) below. |
 | `deepgram.model` | STT model, default `nova-3`. |
 | `deepgram.keyterms` | List of terms to recognize more reliably (names, jargon). See [Custom vocabulary](#custom-vocabulary-key-terms). |
-| `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). |
+| `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). Default `google/gemini-3.1-flash-lite`. |
 | `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
 | `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
 | `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
@@ -148,20 +151,21 @@ This only affects F10. F9 (polish) always keeps your original language.
 | `autostart_delay_seconds` | Seconds the autostart launch waits before hooking keys/audio (default `20`). Helps the boot-time setup become reliable. |
 | `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
 
-### Speech engine (Deepgram or OpenRouter)
+### Speech engine (OpenRouter default, or Deepgram)
 
-`stt_engine` picks who does the transcription. The wizard asks at the start; you can also
-switch it in `config.json` and restart.
+`stt_engine` picks who does the transcription. The default needs **no extra setup**:
 
-- **`"deepgram"`** (default) — Deepgram cloud; its own key; supports **live streaming** and
-  Chinese; low cost.
-- **`"openrouter"`** — transcribe through **OpenRouter** with your existing key (one key for
-  STT *and* the F9/F10 LLM). Batch only. Pick any OpenRouter audio model via `openrouter_stt.model`:
+- **`"openrouter"`** (default) — transcribe through **OpenRouter** with the same key that
+  runs F9/F10. One key for everything, batch mode. Default model
+  `microsoft/mai-transcribe-1.5`; pick any audio model via `openrouter_stt.model`:
 
   | Model | Languages | Cost |
   |-------|-----------|------|
   | `microsoft/mai-transcribe-1.5` | 100+ incl. **Chinese**, auto-detect | ~$0.006/min |
   | `nvidia/parakeet-tdt-0.6b-v3` | English / EU only (tops Open ASR leaderboard) | ~$0.0015/min |
+
+- **`"deepgram"`** — Deepgram cloud; needs its own (free) key; adds **live streaming**.
+  Choose it in `setup.bat` (or set `stt_engine: "deepgram"` and add your `deepgram.api_key`).
 
 Model slugs and prices move fast — browse current options at
 [openrouter.ai/models](https://openrouter.ai/models) (filter for audio/transcription).
@@ -202,7 +206,8 @@ transcribes: the text still lands in Claude Code.
 
 ### Languages
 
-Apollo works in any language Deepgram supports — set `deepgram.language` to a single
+With the default **OpenRouter** engine, language is **auto-detected** (or force one via
+`openrouter_stt.language`). With the **Deepgram** engine, set `deepgram.language` to a single
 code for best accuracy:
 
 | Language | Code |
@@ -222,10 +227,10 @@ Portuguese, Dutch, Russian, Hindi, Japanese) — handy when you blend terms, but
 > default). Live word-by-word typing simulates keystrokes and doesn't handle CJK
 > reliably — the default paste mode inserts any Unicode text perfectly.
 
-### Custom vocabulary (key terms)
+### Custom vocabulary (key terms — Deepgram engine)
 
-Names, product names and jargon are what speech-to-text gets wrong most. Add them to
-`deepgram.keyterms` to boost their recognition:
+Names, product names and jargon are what speech-to-text gets wrong most. On the Deepgram
+engine, add them to `deepgram.keyterms` to boost their recognition:
 
 ```json
 "deepgram": {
@@ -248,7 +253,7 @@ Put the index under `audio.device`.
 
 ## Troubleshooting
 
-- **Keys don't react / text isn't inserted:** run `start-debug.bat` once via right-click →
+- **Keys don't react / text isn't inserted:** run `debug.bat` once via right-click →
   "Run as administrator" (some systems need this for the global keyboard hook).
 - **"Empty transcript":** too quiet / too short, or you spoke before the beep.
 - **F9/F10 inserts only raw text:** the LLM call failed (check the log) — raw text is
@@ -261,7 +266,8 @@ Put the index under `audio.device`.
 
 Apollo runs locally. The only data that leaves your machine:
 
-- **Microphone audio** → sent to **Deepgram** for transcription while you hold a key.
+- **Microphone audio** → sent to your speech engine (**OpenRouter** by default, or **Deepgram**)
+  for transcription while you hold a key.
 - **F9/F10 text** → sent to **OpenRouter** (your chosen LLM) for polishing / prompt building.
 
 That's it — no telemetry, no analytics, nothing is sent anywhere else. Both services

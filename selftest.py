@@ -1,8 +1,10 @@
 """
 Self-test for Apollo s2t.
-Checks: imports, audio devices, Deepgram key, OpenRouter key + model.
+Checks: imports, audio devices, your speech engine (OpenRouter or Deepgram),
+and the OpenRouter LLM used for F9/F10.
 Run:  .venv\\Scripts\\python.exe selftest.py
 """
+import base64
 import io
 import json
 import os
@@ -17,13 +19,27 @@ cfg = json.load(open(os.path.join(BASE, "config.json"), encoding="utf-8"))
 
 ok = "[ OK ]"
 bad = "[FAIL]"
+engine = cfg.get("stt_engine", "openrouter")
+or_key = cfg.get("smoothing", {}).get("api_key", "")
 
 
 def section(t):
     print("\n" + "=" * 60 + "\n " + t + "\n" + "=" * 60)
 
 
-# 1) Audiogeraete -----------------------------------------------------------
+def silence_wav(seconds=0.3):
+    sr = cfg["audio"]["samplerate"]
+    silence = np.zeros(int(sr * seconds), dtype=np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(silence.tobytes())
+    return buf.getvalue()
+
+
+# 1) Audio input devices ----------------------------------------------------
 section("Audio input devices")
 try:
     for i, d in enumerate(sd.query_devices()):
@@ -34,39 +50,55 @@ try:
 except Exception as e:
     print(bad, "sounddevice:", e)
 
-# 2) Deepgram ---------------------------------------------------------------
-section("Deepgram (STT)")
-try:
-    dg = cfg["deepgram"]
-    # 0.3 s of silence as a valid WAV
-    sr = cfg["audio"]["samplerate"]
-    silence = np.zeros(int(sr * 0.3), dtype=np.int16)
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(silence.tobytes())
+# 2) Speech-to-text engine --------------------------------------------------
+if engine == "openrouter":
+    section("Speech engine: OpenRouter transcription")
+    try:
+        os_cfg = cfg.get("openrouter_stt", {})
+        model = os_cfg.get("model", "microsoft/mai-transcribe-1.5")
+        body = {
+            "model": model,
+            "input_audio": {"data": base64.b64encode(silence_wav()).decode("ascii"),
+                            "format": "wav"},
+        }
+        if os_cfg.get("language"):
+            body["language"] = os_cfg["language"]
+        r = requests.post(
+            os_cfg.get("base_url", "https://openrouter.ai/api/v1/audio/transcriptions"),
+            headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
+            json=body,
+            timeout=60,
+        )
+        if r.status_code == 200:
+            print(ok, f"OpenRouter key valid, transcription model '{model}' accepted (HTTP 200).")
+        else:
+            print(bad, f"HTTP {r.status_code}: {r.text[:400]}")
+            print("      -> check the model slug at https://openrouter.ai/models (audio)")
+    except Exception as e:
+        print(bad, "OpenRouter STT:", e)
+else:
+    section("Speech engine: Deepgram (STT)")
+    try:
+        dg = cfg["deepgram"]
+        params = {"model": dg["model"], "smart_format": "true"}
+        if dg.get("language"):
+            params["language"] = dg["language"]
+        r = requests.post(
+            "https://api.deepgram.com/v1/listen",
+            params=params,
+            headers={"Authorization": f"Token {dg['api_key']}", "Content-Type": "audio/wav"},
+            data=silence_wav(),
+            timeout=30,
+        )
+        if r.status_code == 200:
+            print(ok, f"Deepgram key valid, model '{dg['model']}' accepted (HTTP 200).")
+        else:
+            print(bad, f"HTTP {r.status_code}: {r.text[:300]}")
+    except Exception as e:
+        print(bad, "Deepgram:", e)
 
-    params = {"model": dg["model"], "smart_format": "true"}
-    if dg.get("language"):
-        params["language"] = dg["language"]
-    r = requests.post(
-        "https://api.deepgram.com/v1/listen",
-        params=params,
-        headers={"Authorization": f"Token {dg['api_key']}", "Content-Type": "audio/wav"},
-        data=buf.getvalue(),
-        timeout=30,
-    )
-    if r.status_code == 200:
-        print(ok, f"Deepgram key valid, model '{dg['model']}' accepted (HTTP 200).")
-    else:
-        print(bad, f"HTTP {r.status_code}: {r.text[:300]}")
-except Exception as e:
-    print(bad, "Deepgram:", e)
-
-# 3) OpenRouter -------------------------------------------------------------
-section("OpenRouter (LLM for F9/F10)")
+# 3) OpenRouter LLM (used for F9/F10 in either engine) ----------------------
+section("OpenRouter LLM (F9/F10 polish + prompt)")
 try:
     sm = cfg["smoothing"]
     r = requests.post(
@@ -96,27 +128,28 @@ try:
 except Exception as e:
     print(bad, "OpenRouter:", e)
 
-# 4) Deepgram Streaming -----------------------------------------------------
-section("Deepgram streaming (WebSocket)")
-try:
-    import time
-    from apollo import DeepgramLive
+# 4) Deepgram streaming (only when Deepgram is the chosen engine) ------------
+if engine == "deepgram":
+    section("Deepgram streaming (WebSocket)")
+    try:
+        import time
+        from apollo import DeepgramLive
 
-    sr = cfg["audio"]["samplerate"]
-    live = DeepgramLive(cfg["deepgram"], sr, 1)
-    live.open_async()
-    # send ~1 s of silence in 50 ms chunks (tests send_binary + flush)
-    chunk = np.zeros(int(sr * 0.05), dtype=np.int16).tobytes()
-    for _ in range(20):
-        live.send(chunk)
-        time.sleep(0.01)
-    text = live.finish(timeout=4)
-    if live.error is not None:
-        print(bad, "streaming connection:", live.error)
-    else:
-        print(ok, "streaming handshake + finalize ok "
-                  f"(linear16 @ {sr} Hz accepted). Transcript (silence): {text!r}")
-except Exception as e:
-    print(bad, "Streaming:", e)
+        sr = cfg["audio"]["samplerate"]
+        live = DeepgramLive(cfg["deepgram"], sr, 1)
+        live.open_async()
+        # send ~1 s of silence in 50 ms chunks (tests send_binary + flush)
+        chunk = np.zeros(int(sr * 0.05), dtype=np.int16).tobytes()
+        for _ in range(20):
+            live.send(chunk)
+            time.sleep(0.01)
+        text = live.finish(timeout=4)
+        if live.error is not None:
+            print(bad, "streaming connection:", live.error)
+        else:
+            print(ok, "streaming handshake + finalize ok "
+                      f"(linear16 @ {sr} Hz accepted). Transcript (silence): {text!r}")
+    except Exception as e:
+        print(bad, "Streaming:", e)
 
 print("\nDone.")

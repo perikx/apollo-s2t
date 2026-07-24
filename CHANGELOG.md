@@ -6,14 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Choosable speech engine** (`stt_engine`): Deepgram, or transcribe via **OpenRouter** with any
-  audio model (`openrouter_stt.model`) — e.g. `microsoft/mai-transcribe-1.5` (100+ languages incl.
-  Chinese) or `nvidia/parakeet-tdt-0.6b-v3` (cheapest, EU). One key for STT + LLM. Picked in the wizard.
-
+- **One-click `Apollo.bat`** — the first run creates the environment, asks for a single key,
+  enables autostart, and launches Apollo into the tray. No more separate install/setup/start steps.
+- **App logo** (`assets/apollo.ico`) shown as the tray/taskbar icon.
+- **"Start at login" tray toggle** — turn autostart on or off from the tray menu.
+- **Choosable speech engine** (`stt_engine`): OpenRouter (default) or Deepgram, with any
+  OpenRouter audio model via `openrouter_stt.model` — e.g. `microsoft/mai-transcribe-1.5`
+  (100+ languages incl. Chinese) or `nvidia/parakeet-tdt-0.6b-v3` (cheapest, EU).
 - **Toggle hotkeys** (`hotkey_mode: "toggle"`): tap to start, tap to stop — no need to hold
   the key during long dictation. Default stays `"hold"`.
 
 ### Changed
+- **OpenRouter is now the default speech engine** — one OpenRouter key powers both
+  speech-to-text (default model `microsoft/mai-transcribe-1.5`) and the F9/F10 LLM. No second key.
+- **Default F9/F10 model** is now `google/gemini-3.1-flash-lite`.
+- **Autostart is enabled automatically** during first-time setup (still delayed at boot via
+  `autostart_delay_seconds`, still removable from the tray).
+- **Simpler setup wizard** — OpenRouter-first; only the key is required, everything else defaults.
+- **Fewer launchers** — `install.bat`, `start.bat`, `start-debug.bat`, `autostart-enable.bat`
+  and `autostart-disable.bat` are replaced by `Apollo.bat` (run), `debug.bat` (logs) and
+  `setup.bat` (reconfigure).
 - Setup wizard: **press the key** you want for a hotkey instead of typing its name.
 
 ### Fixed
