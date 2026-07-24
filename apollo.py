@@ -64,9 +64,24 @@ except Exception:
 # --------------------------------------------------------------------------
 # Paths & logging
 # --------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR = where user files live (config.json, apollo.log, prompts/). RES_DIR =
+# where bundled read-only resources live. They're the same for a normal checkout;
+# in a PyInstaller .exe, user files sit next to the .exe and resources in the bundle.
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(sys.executable)
+    RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    RES_DIR = BASE_DIR
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "apollo.log")
+
+
+def resource_path(name):
+    """Locate a bundled resource by name: prefer the working dir, fall back to the
+    PyInstaller bundle."""
+    p = os.path.join(BASE_DIR, name)
+    return p if os.path.exists(p) else os.path.join(RES_DIR, name)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -99,7 +114,10 @@ _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
 def _autostart_command():
-    """What Windows runs at login: pythonw apollo.py --autostart (no console)."""
+    """What Windows runs at login. For the .exe build it's the exe itself; otherwise
+    pythonw apollo.py --autostart (no console)."""
+    if getattr(sys, "frozen", False):
+        return '"%s" --autostart' % sys.executable
     pyw = os.path.join(BASE_DIR, ".venv", "Scripts", "pythonw.exe")
     if not os.path.exists(pyw):
         pyw = sys.executable  # fall back to the current interpreter
@@ -254,10 +272,20 @@ KARPATHY_GUIDELINES = (
 )
 
 
+def profiles_dir(cfg):
+    """The F10 prompt-profiles directory: user files next to the app first, then the
+    bundled defaults (matters for the .exe build)."""
+    d = cfg.get("prompt_profiles", {}).get("dir", "prompts")
+    p = os.path.join(BASE_DIR, d)
+    if os.path.isdir(p):
+        return p
+    alt = os.path.join(RES_DIR, d)
+    return alt if os.path.isdir(alt) else p
+
+
 def list_profiles(cfg, base_dir):
     """Available prompt profiles (markdown files in the profiles dir), sorted."""
-    pp = cfg.get("prompt_profiles", {})
-    d = os.path.join(base_dir, pp.get("dir", "prompts"))
+    d = profiles_dir(cfg)
     if not os.path.isdir(d):
         return []
     return sorted(os.path.splitext(f)[0] for f in os.listdir(d) if f.endswith(".md"))
@@ -269,7 +297,7 @@ def load_profile_text(cfg, base_dir):
     name = pp.get("active", "default")
     if not name:
         return ""
-    path = os.path.join(base_dir, pp.get("dir", "prompts"), name + ".md")
+    path = os.path.join(profiles_dir(cfg), name + ".md")
     if not os.path.exists(path):
         log.warning("Prompt profile '%s' not found (%s) - using no project context.", name, path)
         return ""
@@ -735,6 +763,123 @@ def focus_window(hwnd):
 
 
 # --------------------------------------------------------------------------
+# Is the focused control a text field?  (for insertion.mode = "hybrid")
+# --------------------------------------------------------------------------
+# Returns True (definitely editable), False (definitely not), or None (unknown).
+# We only say True/False on solid evidence so the hybrid mode never loses text:
+# unknown falls back to "paste and also keep on the clipboard".
+_UIA_MOD = None        # cached generated UIAutomationClient module
+_UIA_TRIED = False     # only try to build the UIA wrapper once
+_UIA_EDIT = 50004      # UIA_EditControlTypeId
+_UIA_DOCUMENT = 50030  # UIA_DocumentControlTypeId (rich/contenteditable areas)
+
+
+def _caret_present():
+    """True if the focused thread owns a blinking text caret (a real text field:
+    Notepad, Word, most native inputs). None when there's no caret - that's
+    'unknown', not 'no', because browsers/Electron draw their own caret and expose
+    none to Win32."""
+    if os.name != "nt":
+        return None
+    try:
+        u = ctypes.windll.user32
+        fg = u.GetForegroundWindow()
+        tid = u.GetWindowThreadProcessId(fg, None)
+
+        class GUITHREADINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_uint32),
+                ("flags", ctypes.c_uint32),
+                ("hwndActive", ctypes.c_void_p),
+                ("hwndFocus", ctypes.c_void_p),
+                ("hwndCapture", ctypes.c_void_p),
+                ("hwndMenuOwner", ctypes.c_void_p),
+                ("hwndMoveSize", ctypes.c_void_p),
+                ("hwndCaret", ctypes.c_void_p),
+                ("rcCaret", ctypes.c_long * 4),
+            ]
+
+        gti = GUITHREADINFO()
+        gti.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if u.GetGUIThreadInfo(tid, ctypes.byref(gti)) and gti.hwndCaret:
+            return True
+    except Exception as e:
+        log.debug("caret check failed: %s", e)
+    return None
+
+
+def _uia_module():
+    """The generated UIAutomationClient wrapper, or None if comtypes/UIA is missing.
+    Built once, then cached."""
+    global _UIA_MOD, _UIA_TRIED
+    if _UIA_TRIED:
+        return _UIA_MOD
+    _UIA_TRIED = True
+    try:
+        import comtypes.client
+        comtypes.client.GetModule("UIAutomationCore.dll")
+        from comtypes.gen import UIAutomationClient as UIA
+        _UIA_MOD = UIA
+    except Exception as e:
+        log.debug("UI Automation unavailable (optional 'comtypes'): %s", e)
+        _UIA_MOD = None
+    return _UIA_MOD
+
+
+def _uia_focused_is_editable():
+    """Text-field check via UI Automation - the reliable path for browser/Electron
+    chat boxes. True/False on a confident verdict, else None. Never raises."""
+    if os.name != "nt":
+        return None
+    UIA = _uia_module()
+    if UIA is None:
+        return None
+    try:
+        import comtypes
+        import comtypes.client
+        try:
+            comtypes.CoInitialize()  # this insertion runs on a fresh worker thread
+        except Exception:
+            pass
+        uia = comtypes.client.CreateObject(UIA.CUIAutomation, interface=UIA.IUIAutomation)
+        el = uia.GetFocusedElement()
+        if el is None:
+            return None
+        if el.CurrentControlType in (_UIA_EDIT, _UIA_DOCUMENT):
+            return True
+        # An editable (non read-only) ValuePattern is a text input too.
+        try:
+            if el.GetCurrentPropertyValue(UIA.UIA_IsValuePatternAvailablePropertyId):
+                vp = el.GetCurrentPattern(UIA.UIA_ValuePatternId)
+                vp = vp.QueryInterface(UIA.IUIAutomationValuePattern)
+                if not vp.CurrentIsReadOnly:
+                    return True
+        except Exception:
+            pass
+        # A focusable element that is clearly not text -> definitely not a field.
+        try:
+            if el.CurrentIsKeyboardFocusable:
+                return False
+        except Exception:
+            pass
+    except Exception as e:
+        log.debug("UIA focus check failed: %s", e)
+    return None
+
+
+def focused_is_editable():
+    """True if the focused element accepts typed text, False if it clearly doesn't,
+    None if we can't tell. UI Automation first (covers browsers), system caret
+    second. Drives the 'hybrid' insertion mode."""
+    if os.name != "nt":
+        return None
+    verdict = _uia_focused_is_editable()
+    if verdict is not None:
+        return verdict
+    return _caret_present()
+
+
+# --------------------------------------------------------------------------
 # Insert text (clipboard + Ctrl+V)
 # --------------------------------------------------------------------------
 def paste_text(text, ins_cfg):
@@ -829,6 +974,8 @@ class App:
             self.streaming = False  # OpenRouter transcription is batch-only
         ins = config.get("insertion", {})
         # "instant" (default) = paste straight into the focused field on release.
+        # "hybrid"  = if a text field is focused, paste straight in (clipboard restored);
+        #             if not, keep the text on the clipboard for Ctrl+V. Best of both.
         # "armed"   = keep the text loaded on the clipboard; fire it yourself with
         #             Ctrl+V (always) or, with click_to_paste, on your next left click.
         self.insert_mode = ins.get("mode", "instant")
@@ -842,7 +989,7 @@ class App:
         # Live typing (word by word) only for plain dictation (F8) and only in streaming.
         # Disabled in armed mode (insertion happens only when fired).
         self.insert_live = (ins.get("live", True) and self.streaming
-                            and self.insert_mode != "armed")
+                            and self.insert_mode not in ("armed", "hybrid"))
         self.type_delay = ins.get("type_delay", 0.0)
         self.live_corrections = ins.get("live_corrections", False)
         self.beep_enabled = config.get("beep", True)
@@ -854,6 +1001,7 @@ class App:
         self.typer = None
         # armed-mode state
         self._pending_text = None
+        self._pending_restore = None   # clipboard to restore when a hybrid load fires
         self._click_handle = None
         self._disarm_timer = None
         self._arm_lock = threading.Lock()
@@ -864,6 +1012,64 @@ class App:
     def set_profile(self, name):
         self.cfg.setdefault("prompt_profiles", {})["active"] = name
         log.info("Active F10 prompt profile: %s", name)
+
+    # ---- deliver the final text according to insertion.mode -------------------
+    def insert_text(self, text, t0):
+        if self.insert_mode == "armed":
+            self.deliver_armed(text)
+        elif self.insert_mode == "hybrid":
+            self.deliver_hybrid(text)
+        else:  # "instant"
+            if self.insert_target == "origin" and self._origin_hwnd:
+                if focus_window(self._origin_hwnd):
+                    time.sleep(0.12)           # let the window settle before pasting
+                else:
+                    log.warning("Could not refocus origin window; pasting into current focus.")
+            paste_text(text, self.cfg.get("insertion", {}))
+            log.info("Inserted (%d chars, total %.0f ms after release).",
+                     len(text), (time.time() - t0) * 1000)
+
+    # ---- hybrid: paste if in a text field, else keep on the clipboard ---------
+    def deliver_hybrid(self, text):
+        """Best of instant + armed. In a text field: paste straight in and restore the
+        clipboard (nothing left behind). Not in a field: keep the text on the clipboard
+        for Ctrl+V. Undetectable: paste AND keep it as a safety net. Detection uses UI
+        Automation (optional 'comtypes') with a system-caret fallback."""
+        if self.insert_target == "origin" and self._origin_hwnd:
+            if focus_window(self._origin_hwnd):
+                time.sleep(0.12)
+        editable = focused_is_editable()
+        if editable is True:
+            paste_text(text, self.cfg.get("insertion", {}))   # restores the clipboard
+            log.info("Hybrid: text field focused -> pasted directly (%d chars).", len(text))
+        elif editable is False:
+            log.info("Hybrid: not a text field -> kept on the clipboard (%d chars).", len(text))
+            self.arm(text)
+        else:
+            log.info("Hybrid: field undetected -> pasted and kept on the clipboard (%d chars).",
+                     len(text))
+            self.paste_and_keep(text)
+
+    def paste_and_keep(self, text):
+        """Undetected case: put the text on the clipboard, try to paste it, and keep it
+        loaded so Ctrl+V still works if the paste landed nowhere. The previous clipboard
+        is restored when the load fires or times out."""
+        ins = self.cfg.get("insertion", {})
+        previous = None
+        if ins.get("restore_clipboard", True):
+            try:
+                previous = pyperclip.paste()
+            except Exception:
+                previous = None
+        try:
+            pyperclip.copy(text)
+        except Exception as e:
+            log.error("Clipboard copy failed: %s", e)
+            beep("error", self.beep_enabled)
+            return
+        threading.Event().wait(0.05)
+        keyboard.send("ctrl+v")
+        self.arm(text, restore_to=previous)
 
     # ---- armed mode: load the text and wait for it to be fired ----------------
     def deliver_armed(self, text):
@@ -884,9 +1090,10 @@ class App:
             return
         self.arm(text)
 
-    def arm(self, text):
+    def arm(self, text, restore_to=None):
         """Load the text onto the clipboard and wait. The user fires it with Ctrl+V
-        (always) or, if click_to_paste is on, on the next left click."""
+        (always) or, if click_to_paste is on, on the next left click. If restore_to is
+        given (hybrid fallback), that clipboard is restored once the load fires/expires."""
         try:
             pyperclip.copy(text)
         except Exception as e:
@@ -896,13 +1103,14 @@ class App:
         with self._arm_lock:
             self._cancel_arm_locked()           # replace any previous load
             self._pending_text = text
+            self._pending_restore = restore_to
             armed_click = self.click_to_paste and self._arm_click_locked()
             self._disarm_timer = threading.Timer(self.armed_timeout, self.disarm)
             self._disarm_timer.daemon = True
             self._disarm_timer.start()
         beep("ready", self.beep_enabled)
-        log.info("Loaded %d chars - %s, or press Ctrl+V.", len(text),
-                 "click into a field to insert" if armed_click else "press Ctrl+V to insert")
+        how = "click into a field, or press Ctrl+V" if armed_click else "press Ctrl+V"
+        log.info("Loaded %d chars - %s to insert.", len(text), how)
 
     def _arm_click_locked(self):
         """Hook the next left-button release to fire one paste. Returns True if armed."""
@@ -926,9 +1134,12 @@ class App:
             if self._pending_text is None:
                 return
             self._pending_text = None
+            restore = self._pending_restore
+            self._pending_restore = None
             self._cancel_arm_locked()
         keyboard.send("ctrl+v")
         log.info("Fired armed text on click.")
+        self._restore_clipboard_later(restore)
 
     def _cancel_arm_locked(self):
         """Unhook the click handler and cancel the timeout. Caller holds _arm_lock."""
@@ -943,13 +1154,31 @@ class App:
             self._disarm_timer = None
 
     def disarm(self):
-        """Stop waiting for a click. The text stays on the clipboard for Ctrl+V."""
+        """Stop waiting for a click. The text stays on the clipboard for Ctrl+V, unless
+        a hybrid fallback asked us to restore the previous clipboard on expiry."""
         with self._arm_lock:
             was_pending = self._pending_text is not None
             self._pending_text = None
+            restore = self._pending_restore
+            self._pending_restore = None
             self._cancel_arm_locked()
-        if was_pending:
+        if was_pending and restore is None:
             log.info("Armed text timed out (still on clipboard, Ctrl+V works).")
+        self._restore_clipboard_later(restore)
+
+    def _restore_clipboard_later(self, previous):
+        """Restore a saved clipboard after a short delay (None = leave as-is)."""
+        if previous is None:
+            return
+        delay = self.cfg.get("insertion", {}).get("restore_delay", 0.4)
+
+        def _restore():
+            threading.Event().wait(delay)
+            try:
+                pyperclip.copy(previous)
+            except Exception:
+                pass
+        threading.Thread(target=_restore, daemon=True).start()
 
     def on_press(self, mode):
         with self._lock:
@@ -1070,17 +1299,7 @@ class App:
                 except Exception as e:
                     log.error("Smoothing failed (%s). Using the raw dictation.", e)
 
-            if self.insert_mode == "armed":
-                self.deliver_armed(text)       # paste if in a field, else load and wait
-            else:
-                if self.insert_target == "origin" and self._origin_hwnd:
-                    if focus_window(self._origin_hwnd):
-                        time.sleep(0.12)       # let the window settle before pasting
-                    else:
-                        log.warning("Could not refocus origin window; pasting into current focus.")
-                paste_text(text, self.cfg.get("insertion", {}))
-                log.info("Inserted (%d chars, total %.0f ms after release).",
-                         len(text), (time.time() - t0) * 1000)
+            self.insert_text(text, t0)
         except requests.HTTPError as e:
             svc = "OpenRouter STT" if self.stt_engine == "openrouter" else "Deepgram"
             log.error(http_error_hint(svc, e))
@@ -1100,7 +1319,7 @@ class App:
 def make_tray_image():
     """The tray/taskbar icon: the bundled logo if present, else a drawn fallback."""
     for name in ("apollo.ico", "apollo.png"):
-        p = os.path.join(BASE_DIR, "assets", name)
+        p = resource_path(os.path.join("assets", name))
         if os.path.exists(p):
             try:
                 return Image.open(p).convert("RGBA")
@@ -1298,7 +1517,7 @@ def run_setup():
             print("Aborted. Nothing changed.")
             return
 
-    example = os.path.join(BASE_DIR, "config.example.json")
+    example = resource_path("config.example.json")
     with open(example, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
@@ -1337,11 +1556,20 @@ def run_setup():
         for action in ("dictate", "polish", "prompt"):
             cfg["hotkeys"][action] = read_hotkey_press(action, cfg["hotkeys"].get(action))
 
+    # 5) How the finished text is delivered.
+    print("\n5) When the text is ready...")
+    print("   instant  paste into the focused field right away (default)")
+    print("   hybrid   paste if you're in a text field, else keep it on the clipboard")
+    print("   armed    always keep it on the clipboard; you press Ctrl+V yourself")
+    m = input("   Insert [instant/hybrid/armed]: ").strip().lower()
+    if m in ("instant", "hybrid", "armed"):
+        cfg.setdefault("insertion", {})["mode"] = m
+
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
     print("\n[ok] Saved config.json")
 
-    # 5) Autostart: on by default - this used to be a separate manual step.
+    # 6) Autostart: on by default - this used to be a separate manual step.
     if enable_autostart():
         print("[ok] Autostart on - Apollo launches at login (toggle it in the tray menu).")
 
