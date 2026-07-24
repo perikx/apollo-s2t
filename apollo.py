@@ -7,10 +7,12 @@ Default hotkeys (all configurable in config.json):
   F9  = dictation + polish (LLM cleans up grammar/fillers)
   F10 = dictation + structure as a prompt (LLM, project-aware via prompts/ profiles)
 
-Flow: microphone -> Deepgram (STT) -> optional OpenRouter (LLM) ->
-insert via clipboard + Ctrl+V into the focused text field.
+Flow: microphone -> speech-to-text (OpenRouter default, or Deepgram) ->
+optional OpenRouter LLM -> insert via clipboard + Ctrl+V into the focused field.
+One OpenRouter key powers both the default STT and the F9/F10 LLM.
 
-Run 'python apollo.py --setup' for the interactive first-time setup.
+Run 'python apollo.py --setup' for the interactive first-time setup
+(Apollo.bat runs it automatically on the first launch).
 """
 
 import base64
@@ -44,6 +46,12 @@ try:
     HAVE_MOUSE = True
 except Exception:
     HAVE_MOUSE = False
+
+try:
+    import winreg  # Windows only: used to register autostart at login
+    HAVE_WINREG = True
+except Exception:
+    HAVE_WINREG = False
 
 try:
     import pystray
@@ -81,6 +89,61 @@ def load_config():
         sys.exit(1)
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# --------------------------------------------------------------------------
+# Autostart at Windows login (HKCU ...\Run registry value)
+# --------------------------------------------------------------------------
+AUTOSTART_NAME = "ApolloS2T"
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _autostart_command():
+    """What Windows runs at login: pythonw apollo.py --autostart (no console)."""
+    pyw = os.path.join(BASE_DIR, ".venv", "Scripts", "pythonw.exe")
+    if not os.path.exists(pyw):
+        pyw = sys.executable  # fall back to the current interpreter
+    return '"%s" "%s" --autostart' % (pyw, os.path.join(BASE_DIR, "apollo.py"))
+
+
+def is_autostart_enabled():
+    if not HAVE_WINREG:
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as k:
+            winreg.QueryValueEx(k, AUTOSTART_NAME)
+        return True
+    except OSError:
+        return False
+
+
+def enable_autostart():
+    """Register Apollo to start at login. Returns True on success."""
+    if not HAVE_WINREG:
+        log.warning("Autostart is only available on Windows.")
+        return False
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as k:
+            winreg.SetValueEx(k, AUTOSTART_NAME, 0, winreg.REG_SZ, _autostart_command())
+        return True
+    except OSError as e:
+        log.warning("Could not enable autostart: %s", e)
+        return False
+
+
+def disable_autostart():
+    """Remove Apollo from login startup. Returns True on success (or if already off)."""
+    if not HAVE_WINREG:
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.DeleteValue(k, AUTOSTART_NAME)
+        return True
+    except FileNotFoundError:
+        return True  # already not registered
+    except OSError as e:
+        log.warning("Could not disable autostart: %s", e)
+        return False
 
 
 # --------------------------------------------------------------------------
@@ -760,7 +823,7 @@ class App:
             channels=self.channels,
             device=audio.get("device"),
         )
-        self.stt_engine = config.get("stt_engine", "deepgram")
+        self.stt_engine = config.get("stt_engine", "openrouter")
         self.streaming = config.get("deepgram", {}).get("mode", "streaming") == "streaming"
         if self.stt_engine == "openrouter":
             self.streaming = False  # OpenRouter transcription is batch-only
@@ -1035,11 +1098,21 @@ class App:
 # Tray icon
 # --------------------------------------------------------------------------
 def make_tray_image():
-    img = Image.new("RGB", (64, 64), (24, 24, 28))
+    """The tray/taskbar icon: the bundled logo if present, else a drawn fallback."""
+    for name in ("apollo.ico", "apollo.png"):
+        p = os.path.join(BASE_DIR, "assets", name)
+        if os.path.exists(p):
+            try:
+                return Image.open(p).convert("RGBA")
+            except Exception:
+                pass
+    # Fallback: a gold sun disc (Apollo) with a dark microphone.
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse((22, 8, 42, 36), fill=(240, 70, 70))      # microphone head
-    d.rectangle((30, 36, 34, 48), fill=(240, 70, 70))   # stand
-    d.rectangle((24, 48, 40, 52), fill=(240, 70, 70))   # base
+    d.ellipse((4, 4, 60, 60), fill=(255, 176, 0, 255))  # sun
+    d.ellipse((25, 12, 39, 34), fill=(20, 24, 33, 255))  # microphone head
+    d.rectangle((31, 34, 33, 46), fill=(20, 24, 33, 255))  # stand
+    d.rectangle((26, 46, 38, 49), fill=(20, 24, 33, 255))  # base
     return img
 
 
@@ -1060,6 +1133,15 @@ def run_tray(on_quit, app):
             for name in profiles
         ]
         items.append(pystray.MenuItem("F10 prompt profile", pystray.Menu(*profile_items)))
+
+    def toggle_autostart(icon, item):
+        disable_autostart() if is_autostart_enabled() else enable_autostart()
+
+    if HAVE_WINREG:
+        items.append(pystray.MenuItem(
+            "Start at login", toggle_autostart,
+            checked=lambda item: is_autostart_enabled(),
+        ))
 
     items.append(pystray.MenuItem("Quit", lambda icon, item: on_quit(icon)))
     icon = pystray.Icon("apollo", make_tray_image(), APP_NAME, menu=pystray.Menu(*items))
@@ -1209,7 +1291,7 @@ def read_hotkey_press(action, default):
 
 def run_setup():
     print_banner()
-    print("Interactive setup - let's create your config.json.\n")
+    print("Setup - I'll create your config.json. Press Enter to accept each [default].\n")
 
     if os.path.exists(CONFIG_PATH):
         if input("config.json already exists. Overwrite? [y/N] ").strip().lower() != "y":
@@ -1220,88 +1302,51 @@ def run_setup():
     with open(example, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
-    print("\n1) Speech-to-text engine")
-    print("   deepgram   = Deepgram cloud; supports Chinese + live streaming; needs its own key")
-    print("   openrouter = transcribe via OpenRouter (one key for STT + LLM); batch only")
-    eng = input("   Engine [deepgram/openrouter] [%s]: " % cfg.get("stt_engine", "deepgram")).strip().lower()
-    if eng in ("deepgram", "openrouter"):
-        cfg["stt_engine"] = eng
-    engine = cfg.get("stt_engine", "deepgram")
-
-    step = 2
-    if engine == "deepgram":
-        print("\n%d) Deepgram key (speech-to-text)" % step)
-        print("   Sign up for a free key ($200 credit): https://console.deepgram.com/signup")
-        dg = input("   Deepgram API key: ").strip()
-        if dg:
-            cfg["deepgram"]["api_key"] = dg
-        step += 1
-
-    or_for = "STT + F9/F10 polish" if engine == "openrouter" else "F9/F10 polish/prompt"
-    print("\n%d) OpenRouter key (for %s) - one key, any model" % (step, or_for))
-    print("   Get a key: https://openrouter.ai/keys    Browse models: https://openrouter.ai/models")
-    ork = input("   OpenRouter API key: ").strip()
+    # 1) The only key most people need: OpenRouter powers speech AND F9/F10.
+    print("1) OpenRouter key  -  one key powers speech-to-text AND F9/F10")
+    print("   Create one (free): https://openrouter.ai/keys")
+    ork = input("   Paste your OpenRouter API key: ").strip()
     if ork:
         cfg["smoothing"]["api_key"] = ork
-    model = input("   LLM model slug for F9/F10 [%s]: " % cfg["smoothing"]["model"]).strip()
-    if model:
-        cfg["smoothing"]["model"] = model
-    step += 1
 
-    if engine == "openrouter":
-        os_cfg = cfg.setdefault("openrouter_stt", {})
-        print("\n%d) Transcription model (OpenRouter audio slug)" % step)
-        print("   microsoft/mai-transcribe-1.5  - 100+ languages incl. Chinese, auto-detect (~$0.006/min)")
-        print("   nvidia/parakeet-tdt-0.6b-v3   - English/EU only, cheapest (~$0.0015/min)")
-        cur_m = os_cfg.get("model", "microsoft/mai-transcribe-1.5")
-        m = input("   Model [%s]: " % cur_m).strip()
-        os_cfg["model"] = m or cur_m
-        print("   Language: leave empty for auto-detect, or a code like 'de', 'en', 'zh'.")
-        l = input("   Language [%s]: " % (os_cfg.get("language") or "auto")).strip()
-        if l:
-            os_cfg["language"] = l
-        step += 1
+    # 2) Speech engine. Default = OpenRouter + Microsoft MAI-Transcribe (uses the key above).
+    print("\n2) Speech engine  -  press Enter for the recommended default")
+    print("   [Enter]   OpenRouter / Microsoft transcribe  (no extra key, 100+ languages)")
+    print("   deepgram  use Deepgram instead (live streaming; needs its own free key)")
+    if input("   Engine [openrouter]: ").strip().lower() in ("deepgram", "dg", "d"):
+        cfg["stt_engine"] = "deepgram"
+        print("   Deepgram key - free $200 credit: https://console.deepgram.com/signup")
+        dg = input("   Paste your Deepgram API key: ").strip()
+        if dg:
+            cfg["deepgram"]["api_key"] = dg
     else:
-        print("\n%d) Language" % step)
-        print("   A single code is most accurate. Common: en, de, es, fr, it, pt, nl, ru, hi, ja,")
-        print("   zh (Chinese Simplified), zh-Hant (Traditional), zh-HK (Cantonese).")
-        print("   Or 'multi' for a mix of EN/DE/ES/FR/IT/PT/NL/RU/HI/JA (note: 'multi' excludes Chinese).")
-        lang = input("   Language [%s]: " % cfg["deepgram"].get("language", "multi")).strip()
-        if lang:
-            cfg["deepgram"]["language"] = lang
-        step += 1
+        cfg["stt_engine"] = "openrouter"
 
-    print("\n%d) Hotkeys - press the key you want for each (or Enter to keep the default)" % step)
-    for action in ("dictate", "polish", "prompt"):
-        cur = cfg["hotkeys"].get(action)
-        cfg["hotkeys"][action] = read_hotkey_press(action, cur)
-    step += 1
+    # 3) Language (auto-detect by default).
+    print("\n3) Language  -  Enter = auto-detect")
+    print("   or a code: en de es fr it pt nl ru hi ja zh (Chinese) ...")
+    lang = input("   Language [auto]: ").strip()
+    if cfg["stt_engine"] == "openrouter":
+        cfg.setdefault("openrouter_stt", {})["language"] = lang  # "" = auto-detect
+    elif lang:
+        cfg["deepgram"]["language"] = lang
 
-    print("\n%d) Hotkey behaviour" % step)
-    print("   hold   = record while you hold the key, insert on release")
-    print("   toggle = tap to start, tap again to stop (better for long dictation)")
-    hm = input("   Mode [hold/toggle] [%s]: " % cfg.get("hotkey_mode", "hold")).strip().lower()
-    if hm in ("hold", "toggle"):
-        cfg["hotkey_mode"] = hm
-    step += 1
-
-    print("\n%d) Text insertion" % step)
-    print("   instant = paste into the focused field immediately (you must be in the field)")
-    print("   armed   = keep the text loaded; fire it with Ctrl+V or your next click")
-    ins = cfg.setdefault("insertion", {})
-    m = input("   Mode [instant/armed] [%s]: " % ins.get("mode", "instant")).strip().lower()
-    if m in ("instant", "armed"):
-        ins["mode"] = m
-    if ins.get("mode") == "armed":
-        c = input("   Also insert on your next left click (needs 'mouse')? [y/N]: ").strip().lower()
-        ins["click_to_paste"] = c in ("y", "yes", "j", "ja")
+    # 4) Hotkeys - defaults are F8/F9/F10; only ask if they want to change them.
+    print("\n4) Hotkeys  -  default is F8 (dictate) / F9 (polish) / F10 (prompt)")
+    if input("   Change the hotkeys? [y/N]: ").strip().lower() in ("y", "yes"):
+        for action in ("dictate", "polish", "prompt"):
+            cfg["hotkeys"][action] = read_hotkey_press(action, cfg["hotkeys"].get(action))
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
-
     print("\n[ok] Saved config.json")
-    print("Next: run  start-debug.bat  (or  python apollo.py) and hold your dictate key.")
-    print("Tip: customize the F10 prompt per project in the prompts/ folder.")
+
+    # 5) Autostart: on by default - this used to be a separate manual step.
+    if enable_autostart():
+        print("[ok] Autostart on - Apollo launches at login (toggle it in the tray menu).")
+
+    print("\nDone! Apollo will start now - click into any text box and hold F8 to try it.")
+    print("Tip: give F10 project context by editing the files in prompts/.")
 
 
 if __name__ == "__main__":
