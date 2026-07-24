@@ -4,7 +4,7 @@
     "polish": "f9",
     "prompt": "f10"
   },
-  "hotkey_mode": "hold",
+  "hotkey_mode": "toggle",
   "autostart_delay_seconds": 20,
   "stt_engine": "openrouter",
   "openrouter_stt": {

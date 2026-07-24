@@ -23,6 +23,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   the key during long dictation. Default stays `"hold"`.
 
 ### Changed
+- **Default hotkey mode is now `"toggle"`** (tap to start, tap again to stop) instead of `"hold"`.
+  Set `hotkey_mode: "hold"` for the old press-and-hold behavior.
 - **OpenRouter is now the default speech engine** — one OpenRouter key powers both
   speech-to-text (default model `microsoft/mai-transcribe-1.5`) and the F9/F10 LLM. No second key.
 - **Default F9/F10 model** is now `google/gemini-3.1-flash-lite`.

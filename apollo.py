@@ -1,7 +1,8 @@
 """
-Apollo s2t - speech-to-text dictation by holding a key.
+Apollo s2t - speech-to-text dictation with a hotkey (tap or hold).
 
-Hold a key -> speak -> release -> text is inserted into the active window.
+Tap a key -> speak -> tap again (default), or hold -> speak -> release:
+text is inserted into the active window.
 Default hotkeys (all configurable in config.json):
   F8  = plain dictation
   F9  = dictation + polish (LLM cleans up grammar/fillers)
@@ -1389,9 +1390,9 @@ def main():
         hotkeys.get("polish", "f9"): "polish",
         hotkeys.get("prompt", "f10"): "prompt",
     }
-    # "hold" (default) = record while the key is held. "toggle" = tap to start, tap to stop
-    # (handy for long dictation - no need to keep the key pressed).
-    toggle_mode = config.get("hotkey_mode", "hold") == "toggle"
+    # "toggle" (default) = tap to start, tap again to stop (no need to hold the key).
+    # "hold" = record only while the key is held down.
+    toggle_mode = config.get("hotkey_mode", "toggle") == "toggle"
 
     def make_handler(mode):
         held = {"down": False}  # track physical key state to ignore auto-repeat
@@ -1573,7 +1574,7 @@ def run_setup():
     if enable_autostart():
         print("[ok] Autostart on - Apollo launches at login (toggle it in the tray menu).")
 
-    print("\nDone! Apollo will start now - click into any text box and hold F8 to try it.")
+    print("\nDone! Apollo will start now - click into any text box, tap F8, speak, tap F8 again.")
     print("Tip: give F10 project context by editing the files in prompts/.")
 
 
