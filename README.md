@@ -13,7 +13,7 @@
 
 A small **Windows** background tool for push-to-talk speech-to-text dictation.
 
-**Hold a key → speak → release → the text lands in your active text field**
+**Tap a key → speak → tap again → the text lands in your active text field**
 (ChatGPT, Claude, Word, browser, VS Code, WhatsApp Web, …).
 
 | Key (default) | Function |
@@ -55,8 +55,9 @@ focused field (clipboard + `Ctrl+V`). **One OpenRouter key runs the whole thing.
    - Free OpenRouter key (powers speech **and** F9/F10): <https://openrouter.ai/keys>
    > No Python yet? Install it from <https://www.python.org/downloads/> (tick "Add to
    > PATH"), then double-click `Apollo.bat` again.
-2. Open Notepad, click into the text field, **hold F8** (high beep), say
-   *"test one two three"*, **release** (low beep). The text appears after ~1–2 s.
+2. Open Notepad, click into the text field, **tap F8** (high beep), say
+   *"test one two three"*, **tap F8 again** (low beep). The text appears after ~1–2 s.
+   > Prefer press-and-hold? Set `hotkey_mode: "hold"` in `config.json`.
 
 That's the whole setup. Want logs while testing? Run **`debug.bat`** for a visible
 console. Need to change your key, language or hotkeys later? Run **`setup.bat`**.
@@ -128,7 +129,7 @@ Full reference:
 | Field | Meaning |
 |-------|---------|
 | `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
-| `hotkey_mode` | `"hold"` (default) = record while held. `"toggle"` = tap to start, tap to stop (handy for long dictation). |
+| `hotkey_mode` | `"toggle"` (default) = tap to start, tap again to stop (no need to hold). `"hold"` = record only while the key is held. |
 | `stt_engine` | `"openrouter"` (default — one key for everything) or `"deepgram"`. See [Speech engine](#speech-engine-openrouter-default-or-deepgram). |
 | `openrouter_stt.model` / `.language` | (openrouter engine) transcription model slug (e.g. `microsoft/mai-transcribe-1.5`) and optional language code (empty = auto-detect). Uses your OpenRouter key. |
 | `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
