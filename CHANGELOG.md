@@ -37,6 +37,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Setup wizard: **press the key** you want for a hotkey instead of typing its name.
 
 ### Fixed
+- **Toggle mode could get stuck recording** — the second tap never stopped it. The handler
+  reset its auto-repeat guard only on key-up, which a suppressed global hook doesn't deliver
+  reliably. Toggle now debounces by time and no longer depends on key-up.
 - **Beeps** now play through the real audio output (sounddevice) instead of `winsound.Beep`,
   which often went silent after a reboot. Falls back to `winsound` if playback fails.
 - **Autostart reliability**: the boot launch (`--autostart`) waits `autostart_delay_seconds`

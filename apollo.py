@@ -1369,6 +1369,41 @@ def run_tray(on_quit, app):
 
 
 # --------------------------------------------------------------------------
+# Hotkey event handler
+# --------------------------------------------------------------------------
+def make_key_handler(app, mode, toggle_mode, clock=time.monotonic, debounce=0.3):
+    """Build the keyboard event handler for one hotkey.
+
+    Toggle mode flips recording on each *tap*, debounced by time rather than by
+    tracking key-up: a suppressed global hook does not deliver key-up reliably, which
+    used to leave the toggle guard stuck so recording never stopped. A genuine tap
+    emits a single key-down; only holding the key produces the fast auto-repeat the
+    debounce filters out. Hold mode records while the key is held (down=start, up=stop).
+    """
+    last = {"t": -1e9}
+
+    def handler(event):
+        if toggle_mode:
+            if event.event_type != keyboard.KEY_DOWN:
+                return
+            now = clock()
+            if now - last["t"] < debounce:
+                return                        # auto-repeat / key bounce -> ignore
+            last["t"] = now
+            if app.recording and app.active_mode == mode:
+                app.on_release(mode)          # tap again -> stop
+            else:
+                app.on_press(mode)            # tap -> start
+        else:
+            if event.event_type == keyboard.KEY_DOWN:
+                app.on_press(mode)
+            elif event.event_type == keyboard.KEY_UP:
+                app.on_release(mode)
+
+    return handler
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 def main():
@@ -1394,30 +1429,8 @@ def main():
     # "hold" = record only while the key is held down.
     toggle_mode = config.get("hotkey_mode", "toggle") == "toggle"
 
-    def make_handler(mode):
-        held = {"down": False}  # track physical key state to ignore auto-repeat
-
-        def handler(event):
-            if toggle_mode:
-                if event.event_type == keyboard.KEY_DOWN:
-                    if held["down"]:
-                        return  # auto-repeat while held -> ignore
-                    held["down"] = True
-                    if app.recording and app.active_mode == mode:
-                        app.on_release(mode)   # second tap -> stop
-                    else:
-                        app.on_press(mode)     # first tap -> start
-                elif event.event_type == keyboard.KEY_UP:
-                    held["down"] = False
-            else:
-                if event.event_type == keyboard.KEY_DOWN:
-                    app.on_press(mode)
-                elif event.event_type == keyboard.KEY_UP:
-                    app.on_release(mode)
-        return handler
-
     for key, mode in mapping.items():
-        keyboard.hook_key(key, make_handler(mode), suppress=True)
+        keyboard.hook_key(key, make_key_handler(app, mode, toggle_mode), suppress=True)
 
     # Startup warnings
     if app.stt_engine == "deepgram":
