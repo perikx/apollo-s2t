@@ -1,8 +1,15 @@
 .venv/
 config.json
+config.json.bak
+config.json.*.tmp
 *.log
+*.log.*
 __pycache__/
 *.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.env
 @AutomationLog.txt
 
 # PyInstaller (packaging/build-exe.bat) output

@@ -1,13 +1,17 @@
 @echo off
+setlocal
 cd /d "%~dp0"
 title Apollo s2t - debug
-rem Runs Apollo with a visible console + live logs, for troubleshooting.
-if not exist ".venv\Scripts\python.exe" (
-  echo Run Apollo.bat first to install.
-  pause
-  exit /b 1
+call bootstrap.bat
+if errorlevel 1 goto failed
+if not exist "config.json" (
+  ".venv\Scripts\python.exe" apollo.py --setup
+  if errorlevel 1 goto failed
 )
 ".venv\Scripts\python.exe" apollo.py
-echo.
-echo Apollo exited. Press any key to close . . .
-pause >nul
+if errorlevel 1 goto failed
+pause
+exit /b 0
+:failed
+pause
+exit /b 1

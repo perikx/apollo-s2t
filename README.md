@@ -1,330 +1,107 @@
 # Apollo s2t
 
-<p align="center">
-  <img src="assets/banner.svg" alt="Apollo s2t — speech to text, push-to-talk" width="600">
-</p>
+**Tap a key, speak, tap again. Your words appear in the active text field.**
 
-<p align="center">
-  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
-  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
-  <img alt="GitHub stars" src="https://img.shields.io/github/stars/perikx/apollo-s2t?style=social">
-</p>
+Windows 10/11 dictation for ChatGPT, VS Code, Word, browsers and other text fields.
+One OpenRouter API key. No subscription to Apollo. MIT licensed.
 
-A small **Windows** background tool for push-to-talk speech-to-text dictation.
+## Install and run
 
-**Tap a key → speak → tap again → the text lands in your active text field**
-(ChatGPT, Claude, Word, browser, VS Code, WhatsApp Web, …).
+Install [Python 3.10+](https://www.python.org/downloads/) with **Add Python to PATH**
+and [Git](https://git-scm.com/downloads/win), then paste this into PowerShell:
 
-| Key (default) | Function |
-|---------------|----------|
-| **F8** | Plain dictation — the whole recording is inserted as one coherent text on release |
-| **F9** | Dictation + **polish** (an LLM cleans up grammar, fillers, slips) |
-| **F10** | Dictation + **structure as a prompt** (an LLM turns it into a clean, project-aware prompt) |
-
-All three hotkeys are configurable — see [Configuration](#configuration).
-
-**Flow:** microphone → speech-to-text → optional LLM polish → pasted into the
-focused field (clipboard + `Ctrl+V`). **One OpenRouter key runs the whole thing.**
-
-## Highlights
-
-- **One key, done** — a single [OpenRouter](https://openrouter.ai/keys) key powers both
-  speech-to-text (default: **Microsoft MAI-Transcribe**) *and* the F9/F10 LLM
-  (default: **Gemini 3.1 Flash Lite**). No second signup, no second key.
-- **Prefer Deepgram?** Live streaming and its own key are one choice away in the
-  wizard — see [Speech engine](#speech-engine-openrouter-default-or-deepgram).
-- **Project-aware prompts (F10)** — turns dictation into a clean prompt, with optional
-  [Karpathy coding guidelines](#f10-prompt-profiles-project-aware-prompts) and a forced
-  [output language](#output-language-dictate-in-any-language--english-code) (e.g. speak
-  Chinese → get an English prompt).
-- **Speak any language** — English, German, … and [Chinese/Japanese/etc.](#languages).
-- **Armed mode** — [load now, paste later](#armed-mode-load-now-paste-later): dictate,
-  keep using your PC, drop it where you want with `Ctrl+V`.
-- **Stays out of the way** — tray icon, autostart on by default, single-instance guard, no telemetry.
-
-> **Platform:** Windows 10/11 only. It relies on Windows global keyboard hooks,
-> `winsound`, and `.bat` launchers. macOS/Linux are not supported.
-
----
-
-## Quick start
-
-1. **Double-click `Apollo.bat`.** The first run sets up Python, asks for **one
-   OpenRouter key**, turns on autostart, and launches Apollo into the tray. That's it.
-   - Free OpenRouter key (powers speech **and** F9/F10): <https://openrouter.ai/keys>
-   > No Python yet? Install it from <https://www.python.org/downloads/> (tick "Add to
-   > PATH"), then double-click `Apollo.bat` again.
-2. Open Notepad, click into the text field, **tap F8** (high beep), say
-   *"test one two three"*, **tap F8 again** (low beep). The text appears after ~1–2 s.
-   > Prefer press-and-hold? Set `hotkey_mode: "hold"` in `config.json`.
-
-That's the whole setup. Want logs while testing? Run **`debug.bat`** for a visible
-console. Need to change your key, language or hotkeys later? Run **`setup.bat`**.
-
-> **Beep logic:** high tone = recording started (speak after it), low tone = recording
-> stopped, double low tone = error (nothing recognized or API error).
-
----
-
-## Running in the background
-
-Apollo lives in the tray (gold microphone, bottom-right) — everything is on its menu:
-
-- **Autostart is on by default** — Apollo starts ~20 s after login (the short delay lets
-  audio + keyboard hooks get ready; tune with `autostart_delay_seconds`). Toggle it any time
-  via the tray → **"Start at login"**.
-- **Start it now (hidden):** double-click `Apollo.bat`.
-- **Switch the F10 prompt profile** at runtime from the tray.
-- **Quit** from the tray menu.
-
----
-
-## F10 prompt profiles (project-aware prompts)
-
-F10 turns your dictation into a structured prompt for an AI. To make those prompts
-useful, F10 injects two things into its system prompt:
-
-1. **Karpathy coding guidelines** — every prompt built for a coding AI carries
-   good-behavior instructions (think before coding, simplicity first, surgical
-   changes, verifiable success criteria). Toggle with `prompt_profiles.include_karpathy`.
-2. **A project profile** — free-form context about the project you're working on,
-   so the LLM knows what you're building.
-
-Profiles live as markdown files in [`prompts/`](prompts/). Ship with `default.md`
-(no context) and `example-project.md` (a template). To add your own:
-
-```
-prompts/
-  default.md
-  project1.md   <- your project context
-  project2.md            <- another project
+```powershell
+git clone https://github.com/perikx/apollo-s2t.git
+cd apollo-s2t
+.\Apollo.bat
 ```
 
-Switch the active profile via the **tray icon → "F10 prompt profile"**, or set
-`prompt_profiles.active` in `config.json`. Edits to a profile file take effect on
-the next F10 press — no restart needed.
+The launcher installs dependencies, asks for your [OpenRouter API key](https://openrouter.ai/keys),
+and starts Apollo in the system tray. The key is masked while entering it.
+**Add credit to OpenRouter:** creating a key is free, but transcription and rewriting are paid API usage.
 
-### Output language (dictate in any language → English code)
+No Git? Use **Code → Download ZIP**, extract the folder, then double-click `Apollo.bat`.
 
-`prompt_profiles.output_language` controls the language of the **F10 prompt**, which
-in turn drives the language of the code, comments and identifiers the target AI writes
-(language *keywords* like `def`/`function` are always English regardless):
+## Use it
 
-- `"english"` (default) — speak Chinese, German, anything → you still get an **English**
-  prompt, so the coding AI produces an English codebase.
-- `"match"` — the prompt keeps the **language you dictated in** (e.g. Chinese in →
-  Chinese prompt, Karpathy guidelines included, in Chinese).
-- any language name (`"中文"`, `"German"`, …) — force that specific language.
+Click into a text field, **tap F8**, speak, then **tap F8 again**. The high tone means
+recording started; the low tone means it stopped. Wait for the final text to appear.
 
-This only affects F10. F9 (polish) always keeps your original language.
+| Key | Result |
+| --- | --- |
+| **F8** | Transcription only. |
+| **F9** | Transcription with grammar and fillers cleaned up. Keeps the spoken language. |
+| **F10** | A compact prompt for another AI. English output by default. |
 
----
+Apollo inserts the complete result after recording, not word by word while speaking.
+A second mode key does not interrupt an active recording. Stop it with the key that started it.
+The default recording limit is five minutes; reaching it stops and processes the recording.
 
-## Configuration
+The microphone icon next to the clock has **settings, F10 profiles, autostart and Quit**.
+Use `setup.bat` to reconfigure, or `debug.bat` to see diagnostic messages.
+Quit the running copy and restart after changing settings.
 
-`config.json` is created for you on the first `Apollo.bat` run (or re-run `setup.bat`).
-Full reference:
+## Defaults
 
-| Field | Meaning |
-|-------|---------|
-| `hotkeys` | Remap keys, e.g. `"dictate": "f7"`. Defaults: F8 / F9 / F10. |
-| `hotkey_mode` | `"toggle"` (default) = tap to start, tap again to stop (no need to hold). `"hold"` = record only while the key is held. |
-| `stt_engine` | `"openrouter"` (default — one key for everything) or `"deepgram"`. See [Speech engine](#speech-engine-openrouter-default-or-deepgram). |
-| `openrouter_stt.model` / `.language` | (openrouter engine) transcription model slug (e.g. `microsoft/mai-transcribe-1.5`) and optional language code (empty = auto-detect). Uses your OpenRouter key. |
-| `deepgram.mode` | `"batch"` = send the whole recording on release → one coherent text (best sentence quality, ~1–2 s wait). `"streaming"` = faster (near-instant), but assembled in segments. |
-| `deepgram.language` | A language code (`"en"`, `"de"`, `"zh"`, …) or `"multi"`. See [Languages](#languages) below. |
-| `deepgram.model` | STT model, default `nova-3`. |
-| `deepgram.keyterms` | List of terms to recognize more reliably (names, jargon). See [Custom vocabulary](#custom-vocabulary-key-terms). |
-| `smoothing.model` | LLM for F9/F10 (any OpenRouter model slug). Default `google/gemini-3.1-flash-lite`. |
-| `prompt_profiles.active` | The active F10 profile (filename without `.md`). |
-| `prompt_profiles.include_karpathy` | `true` appends the Karpathy guidelines to F10 prompts. Turn off for non-coding use. |
-| `prompt_profiles.output_language` | Language of the F10 prompt: `"english"` (default), `"match"` (keep dictated language), or a language name. See [Output language](#output-language-dictate-in-any-language--english-code). |
-| `insertion.mode` | `"instant"` (default) = paste into the focused field on release. `"hybrid"` = paste if a text field is focused, else keep it on the clipboard. `"armed"` = always keep it loaded, fire it yourself. See [Hybrid mode](#hybrid-mode-paste-if-in-a-field-else-clipboard) / [Armed mode](#armed-mode-load-now-paste-later). |
-| `insertion.target` | `"focused"` (default) = paste wherever focus is. `"origin"` = paste back into the window you were in when you started talking. See [Paste back](#paste-back-into-the-window-you-started-in). |
-| `insertion.click_to_paste` | (armed mode) `true` = a left click inserts the loaded text. Needs the `mouse` package. |
-| `insertion.armed_timeout` | (armed mode) seconds the click stays armed before it disarms (the text stays on the clipboard). Default `30`. |
-| `insertion.live` | `true` = F8 types word-by-word live. `false` = silent dictation, inserted in full on release (most robust). |
-| `insertion.live_corrections` | `false` = never backspace (no Windows system sound). `true` = tidy casing during pauses (cleaner, but some apps beep on backspace). |
-| `insertion.type_delay` | Per-character delay when live-typing (seconds). Raise to e.g. `0.005` if an app drops characters. |
-| `audio.device` | `null` = default microphone. Otherwise a device index/name (see below). |
-| `beep` | `false` disables the beeps (played through your default audio output). |
-| `autostart_delay_seconds` | Seconds the autostart launch waits before hooking keys/audio (default `20`). Helps the boot-time setup become reliable. |
-| `insertion.restore_clipboard` | `true` restores your previous clipboard after inserting. |
+| Stage | Model |
+| --- | --- |
+| Speech, including German and English | `microsoft/mai-transcribe-2` |
+| F9/F10 text rewriting | `google/gemini-3.5-flash-lite` |
 
-### Speech engine (OpenRouter default, or Deepgram)
+Speech language is detected automatically, including mixed-language dictation.
+F9/F10 use minimal reasoning and latency-first provider routing. If rewriting fails,
+returns empty text or is cut off, Apollo uses the original transcript instead.
+Models remain configurable. See [configuration and model notes](docs/configuration.md).
 
-`stt_engine` picks who does the transcription. The default needs **no extra setup**:
+## Update an existing installation
 
-- **`"openrouter"`** (default) — transcribe through **OpenRouter** with the same key that
-  runs F9/F10. One key for everything, batch mode. Default model
-  `microsoft/mai-transcribe-1.5`; pick any audio model via `openrouter_stt.model`:
+**Quit Apollo from its tray menu first**, then run these commands in your Apollo folder:
 
-  | Model | Languages | Cost |
-  |-------|-----------|------|
-  | `microsoft/mai-transcribe-1.5` | 100+ incl. **Chinese**, auto-detect | ~$0.006/min |
-  | `nvidia/parakeet-tdt-0.6b-v3` | English / EU only (tops Open ASR leaderboard) | ~$0.0015/min |
-
-- **`"deepgram"`** — Deepgram cloud; needs its own (free) key; adds **live streaming**.
-  Choose it in `setup.bat` (or set `stt_engine: "deepgram"` and add your `deepgram.api_key`).
-
-Model slugs and prices move fast — browse current options at
-[openrouter.ai/models](https://openrouter.ai/models) (filter for audio/transcription).
-*(model list current as of 2026-06.)*
-
-### Hybrid mode (paste if in a field, else clipboard)
-
-`insertion.mode: "hybrid"` is the best of `instant` and `armed`. When your dictation is
-ready, Apollo checks whether a **text field is focused**:
-
-- **In a text field** (a chat box, editor, search bar) → it pastes straight in and then
-  **restores your previous clipboard**, so your clipboard never fills up with dictations.
-- **Not in a text field** → it **keeps the text on the clipboard** and waits, so you can
-  `Ctrl+V` it wherever you want (a short "loaded" beep confirms it).
-- **Can't tell for sure** → it pastes *and* keeps it on the clipboard as a safety net
-  (your previous clipboard is restored when the load expires), so the text is never lost.
-
-Detection works in native apps out of the box and in **browser / Electron chat boxes**
-(ChatGPT, Claude, Discord, WhatsApp Web, …) via UI Automation — that's what the optional
-`comtypes` package (installed automatically) is for. Without it, Apollo falls back to a
-system-caret check plus the paste-and-keep safety net.
-
-Pick it in `setup.bat` (question 5) or set `insertion.mode: "hybrid"` in `config.json`.
-
-### Armed mode (load now, paste later)
-
-By default (`"instant"`) Apollo pastes into whatever field is focused **the moment it
-finishes** — so you have to already be in the text field. With `insertion.mode: "armed"`
-it behaves like a loaded round:
-
-- **Stayed in the same window** you dictated from? It pastes right away — no click needed.
-  (Apollo remembers the window you were in when you pressed the key.)
-- **Switched away?** It stays loaded. Fire it with **`Ctrl+V`** any time, in any app —
-  `Ctrl+V` never wastes it (outside a text field it simply does nothing and stays loaded).
-- With `insertion.click_to_paste: true`, your next **left click** also fires it (handy:
-  click straight into the target field). This fires on the next click *anywhere*; a click
-  on a non-text spot pastes nothing and uses up the shot, so `Ctrl+V` is the safe fallback.
-  Needs the `mouse` package and adds a global mouse hook.
-- A short rising beep signals "loaded". It disarms after `armed_timeout` seconds, but the
-  text stays on the clipboard either way.
-
-### Paste back into the window you started in
-
-With `insertion.target: "origin"`, Apollo remembers the **window that was focused when
-you pressed the hotkey** and pastes back into it — even if you tabbed away meanwhile.
-Handy for e.g. dictating into Claude Code, then glancing at your browser while it
-transcribes: the text still lands in Claude Code.
-
-- Works at the **window** level. If your target is its own desktop window (Claude Code,
-  an editor, a chat app), the text returns to its input field.
-- It can't pick a specific **browser tab** among many — it refocuses the window (active
-  tab), not a sub-view inside a web app.
-- Refocusing uses a best-effort Windows call; in rare cases Windows blocks the focus
-  change and Apollo falls back to pasting into the current window (logged).
-- Use with F9/F10 (or F8 with `insertion.live: false`) — live word-by-word typing always
-  goes to whatever is focused *while* you speak.
-
-### Languages
-
-With the default **OpenRouter** engine, language is **auto-detected** (or force one via
-`openrouter_stt.language`). With the **Deepgram** engine, set `deepgram.language` to a single
-code for best accuracy:
-
-| Language | Code |
-|----------|------|
-| English / German / Spanish / French | `en` / `de` / `es` / `fr` |
-| Italian / Portuguese / Dutch / Russian | `it` / `pt` / `nl` / `ru` |
-| Hindi / Japanese | `hi` / `ja` |
-| Chinese (Mandarin, Simplified) | `zh`, `zh-CN`, `zh-Hans` |
-| Chinese (Mandarin, Traditional) | `zh-TW`, `zh-Hant` |
-| Chinese (Cantonese) | `zh-HK` |
-
-`"multi"` auto-detects a *mix* of languages (English, German, Spanish, French, Italian,
-Portuguese, Dutch, Russian, Hindi, Japanese) — handy when you blend terms, but it does
-**not** include Chinese. For Chinese, set an explicit code like `zh`.
-
-> **Non-Latin scripts (Chinese, Japanese, …):** keep `insertion.live: false` (the
-> default). Live word-by-word typing simulates keystrokes and doesn't handle CJK
-> reliably — the default paste mode inserts any Unicode text perfectly.
-
-### Custom vocabulary (key terms — Deepgram engine)
-
-Names, product names and jargon are what speech-to-text gets wrong most. On the Deepgram
-engine, add them to `deepgram.keyterms` to boost their recognition:
-
-```json
-"deepgram": {
-  "model": "nova-3",
-  "keyterms": ["Apollo", "Supabase", "Politify", "useState", "Karpathy"]
-}
+```powershell
+git pull --ff-only
+.\Apollo.bat
 ```
 
-Up to 100 terms, works in any language (including Chinese). Requires a **Nova-3** model
-(it's ignored on other models). This is the cheapest single win for accuracy on *your*
-words.
+Dependencies are updated only when `requirements.txt` changes. Old shipped model defaults
+are upgraded automatically, while your key, custom model choices, hotkeys and profiles are preserved.
+The first configuration upgrade saves the old file as `config.json.bak`.
+Deepgram and its streaming/live-typing options have been removed. All speech now uses OpenRouter.
 
-**Find your microphone index** (if the wrong device is used):
+## Check a problem
+
+```powershell
+.venv\Scripts\python.exe selftest.py
 ```
-.venv\Scripts\python.exe -c "import sounddevice as sd; print(sd.query_devices())"
+
+This checks configuration and audio settings **without making an API call or recording**.
+For an explicit paid microphone → STT → rewrite smoke test:
+
+```powershell
+.venv\Scripts\python.exe selftest.py --live
 ```
-Put the index under `audio.device`.
 
----
+For hotkey or paste problems, quit the tray copy and use `debug.bat`. Check Windows
+microphone permissions and the selected input. Pasting into an elevated app can require
+the same privilege level. API authentication, missing credit and invalid-model errors
+have separate messages. Logs contain counts and timings, not dictated text.
 
-## Build a single `.exe` (optional)
+## More
 
-Everyday use doesn't need this — `Apollo.bat` already runs the app. But if you want a
-double-click **`Apollo.exe`** (with the logo) that runs on a PC *without* Python:
+[Configuration, profiles and clipboard modes](docs/configuration.md) ·
+[Contributing and tests](docs/development.md) · [Changelog](CHANGELOG.md)
 
-1. Run `Apollo.bat` once so the `.venv` exists.
-2. Run **`packaging\build-exe.bat`** — it installs PyInstaller and produces
-   `dist\Apollo.exe`.
-3. Copy `Apollo.exe` anywhere and double-click it. It creates `config.json` next to
-   itself and runs the setup wizard on first launch, exactly like the script version.
+Build a standalone Windows executable with `packaging\build-exe.bat`.
+It opens a key-entry dialog on first launch. Python is not needed on the target PC.
 
-To customise F10 prompt profiles with the exe, put your own `prompts\*.md` files next to
-`Apollo.exe` (the bundled defaults are used otherwise).
+## Privacy
 
-## Troubleshooting
+Audio is kept in memory and sent to OpenRouter for transcription. F9/F10 additionally
+send the transcript, and F10's selected project context, for rewriting. Provider data
+policies apply. No Apollo telemetry. No local transcript/audio history is written.
+Clipboard insertion necessarily makes the text available through the system clipboard.
 
-- **Keys don't react / text isn't inserted:** run `debug.bat` once via right-click →
-  "Run as administrator" (some systems need this for the global keyboard hook).
-- **"Empty transcript":** too quiet / too short, or you spoke before the beep.
-- **F9/F10 inserts only raw text:** the LLM call failed (check the log) — raw text is
-  the fallback so nothing is lost. Usually a wrong `smoothing.model` slug or no OpenRouter credit.
-- **Logs:** `apollo.log` in the program folder.
+`config.json` and its migration backup can contain an API key in plain text; both are
+ignored by Git. Alternatively set `OPENROUTER_API_KEY` in your environment.
+Do not share configuration files or commit private prompt profiles.
 
----
-
-## Privacy & data flow
-
-Apollo runs locally. The only data that leaves your machine:
-
-- **Microphone audio** → sent to your speech engine (**OpenRouter** by default, or **Deepgram**)
-  for transcription while you hold a key.
-- **F9/F10 text** → sent to **OpenRouter** (your chosen LLM) for polishing / prompt building.
-
-That's it — no telemetry, no analytics, nothing is sent anywhere else. Both services
-process the data under their own privacy policies. The app types/pastes the result into
-the focused window via the clipboard (your previous clipboard is restored afterwards).
-
-## Security
-
-`config.json` holds your API keys in plain text and is excluded from git via
-`.gitignore`. Don't share it. If a key leaks, regenerate it in the Deepgram /
-OpenRouter dashboard. Apollo needs a global keyboard hook to detect the push-to-talk
-key — it only reacts to the configured hotkeys and does not log other keystrokes
-(the source is right here for you to verify). The optional `insertion.click_to_paste`
-adds a global mouse hook (only to catch your next click after a dictation); it is off by
-default.
-
----
-
-## Contact
-
-Questions, bugs, or ideas? Open an [issue](https://github.com/perikx/apollo-s2t/issues),
-or email **hello@perikx.dev**.
-
-## License
-
-[MIT](LICENSE).
+[MIT License](LICENSE) · [Report a problem](https://github.com/perikx/apollo-s2t/issues)

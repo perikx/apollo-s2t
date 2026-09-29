@@ -3,65 +3,73 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
-
-### Added
-- **Hybrid insertion mode** (`insertion.mode: "hybrid"`): if a text field is focused it pastes
-  straight in and restores your clipboard (no clutter); if not, it keeps the text on the clipboard
-  for `Ctrl+V`. Detects browser/Electron chat boxes via UI Automation (optional `comtypes`), with a
-  system-caret + paste-and-keep fallback so text is never lost. Pick it in the wizard.
-- **Optional single-file `.exe` build** — `packaging/build-exe.bat` (PyInstaller) produces a
-  double-click `Apollo.exe` with the logo that needs no Python on the target PC.
-- **One-click `Apollo.bat`** — the first run creates the environment, asks for a single key,
-  enables autostart, and launches Apollo into the tray. No more separate install/setup/start steps.
-- **App logo** (`assets/apollo.ico`) shown as the tray/taskbar icon.
-- **"Start at login" tray toggle** — turn autostart on or off from the tray menu.
-- **Choosable speech engine** (`stt_engine`): OpenRouter (default) or Deepgram, with any
-  OpenRouter audio model via `openrouter_stt.model` — e.g. `microsoft/mai-transcribe-1.5`
-  (100+ languages incl. Chinese) or `nvidia/parakeet-tdt-0.6b-v3` (cheapest, EU).
-- **Toggle hotkeys** (`hotkey_mode: "toggle"`): tap to start, tap to stop — no need to hold
-  the key during long dictation. Default stays `"hold"`.
+## [Unreleased] - 2026-09-29
 
 ### Changed
-- **Default hotkey mode is now `"toggle"`** (tap to start, tap again to stop) instead of `"hold"`.
-  Set `hotkey_mode: "hold"` for the old press-and-hold behavior.
-- **OpenRouter is now the default speech engine** — one OpenRouter key powers both
-  speech-to-text (default model `microsoft/mai-transcribe-1.5`) and the F9/F10 LLM. No second key.
-- **Default F9/F10 model** is now `google/gemini-3.1-flash-lite`.
-- **Autostart is enabled automatically** during first-time setup (still delayed at boot via
-  `autostart_delay_seconds`, still removable from the tray).
-- **Simpler setup wizard** — OpenRouter-first; only the key is required, everything else defaults.
-- **Fewer launchers** — `install.bat`, `start.bat`, `start-debug.bat`, `autostart-enable.bat`
-  and `autostart-disable.bat` are replaced by `Apollo.bat` (run), `debug.bat` (logs) and
-  `setup.bat` (reconfigure).
-- Setup wizard: **press the key** you want for a hotkey instead of typing its name.
+- OpenRouter-only speech pipeline. Default speech model is `microsoft/mai-transcribe-2`;
+  F9/F10 use `google/gemini-3.5-flash-lite` with compact prompts and minimal reasoning.
+- One bounded FIFO worker preserves recording order, model/profile snapshots and origin windows.
+- Both API stages reuse connections; separate timeouts and incomplete-rewrite fallback are explicit.
+- README starts with a copyable Git clone/install command; advanced settings moved to `docs/`.
+- Setup preserves existing settings. Launchers share bootstrap logic and refresh changed dependencies.
+- Offline self-test is now the default. Paid recording/API checks require `--live`.
+
+### Added
+- Versioned, validated configuration with atomic writes and a one-time `config.json.bak` backup.
+- `OPENROUTER_API_KEY` environment support without writing the environment value to disk.
+- Five-minute recording cap, bounded pending jobs, and clean cancellation on quit.
+- Windowed executable first-run key dialog, settings/log shortcuts in the tray, and rotating logs.
+- Isolated regression tests and a Windows/Linux Python 3.10/3.13 CI matrix.
 
 ### Fixed
-- **Toggle mode could get stuck recording** — the second tap never stopped it. The handler
-  reset its auto-repeat guard only on key-up, which a suppressed global hook doesn't deliver
-  reliably. Toggle now debounces by time and no longer depends on key-up.
-- **Beeps** now play through the real audio output (sounddevice) instead of `winsound.Beep`,
-  which often went silent after a reboot. Falls back to `winsound` if playback fails.
-- **Autostart reliability**: the boot launch (`--autostart`) waits `autostart_delay_seconds`
-  (default 20) before hooking keys/audio, so it works when audio/hooks aren't ready yet at login.
-- Translated all remaining German code comments, docstrings and log messages to English.
+- Concurrent dictations could be inserted out of order or use the next recording's origin/context.
+- Delayed clipboard restores could overwrite content copied by the user or a later dictation.
+- Stale armed timers/click callbacks could consume a newer load.
+- Failed origin refocusing no longer pastes into an unrelated window.
+- Recording buffers and device handles are released after errors; no late paste after quitting.
+- API errors and normal logs no longer expose full dictated text or raw response bodies.
+- Dependency installation errors stop launch instead of starting a half-installed environment.
+
+### Removed
+- Deepgram API calls, websocket streaming, live typing and the websocket-client dependency.
+- Engine selection and obsolete streaming settings from setup and the current example configuration.
+  Old provider settings remain only in the migration backup and historical entries below.
+
+## [Earlier unreleased changes] - 2026-07-24
+
+### Added
+- Hybrid insertion mode: paste into a detected text field and restore the clipboard;
+  otherwise keep the result available for Ctrl+V. Uses UI Automation with a caret fallback.
+- Optional single-file Windows executable build through PyInstaller.
+- One-click `Apollo.bat`, app logo, and a "Start at login" tray toggle.
+- Choosable OpenRouter or Deepgram speech engines with configurable OpenRouter audio models.
+- Configurable toggle hotkeys alongside press-and-hold mode.
+
+### Changed
+- Toggle became the default hotkey mode.
+- OpenRouter became the default speech engine, using MAI-Transcribe-1.5 and Gemini 3.1 Flash Lite.
+- Setup became OpenRouter-first, with one key for STT and F9/F10 and automatic login startup.
+- Separate install/start/autostart scripts were replaced by Apollo.bat, debug.bat and setup.bat.
+- Setup allowed selecting hotkeys by pressing them.
+
+### Fixed
+- Toggle could remain stuck recording because a suppressed key-up event never arrived.
+  The handler was changed to time-based debounce.
+- Feedback tones moved to the actual sounddevice output, with winsound fallback.
+- Login startup waits for audio and keyboard hooks to become available.
+- Remaining German code comments/docstrings/log messages were translated to English.
 
 ## [0.1.0] - 2026-06-21
 
 First public release.
 
 ### Added
-- Push-to-talk dictation: hold a key, speak, release — text is inserted into the active field.
-- Three modes (all hotkeys configurable): **F8** plain dictation, **F9** LLM polish,
-  **F10** structure-as-prompt.
-- **F10 prompt profiles** — per-project context in `prompts/*.md`, switchable from the tray.
-- **Karpathy coding guidelines** woven into F10 prompts (toggle with `include_karpathy`).
-- **Output language** for F10 (`output_language`) — e.g. dictate Chinese, get an English prompt.
-- **Multi-language STT** via Deepgram, including Chinese (`zh`), Japanese, and more.
-- **Armed insertion mode** — load the dictation and paste it when you stay in the window,
-  or fire it later with `Ctrl+V`.
-- **Custom vocabulary** — boost recognition of names and jargon via `deepgram.keyterms` (Nova-3).
-- Interactive **setup wizard** (`python apollo.py --setup`) with sign-up links.
-- Tray icon, optional autostart, and a single-instance guard.
-- Clear, actionable error messages for API, network and microphone failures.
-- Colored ASCII startup banner, MIT license, English docs.
+- Push-to-talk dictation: hold a key, speak, release; insert text into the active field.
+- Configurable F8 dictation, F9 LLM polish and F10 prompt-building modes.
+- Per-project F10 context in `prompts/*.md`, selected from the tray.
+- Optional Karpathy coding guidelines and an output-language setting for F10.
+- Multi-language Deepgram speech recognition and custom Nova-3 vocabulary.
+- Armed insertion: paste in the original window or keep the dictation for later Ctrl+V.
+- Interactive setup with provider sign-up links, tray icon, autostart and single-instance guard.
+- Actionable errors for API, network and microphone failures.
+- Colored ASCII startup banner, MIT license and English documentation.
