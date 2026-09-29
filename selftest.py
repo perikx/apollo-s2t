@@ -1,155 +1,75 @@
-"""
-Self-test for Apollo s2t.
-Checks: imports, audio devices, your speech engine (OpenRouter or Deepgram),
-and the OpenRouter LLM used for F9/F10.
-Run:  .venv\\Scripts\\python.exe selftest.py
-"""
-import base64
-import io
-import json
-import os
-import wave
+"""Offline diagnostics by default. --live explicitly records audio and uses paid APIs."""
+import argparse
+from pathlib import Path
+import sys
 
-import numpy as np
-import requests
-import sounddevice as sd
+from apollo_config import ConfigError, api_key, read_config
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-cfg = json.load(open(os.path.join(BASE, "config.json"), encoding="utf-8"))
-
-ok = "[ OK ]"
-bad = "[FAIL]"
-engine = cfg.get("stt_engine", "openrouter")
-or_key = cfg.get("smoothing", {}).get("api_key", "")
+BASE = Path(__file__).resolve().parent
 
 
-def section(t):
-    print("\n" + "=" * 60 + "\n " + t + "\n" + "=" * 60)
-
-
-def silence_wav(seconds=0.3):
-    sr = cfg["audio"]["samplerate"]
-    silence = np.zeros(int(sr * seconds), dtype=np.int16)
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(silence.tobytes())
-    return buf.getvalue()
-
-
-# 1) Audio input devices ----------------------------------------------------
-section("Audio input devices")
-try:
-    for i, d in enumerate(sd.query_devices()):
-        if d["max_input_channels"] > 0:
-            mark = "  <- default" if i == sd.default.device[0] else ""
-            print(f"  [{i}] {d['name']}{mark}")
-    print(ok, "sounddevice works")
-except Exception as e:
-    print(bad, "sounddevice:", e)
-
-# 2) Speech-to-text engine --------------------------------------------------
-if engine == "openrouter":
-    section("Speech engine: OpenRouter transcription")
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--live", action="store_true", help="Record microphone audio and call both paid APIs")
+    parser.add_argument("--seconds", type=int, default=5, help="Live recording duration (1-30 seconds)")
+    args = parser.parse_args(argv)
+    if not 1 <= args.seconds <= 30:
+        parser.error("--seconds must be between 1 and 30")
+    failures = 0
     try:
-        os_cfg = cfg.get("openrouter_stt", {})
-        model = os_cfg.get("model", "microsoft/mai-transcribe-1.5")
-        body = {
-            "model": model,
-            "input_audio": {"data": base64.b64encode(silence_wav()).decode("ascii"),
-                            "format": "wav"},
-        }
-        if os_cfg.get("language"):
-            body["language"] = os_cfg["language"]
-        r = requests.post(
-            os_cfg.get("base_url", "https://openrouter.ai/api/v1/audio/transcriptions"),
-            headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
-            json=body,
-            timeout=60,
-        )
-        if r.status_code == 200:
-            print(ok, f"OpenRouter key valid, transcription model '{model}' accepted (HTTP 200).")
-        else:
-            print(bad, f"HTTP {r.status_code}: {r.text[:400]}")
-            print("      -> check the model slug at https://openrouter.ai/models (audio)")
-    except Exception as e:
-        print(bad, "OpenRouter STT:", e)
-else:
-    section("Speech engine: Deepgram (STT)")
+        cfg, notes = read_config(BASE / "config.json")
+        for note in notes:
+            print(note)
+        if not api_key(cfg):
+            raise ConfigError("Missing OpenRouter key. Run setup.bat.")
+        print("[OK] Configuration and API key present (not yet authenticated).")
+        print("Speech:", cfg["openrouter_stt"]["model"])
+        print("Rewrite:", cfg["smoothing"]["model"])
+    except (ConfigError, OSError) as exc:
+        print("[FAIL]", exc)
+        return 1
     try:
-        dg = cfg["deepgram"]
-        params = {"model": dg["model"], "smart_format": "true"}
-        if dg.get("language"):
-            params["language"] = dg["language"]
-        r = requests.post(
-            "https://api.deepgram.com/v1/listen",
-            params=params,
-            headers={"Authorization": f"Token {dg['api_key']}", "Content-Type": "audio/wav"},
-            data=silence_wav(),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            print(ok, f"Deepgram key valid, model '{dg['model']}' accepted (HTTP 200).")
-        else:
-            print(bad, f"HTTP {r.status_code}: {r.text[:300]}")
-    except Exception as e:
-        print(bad, "Deepgram:", e)
-
-# 3) OpenRouter LLM (used for F9/F10 in either engine) ----------------------
-section("OpenRouter LLM (F9/F10 polish + prompt)")
-try:
-    sm = cfg["smoothing"]
-    r = requests.post(
-        sm["base_url"],
-        headers={
-            "Authorization": f"Bearer {sm['api_key']}",
-            "Content-Type": "application/json",
-            "X-Title": "Apollo-s2t-Selftest",
-        },
-        json={
-            "model": sm["model"],
-            "messages": [{"role": "user", "content": "Reply with only the word: OK"}],
-            "max_tokens": 200,
-        },
-        timeout=40,
-    )
-    if r.status_code == 200:
-        content = (r.json()["choices"][0]["message"].get("content") or "").strip()
-        if content:
-            print(ok, f"OpenRouter key valid, model '{sm['model']}' replies: {content!r}")
-        else:
-            print(bad, f"Model '{sm['model']}' returned empty content (None). "
-                       "Try a different slug in config.json -> smoothing.model.")
-    else:
-        print(bad, f"HTTP {r.status_code}: {r.text[:400]}")
-        print("      -> check the model slug at https://openrouter.ai/models")
-except Exception as e:
-    print(bad, "OpenRouter:", e)
-
-# 4) Deepgram streaming (only when Deepgram is the chosen engine) ------------
-if engine == "deepgram":
-    section("Deepgram streaming (WebSocket)")
+        import sounddevice as sd
+        audio = cfg["audio"]
+        sd.check_input_settings(device=audio["device"], channels=audio["channels"],
+                                samplerate=audio["samplerate"], dtype="int16")
+        for index, device in enumerate(sd.query_devices()):
+            if device["max_input_channels"]:
+                print(f"  Input {index}: {device['name']}")
+        print("[OK] Configured audio input accepts the sample rate and channel count.")
+    except Exception:
+        print("[FAIL] Audio input unavailable. Check installation, device and Windows microphone permissions.")
+        failures += 1
+    if not args.live:
+        print("Offline checks only. No API request, recording or clipboard change was made.")
+        print("For a paid end-to-end test: python selftest.py --live")
+        return int(bool(failures))
+    if failures:
+        return 1
     try:
-        import time
-        from apollo import DeepgramLive
+        from apollo import to_wav_bytes, PROMPTS
+        from apollo_api import transcribe_openrouter, smooth
+        print(f"Speak now for {args.seconds} seconds. Audio will be sent to OpenRouter.")
+        data = sd.rec(int(audio["samplerate"] * args.seconds), samplerate=audio["samplerate"],
+                      channels=audio["channels"], dtype="int16", device=audio["device"], blocking=True)
+        text = transcribe_openrouter(to_wav_bytes(data, audio["samplerate"], audio["channels"]),
+                                     cfg["openrouter_stt"], api_key(cfg))
+        if not text:
+            raise ValueError("No speech recognized")
+        print("[OK] Transcription:", text)
+        rewrite = smooth(text, PROMPTS["polish"], dict(cfg["smoothing"], api_key=api_key(cfg)))
+        if not rewrite:
+            raise ValueError("No rewrite returned")
+        print("[OK] Rewrite:", rewrite)
+        print("No text was pasted and no audio was saved. This is a smoke test, not an accuracy benchmark.")
+    except Exception as exc:
+        from apollo_api import http_error_hint
+        import requests
+        message = http_error_hint("Live test", exc) if isinstance(exc, requests.RequestException) else "No complete audio/transcription/rewrite result."
+        print("[FAIL]", message)
+        return 1
+    return 0
 
-        sr = cfg["audio"]["samplerate"]
-        live = DeepgramLive(cfg["deepgram"], sr, 1)
-        live.open_async()
-        # send ~1 s of silence in 50 ms chunks (tests send_binary + flush)
-        chunk = np.zeros(int(sr * 0.05), dtype=np.int16).tobytes()
-        for _ in range(20):
-            live.send(chunk)
-            time.sleep(0.01)
-        text = live.finish(timeout=4)
-        if live.error is not None:
-            print(bad, "streaming connection:", live.error)
-        else:
-            print(ok, "streaming handshake + finalize ok "
-                      f"(linear16 @ {sr} Hz accepted). Transcript (silence): {text!r}")
-    except Exception as e:
-        print(bad, "Streaming:", e)
 
-print("\nDone.")
+if __name__ == "__main__":
+    sys.exit(main())

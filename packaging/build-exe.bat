@@ -1,28 +1,20 @@
 @echo off
+setlocal
 cd /d "%~dp0.."
 title Apollo s2t - build exe
-rem ---------------------------------------------------------------------------
-rem Optional: build a single Apollo.exe (with the logo) from the source.
-rem Everyday users don't need this - Apollo.bat already runs the app. This is for
-rem shipping a double-click .exe that needs no Python install on the target PC.
-rem ---------------------------------------------------------------------------
-if not exist ".venv\Scripts\python.exe" (
-  echo Run Apollo.bat once first to create the environment.
-  pause
-  exit /b 1
-)
-echo Installing PyInstaller (one-time) ...
-".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
-echo.
-echo Building Apollo.exe ...
+call bootstrap.bat
+if errorlevel 1 goto failed
+".venv\Scripts\python.exe" -m pip install "pyinstaller>=6,<7"
+if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean packaging\apollo.spec
-echo.
-if exist "dist\Apollo.exe" (
-  echo Done. Your exe is here:  dist\Apollo.exe
-  echo Copy it anywhere and double-click it - it creates config.json next to itself
-  echo and runs the setup wizard on first launch.
-) else (
-  echo Build finished but dist\Apollo.exe was not found - check the output above.
-)
-echo.
+if errorlevel 1 goto failed
+if not exist "dist\Apollo.exe" goto failed
+echo Built dist\Apollo.exe. Copy it into a writable folder on Windows.
+echo First launch asks for an OpenRouter key in a small dialog.
+echo config.json, apollo.log and custom prompts live next to the exe.
 pause
+exit /b 0
+:failed
+echo Build failed. Check the errors above; any older dist\Apollo.exe is not this build.
+pause
+exit /b 1
