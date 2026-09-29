@@ -14,6 +14,9 @@ They never call a paid provider. FIFO/shutdown tests use real worker threads wit
 synchronization. Regression coverage includes hotkey toggle behavior, clipboard ownership,
 stale timers, origin snapshots, bounded capture, rewrite fallback and configuration migration.
 The GitHub Actions matrix runs the suite on Windows and Ubuntu with Python 3.10 and 3.13.
+Setup regressions exercise the console and windowed first-run paths, including upgrades
+from old configurations. Presentation checks retain the original README banner and prevent
+retired-provider references from returning to setup, launchers or user documentation.
 
 ## Code map
 
@@ -36,7 +39,7 @@ Before a release, run these checks on a Windows PC with an OpenRouter balance:
 4. Copy unrelated text while a result is being restored. Verify it is not overwritten.
 5. Quit while a request is pending: no late paste. Restart and verify hotkeys and autostart.
 6. Upgrade a copy of a legacy configuration: verify backup, preserved keys/hotkeys/profiles,
-   new defaults and absence of Deepgram options. Never commit real credentials.
+   new defaults and an OpenRouter-only setup. Never commit real credentials.
 7. Run `selftest.py --live`, then build with `packaging\build-exe.bat`; test first launch
    of `dist\Apollo.exe` from a separate writable folder without `config.json`.
 

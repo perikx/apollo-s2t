@@ -10,7 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   F9/F10 use `google/gemini-3.5-flash-lite` with compact prompts and minimal reasoning.
 - One bounded FIFO worker preserves recording order, model/profile snapshots and origin windows.
 - Both API stages reuse connections; separate timeouts and incomplete-rewrite fallback are explicit.
-- README starts with a copyable Git clone/install command; advanced settings moved to `docs/`.
+- README keeps the original banner and badges, followed by a copyable Git clone/install command;
+  advanced settings moved to `docs/`.
 - Setup preserves existing settings. Launchers share bootstrap logic and refresh changed dependencies.
 - Offline self-test is now the default. Paid recording/API checks require `--live`.
 
@@ -20,8 +21,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Five-minute recording cap, bounded pending jobs, and clean cancellation on quit.
 - Windowed executable first-run key dialog, settings/log shortcuts in the tray, and rotating logs.
 - Isolated regression tests and a Windows/Linux Python 3.10/3.13 CI matrix.
+- Console/windowed setup and presentation regressions: one key, no retired-provider UI,
+  preserved legacy settings, and the original banner above the install instructions.
 
 ### Fixed
+- Restored the original README banner and badges after the documentation cleanup.
+- Removed retired-provider branding from the current README, configuration guide and changelog.
 - Concurrent dictations could be inserted out of order or use the next recording's origin/context.
 - Delayed clipboard restores could overwrite content copied by the user or a later dictation.
 - Stale armed timers/click callbacks could consume a newer load.
@@ -31,9 +36,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Dependency installation errors stop launch instead of starting a half-installed environment.
 
 ### Removed
-- Deepgram API calls, websocket streaming, live typing and the websocket-client dependency.
+- Legacy speech-provider API calls, websocket streaming, live typing and the websocket-client dependency.
 - Engine selection and obsolete streaming settings from setup and the current example configuration.
-  Old provider settings remain only in the migration backup and historical entries below.
+  Retired settings are stripped on upgrade; the original file is retained in the migration backup.
 
 ## [Earlier unreleased changes] - 2026-07-24
 
@@ -42,7 +47,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   otherwise keep the result available for Ctrl+V. Uses UI Automation with a caret fallback.
 - Optional single-file Windows executable build through PyInstaller.
 - One-click `Apollo.bat`, app logo, and a "Start at login" tray toggle.
-- Choosable OpenRouter or Deepgram speech engines with configurable OpenRouter audio models.
+- Configurable speech engines and OpenRouter audio models; engine selection has since been removed.
 - Configurable toggle hotkeys alongside press-and-hold mode.
 
 ### Changed
@@ -68,7 +73,7 @@ First public release.
 - Configurable F8 dictation, F9 LLM polish and F10 prompt-building modes.
 - Per-project F10 context in `prompts/*.md`, selected from the tray.
 - Optional Karpathy coding guidelines and an output-language setting for F10.
-- Multi-language Deepgram speech recognition and custom Nova-3 vocabulary.
+- Multi-language speech recognition and custom vocabulary through the original speech engine.
 - Armed insertion: paste in the original window or keep the dictation for later Ctrl+V.
 - Interactive setup with provider sign-up links, tray icon, autostart and single-instance guard.
 - Actionable errors for API, network and microphone failures.

@@ -122,8 +122,8 @@ Other custom model IDs and unrelated settings survive. Once `config_version: 2` 
 model choices are explicit and are not automatically changed again. To keep Qwen,
 set its model ID after upgrading.
 
-Deepgram configuration, API calls, websocket code and live typing were removed.
-Its old single-language preference is carried over where applicable; old keyterms remain
-only in the backup. They are not silently sent as unsupported OpenRouter parameters.
+Setup only requests an OpenRouter key. Retired speech-engine settings are removed during
+upgrade; the old single-language preference is carried over where applicable. Legacy
+custom vocabulary remains only in the backup and is not sent as unsupported API parameters.
 An existing virtual environment may still contain the unused websocket package; Apollo
 no longer imports or installs it. It can be removed manually or by recreating `.venv`.
