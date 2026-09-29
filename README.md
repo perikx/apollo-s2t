@@ -1,5 +1,16 @@
 # Apollo s2t
 
+<p align="center">
+  <img src="assets/banner.svg" alt="Apollo s2t - speech to text, push-to-talk" width="600">
+</p>
+
+<p align="center">
+  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="Platform: Windows 10/11" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776AB">
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/perikx/apollo-s2t?style=social">
+</p>
+
 **Tap a key, speak, tap again. Your words appear in the active text field.**
 
 Windows 10/11 dictation for ChatGPT, VS Code, Word, browsers and other text fields.
@@ -65,7 +76,12 @@ git pull --ff-only
 Dependencies are updated only when `requirements.txt` changes. Old shipped model defaults
 are upgraded automatically, while your key, custom model choices, hotkeys and profiles are preserved.
 The first configuration upgrade saves the old file as `config.json.bak`.
-Deepgram and its streaming/live-typing options have been removed. All speech now uses OpenRouter.
+All speech uses OpenRouter. Setup has no speech-provider selector or live-typing option.
+
+A downloaded ZIP or executable does not update itself when the repository changes.
+For a ZIP installation, download the current source into a new folder and copy your
+`config.json` and custom `prompts/` files before launching. Rebuild an older executable
+with `packaging\build-exe.bat` to use the current program and setup.
 
 ## Check a problem
 
