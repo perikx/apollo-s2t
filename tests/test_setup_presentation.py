@@ -138,9 +138,9 @@ def test_user_facing_files_do_not_reintroduce_retired_provider(relative):
     assert "deepgram" not in (ROOT / relative).read_text(encoding="utf-8").lower()
 
 
-def test_original_banner_and_install_commands_are_preserved():
+def test_current_logo_and_install_commands_are_present():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 'src="assets/banner.svg"' in readme
+    assert 'src="assets/apollo.png"' in readme
     assert readme.index('src="assets/banner.svg"') < readme.index("## Install and run")
     assert readme.index("git clone https://github.com/perikx/apollo-s2t.git") < readme.index("## Use it")
     assert "cd apollo-s2t\n.\\Apollo.bat" in readme
