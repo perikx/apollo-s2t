@@ -58,8 +58,9 @@ class FloatingUI:
         self.moved = False
         self.logo = None
         if logo is not None:
-            from PIL import ImageTk
-            self.logo = ImageTk.PhotoImage(logo.resize((42, 42)), master=self.root)
+            from PIL import Image, ImageOps, ImageTk
+            self.logo = ImageTk.PhotoImage(
+                ImageOps.contain(logo, (42, 42), Image.Resampling.LANCZOS), master=self.root)
             self.root.iconphoto(True, self.logo)
         self.x = app.cfg["overlay"]["x"]
         self.y = app.cfg["overlay"]["y"]

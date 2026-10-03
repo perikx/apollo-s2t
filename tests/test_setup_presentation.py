@@ -138,16 +138,15 @@ def test_user_facing_files_do_not_reintroduce_retired_provider(relative):
     assert "deepgram" not in (ROOT / relative).read_text(encoding="utf-8").lower()
 
 
-def test_original_banner_and_install_commands_are_preserved():
+def test_current_logo_and_install_commands_are_present():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 'src="assets/banner.svg"' in readme
-    assert readme.index('src="assets/banner.svg"') < readme.index("## Install and run")
+    assert 'src="assets/apollo.png"' in readme
+    assert readme.index('src="assets/apollo.png"') < readme.index("## Install and run")
     assert readme.index("git clone https://github.com/perikx/apollo-s2t.git") < readme.index("## Use it")
     assert "cd apollo-s2t\n.\\Apollo.bat" in readme
     assert "git pull --ff-only" in readme
     for label in ("License: MIT", "Platform: Windows 10/11", "Python 3.10+", "GitHub stars"):
         assert f'alt="{label}"' in readme
-    # Compare Git's blob digest, normalizing checkout newlines on Windows.
-    banner = (ROOT / "assets/banner.svg").read_text(encoding="utf-8").encode("utf-8")
-    digest = hashlib.sha1(f"blob {len(banner)}\0".encode("ascii") + banner).hexdigest()
-    assert digest == "7030e0a3d2db062b631e942ba7e475aa2be81523"
+    # Keep the user-supplied original artwork intact.
+    logo = (ROOT / "assets/apollo.png").read_bytes()
+    assert hashlib.sha256(logo).hexdigest() == "ad02310429420cec82cf1c6de5afd459c5d123e691f6a75a6125a5e9e18d5674"

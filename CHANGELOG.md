@@ -3,6 +3,12 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-10-03
+
+### Changed
+- Use the supplied white lyre on amber artwork as the Apollo logo in the floating
+  controls, tray, Windows icon and README. Preserve its original proportions.
+
 ## [0.3.0] - 2026-10-03
 
 ### Added
