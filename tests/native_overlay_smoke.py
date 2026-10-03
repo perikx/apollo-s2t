@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import types
 import logging
+import json
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 for name in ("keyboard", "sounddevice", "pyperclip", "mouse"):
     sys.modules[name] = types.ModuleType(name)
@@ -59,6 +60,10 @@ assert "HTTP 429" in ui.debug_text.toPlainText() and "N / M / P" in ui.debug_sta
 backup.update(state="failed", error="Transcription: HTTP 429. Upstream capacity limit.")
 ui.refresh_recovery()
 assert "Ursache:" in ui.preview_text.toPlainText() and "HTTP 429" in ui.preview_text.toPlainText()
+metadata_path = backup.path.with_suffix(".json")
+metadata = json.loads(metadata_path.read_text()); metadata["error"] = ["malformed legacy diagnostic"]
+metadata_path.write_text(json.dumps(metadata)); ui.refresh_recovery()
+assert ui.dialog.isVisible() and "Wirklich wichtig" in ui.preview_text.toPlainText()
 backup.update(state="ready", error=""); ui.refresh_recovery()
 screenshot("recovery.png", ui.dialog)
 click("settings"); assert ui.page == "settings"

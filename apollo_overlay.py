@@ -349,7 +349,8 @@ class FloatingUI:
         entry = self.selected()
         try:
             text = entry.read_transcript() if entry else "Noch keine Aufnahme im Cache."
-            if entry and entry.metadata.get("error"): text = "Ursache: " + entry.metadata["error"] + "\n\n" + (text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
+            cause = entry.metadata.get("error") if entry else None
+            if isinstance(cause, str) and cause: text = "Ursache: " + cause + "\n\n" + (text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
         except (OSError, ValueError): text = "Aufnahme nicht mehr verfügbar."
         self.preview_text.setPlainText(text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
     def recover_selected(self):
