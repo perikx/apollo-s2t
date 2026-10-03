@@ -1,14 +1,20 @@
 # Configuration
 
-`config.json` is created by setup. Quit Apollo, edit the file, and restart with `Apollo.bat`.
-The tray's **Open settings** item opens this file. `setup.bat` preserves existing settings.
+`config.json` is created by setup. **Settings** opens the modern in-app controls,
+including recording-key capture, behavior, prompt profile and recovery retention.
+**Models** offers searchable primary, fallback and rewrite choices with USD pricing.
+Changes save atomically and apply to the next recording; key rebinding is blocked
+while recording. If you edit the JSON file directly, quit and restart Apollo.
+`setup.bat` preserves existing settings; the executable has a full first-run wizard.
 [`config.example.json`](../config.example.json) shows every shipped default.
 
 ## Models and one API key
 
 The default speech model is `microsoft/mai-transcribe-2`; the rewrite model is
 `google/gemini-3.5-flash-lite`. Change `openrouter_stt.model` and `smoothing.model`
-to pin other compatible OpenRouter models. Transcription uses the dedicated
+to pin other compatible OpenRouter models. `openrouter_stt.fallback_model` selects
+a separate fallback for explicit 429 rejections; use `null` to disable it. The two
+model IDs must differ. Existing custom primaries without a fallback are preserved. Transcription uses the dedicated
 `/audio/transcriptions` endpoint, not the chat endpoint. A chat/audio-capable model
 is not necessarily compatible with this transcription API.
 
@@ -52,11 +58,11 @@ transcript remains saved alongside the cleaned version in `recovery/` for compar
 STT and rewriting have separate read timeouts (`60` and `20` seconds) and a five-second
 connection timeout. These are network timeouts, not hard end-to-end latency guarantees.
 Only an explicit **HTTP 429 transcription rejection** is automatically retried: at most
-three requests in total. After MAI-Transcribe-2's first 429, the next request uses
-`microsoft/mai-transcribe-1.5` with the identical audio and language setting. The switch
-is immediate unless the server supplies `Retry-After`. A further 429 allows one retry
-of MAI-1.5; there is no switch back or extra request budget. Each new recording starts
-with the configured primary again, and custom model choices are not replaced.
+three requests in total. After the primary's first 429, the next request uses the
+configured fallback with identical audio and language. The switch is immediate unless
+the server supplies `Retry-After`. A further 429 allows one retry of the fallback;
+there is no switch back or extra request budget. Disabling fallback retries the same
+primary instead. Each new recording starts with your configured primary again.
 `Retry-After` seconds or HTTP dates are respected even when switching models. Without a
 usable header, same-model retries wait about two or four seconds plus a small random delay. A retry
 starts only within 30 seconds of the first request starting; a longer server-requested
@@ -65,8 +71,11 @@ timeout, so total processing can exceed 30 seconds. Quitting interrupts retry wa
 
 [MAI-Transcribe-1.5](https://openrouter.ai/microsoft/mai-transcribe-1.5) was still listed
 on 2026-10-03. Its normal API price applies when used. Both models can still encounter
-provider/platform limits, so fallback does not replace local audio recovery. The tray
-notification and log identify when Apollo switches to the older model.
+provider/platform limits, so fallback does not replace local audio recovery. Apollo's in-app status and log identify the selected fallback; no Windows balloon
+is shown. Public model discovery sends no API key or audio. Text prices come from
+OpenRouter's Models API; audio prices use the explicit billing units on its public
+model pages because the API's raw numeric price omits that unit. Missing metadata
+shows “Preis nicht verfügbar”. Prices load in the background without blocking recording.
 
 Timeouts and connection failures are not automatically resent because the server may
 already have processed the request. Authentication, credit, other HTTP failures and

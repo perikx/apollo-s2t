@@ -10,6 +10,7 @@ from ctypes import wintypes
 import getpass
 import io
 import logging
+import math
 from logging.handlers import RotatingFileHandler
 import os
 import queue
@@ -51,7 +52,7 @@ except Exception:
     HAVE_TRAY = False
 
 APP_NAME = "Apollo s2t"
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.4.0"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -221,6 +222,11 @@ def build_prompt_system(cfg, base_dir=None):
     return "\n\n".join(parts)
 
 
+def audio_envelope(rms):
+    """Display gain only: map -60..-12 dB to 0..1 without changing captured audio."""
+    return max(0.0, min(1.0, (20*math.log10(max(rms, 1e-9))+60)/48))
+
+
 class Recorder:
     def __init__(self, samplerate, channels, device, max_seconds=300):
         self.samplerate, self.channels, self.device = samplerate, channels, device
@@ -234,11 +240,18 @@ class Recorder:
         self.capture_warning = False
         self.backup_failed = False
         self.level = 0.0
+        self.visual_levels = ()
 
     def _callback(self, indata, frames, time_info, status):
         if len(indata):
             samples = indata.astype(np.float32) / 32768.0
             self.level = float(np.sqrt(np.mean(samples * samples)))
+            # 20 ms envelopes preserve syllables and pauses, unlike one flat RMS value.
+            stride = max(1, self.samplerate//50)
+            levels = tuple(audio_envelope(float(np.sqrt(np.mean(part*part))))
+                           for start in range(0, len(samples), stride)
+                           if len(part := samples[start:start+stride]))
+            self.visual_levels = (self.visual_levels + levels)[-27:]
         if status:
             self.capture_warning = True
         remaining = self.max_samples - self._sample_count
@@ -273,6 +286,7 @@ class Recorder:
 
     def start(self, backup=None, on_error=None):
         self.level = 0.0
+        self.visual_levels = ()
         self._frames = []
         self._sample_count = 0
         self.backup = backup
@@ -571,6 +585,46 @@ class App:
         self._tray = None
         self.ui_events = queue.Queue(maxsize=128)
         self.ui_windows = set()
+        self._key_handles = []
+        self._key_generation = 0
+
+    def _install_keys(self, cfg, generation):
+        try:
+            handlers = {}
+            for mode, key in cfg["hotkeys"].items():
+                if mode not in ("dictate", "polish", "prompt"):
+                    continue
+                codes = keyboard.key_to_scan_codes(key)
+                if not codes:
+                    raise ValueError("No scan code")
+                callback = make_key_handler(self, mode, cfg["hotkey_mode"] == "toggle")
+                for code in set(codes):
+                    if code in handlers:
+                        raise ConfigError("Diese Tasten sind auf deiner Tastatur identisch. Wähle drei verschiedene Tasten.")
+                    handlers[code] = callback
+            def guarded(event):
+                with self._lock:
+                    if generation != self._key_generation:
+                        return True
+                    callback = handlers.get(event.scan_code)
+                    if callback is None:
+                        return True
+                    if get_foreground_window() in self.ui_windows:
+                        # A held recording still needs its release if a popup gains focus.
+                        if self.recording and cfg["hotkey_mode"] == "hold" and event.event_type == keyboard.KEY_UP:
+                            callback(event)
+                        return True
+                    callback(event)
+                    return False
+            return [keyboard.hook(guarded, suppress=True)]
+        except ConfigError:
+            raise
+        except Exception as exc:
+            raise ConfigError("Taste nicht erkannt. Verwende z. B. F8, F9, F10 oder einen Buchstaben.") from exc
+
+    def bind_hotkeys(self):
+        with self._lock:
+            self._key_handles = self._install_keys(self.cfg, self._key_generation)
 
     def open_panel(self, page=None):
         self._ui_event("open", page)
@@ -585,11 +639,28 @@ class App:
         with self._lock:
             cfg = deepcopy(self.cfg)
             for section, values in changes.items():
-                if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing"):
+                if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing", "hotkeys", "hotkey_mode"):
                     raise ConfigError("Unsupported preference")
-                cfg[section].update(values)
+                if isinstance(values, dict):
+                    cfg[section].update(values)
+                else:
+                    cfg[section] = values
             cfg, _ = normalize_config(cfg)
-            save_config(os.path.join(self.base_dir, "config.json"), cfg)
+            rebind = cfg["hotkeys"] != self.cfg["hotkeys"] or cfg["hotkey_mode"] != self.cfg["hotkey_mode"]
+            if rebind and self.recording:
+                raise ConfigError("Beende zuerst die Aufnahme, bevor du ihre Taste änderst.")
+            handles = self._install_keys(cfg, self._key_generation + 1) if rebind and self._key_handles else []
+            try:
+                save_config(os.path.join(self.base_dir, "config.json"), cfg)
+            except Exception:
+                for remove in handles:
+                    remove()
+                raise
+            if handles:
+                previous, self._key_handles = self._key_handles, handles
+                self._key_generation += 1
+                for remove in previous:
+                    remove()
             self.cfg = cfg
         self.refresh_recovery_menu()
 
@@ -937,7 +1008,7 @@ class App:
                     self.notify(f"Transcription busy. Audio saved; retrying in {delay:.0f} seconds.")
                 def on_fallback(model):
                     log.warning("Speech model rate limited; switching this recording to %s.", model)
-                    self.notify("MAI Transcribe 2 is busy. Trying your saved audio with MAI Transcribe 1.5.")
+                    self.notify(f"Hauptmodell ausgelastet. Gesichertes Audio wird mit {model} versucht.")
                 text = transcribe_openrouter(wav, cfg["openrouter_stt"], api_key(cfg),
                                              on_retry=on_retry, on_fallback=on_fallback, wait=self._closing.wait)
             if not text:
@@ -1039,12 +1110,12 @@ def make_tray_image():
 def run_tray(on_quit, app):
     items = [pystray.MenuItem(f"{APP_NAME} {APP_VERSION}", None, enabled=False)]
     for mode, label in (("dictate", "Dictate"), ("polish", "Polish"), ("prompt", "Build prompt")):
-        items.append(pystray.MenuItem(f'{app.cfg["hotkeys"][mode].upper()}: {label}', None, enabled=False))
+        items.append(pystray.MenuItem(lambda item, m=mode, text=label: f'{app.cfg["hotkeys"][m].upper()}: {text}', None, enabled=False))
     profiles = list_profiles(app.cfg, app.base_dir)
     if profiles:
         def select(name):
             return lambda icon, item: app.set_profile(name)
-        items.append(pystray.MenuItem(f'{app.cfg["hotkeys"]["prompt"].upper()} profile', pystray.Menu(*[
+        items.append(pystray.MenuItem(lambda item: f'{app.cfg["hotkeys"]["prompt"].upper()} profile', pystray.Menu(*[
             pystray.MenuItem(name, select(name), radio=True,
                              checked=lambda item, n=name: app.cfg["prompt_profiles"]["active"] == n)
             for name in profiles])))
@@ -1061,7 +1132,7 @@ def run_tray(on_quit, app):
             created = datetime.fromisoformat(meta["created_at"]).astimezone().strftime("%d %b %H:%M:%S")
             has_text = entry.path.with_suffix(".txt").is_file() or entry.path.with_suffix(".transcript.txt").is_file()
             action = "Copy text" if has_text else "Retry audio"
-            label = f'{created} | {meta["mode"]} | {action}'
+            label = f'{created} | {(meta.get("hotkey") or "Unknown key").upper()} · {meta["mode"]} | {action}'
             def recover(icon, item, *, recording_id=entry.id):
                 app.recover(recording_id)
             yield pystray.MenuItem(label, recover)
@@ -1117,9 +1188,7 @@ def main():
         if icon is not None:
             icon.stop()
     try:
-        for mode, key in cfg["hotkeys"].items():
-            if mode in ("dictate", "polish", "prompt"):
-                keyboard.hook_key(key, make_key_handler(app, mode, cfg["hotkey_mode"] == "toggle"), suppress=True)
+        app.bind_hotkeys()
         log.info("Apollo running: %s. STT: %s. Rewrite: %s. Version: %s.", cfg["hotkey_mode"],
                  cfg["openrouter_stt"]["model"], cfg["smoothing"]["model"], APP_VERSION)
         if HAVE_TRAY:
@@ -1143,32 +1212,16 @@ def main():
 
 def run_setup_gui():
     """First-run setup for the windowed exe, which has no stdin for input/getpass."""
-    from tkinter import Tk, messagebox, simpledialog
-    root = Tk()
-    root.withdraw()
+    from apollo_setup import run_windowed_setup
+    error = ""
     try:
         cfg = load_config() if os.path.exists(CONFIG_PATH) else default_config()
-        if not api_key(cfg):
-            key = simpledialog.askstring(
-                APP_NAME, "OpenRouter API key (paid API usage):\nhttps://openrouter.ai/keys",
-                show="*", parent=root)
-            if key is None:
-                return False
-            cfg["smoothing"]["api_key"] = key.strip()
-        if not api_key(cfg):
-            messagebox.showerror(APP_NAME, "An OpenRouter API key is required.", parent=root)
-            return False
-        save_config(CONFIG_PATH, cfg)
-        if messagebox.askyesno(APP_NAME, "Start Apollo at Windows login?", parent=root):
-            enable_autostart()
-        else:
-            disable_autostart()
-        messagebox.showinfo(APP_NAME, f'{cfg["hotkeys"]["dictate"].upper()}: dictate. '
-                            f'{cfg["hotkeys"]["polish"].upper()}: polish. {cfg["hotkeys"]["prompt"].upper()}: build a prompt.\n'
-                            "Tap once to start, again to stop.\nSettings and Quit are in the tray menu.", parent=root)
-        return True
-    finally:
-        root.destroy()
+    except ConfigError:
+        cfg = default_config()
+        error = "Die bisherige Konfiguration ist ungültig. Richte Apollo neu ein; die alte Datei wird beim Speichern gesichert."
+    def autostart(enabled):
+        (enable_autostart if enabled else disable_autostart)()
+    return run_windowed_setup(cfg, CONFIG_PATH, autostart, initial_error=error)
 
 
 def run_setup():
@@ -1179,9 +1232,12 @@ def run_setup():
         print("Using OPENROUTER_API_KEY from your environment; it will not be saved.")
     else:
         prompt = "OpenRouter key (Enter keeps the saved key): " if api_key(cfg) else "OpenRouter key: "
-        value = getpass.getpass(prompt).strip()
-        if value:
-            cfg["smoothing"]["api_key"] = value
+        while True:
+            value = getpass.getpass(prompt).strip()
+            if value:
+                cfg["smoothing"]["api_key"] = value
+            if api_key(cfg): break
+            print("Please enter an OpenRouter key. You can try again.")
     if not api_key(cfg):
         raise ConfigError("A valid API key is required. No new configuration was saved.")
     print(f'Speech: {cfg["openrouter_stt"]["model"]}\nRewrite: {cfg["smoothing"]["model"]}')
@@ -1226,9 +1282,10 @@ if __name__ == "__main__":
                 raise ConfigError("Missing API key. Run setup.bat.")
             print("Configuration valid. No paid API call was made.")
         else:
-            if getattr(sys, "frozen", False) and not os.path.exists(CONFIG_PATH):
-                if not run_setup_gui():
-                    raise SystemExit(0)
+            if getattr(sys, "frozen", False):
+                try: needs_setup = not api_key(load_config())
+                except ConfigError: needs_setup = True
+                if needs_setup and not run_setup_gui(): raise SystemExit(0)
             main()
     except (ConfigError, OSError) as exc:
         log.error("%s", exc)

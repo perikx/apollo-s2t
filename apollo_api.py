@@ -128,7 +128,7 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     (next_attempt_number, delay_seconds); ``wait(seconds)`` can return True to
     cancel (e.g. threading.Event.wait). Timeouts/connection failures have an
     ambiguous server outcome and are deliberately never automatically resent.
-    MAI-2's first 429 switches the next attempt to MAI-1.5 for this recording.
+    The first 429 switches to the configured fallback for this recording.
     ``on_fallback`` receives the replacement model just before that attempt.
     """
     body = {
@@ -147,7 +147,9 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
             response = exc.response
             if response is None or response.status_code != 429 or attempt == STT_MAX_ATTEMPTS:
                 raise
-            fallback_model = STT_RATE_LIMIT_FALLBACKS.get(body["model"])
+            primary = cfg.get("model", DEFAULT_STT_MODEL)
+            fallback_model = (cfg.get("fallback_model", STT_RATE_LIMIT_FALLBACKS.get(primary))
+                              if body["model"] == primary else None)
             delay = _retry_after(response)
             if delay is None:
                 delay = 0 if fallback_model else 2 ** attempt + random.uniform(0, 0.5)
