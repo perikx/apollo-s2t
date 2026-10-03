@@ -5,6 +5,7 @@ import tempfile
 import types
 import logging
 import json
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 for name in ("keyboard", "sounddevice", "pyperclip", "mouse"):
     sys.modules[name] = types.ModuleType(name)
@@ -138,15 +139,23 @@ app.recorder.visual_levels = tuple([.1, .3, .5, .75, .9, .65, .4, .1, 0]*3)
 app.recorder._sample_count = 16000*65
 size = ui.orb.size(); ui.tick(); screenshot("recording.png", ui.orb)
 assert ui.orb.size() == size
-ui.open_page("recovery"); ui.refresh_debug()
-assert "K · Diktieren · 1:05" in ui.debug_state.text() and "Audiodaten kommen an" in ui.debug_state.text()
-ui.sample_at -= 2; ui.refresh_debug(); assert "Keine neuen Audiodaten" in ui.debug_state.text()
+ui.open_page("recovery")
+# A synthetic one-shot buffer has no ongoing microphone callback. Control time
+# here so rendering/build-machine load cannot falsely turn it into a stall.
+with patch("apollo_overlay.time.monotonic", return_value=ui.sample_at):
+    ui.refresh_debug()
+    assert "K · Diktieren · 1:05" in ui.debug_state.text() and "Audiodaten kommen an" in ui.debug_state.text()
+with patch("apollo_overlay.time.monotonic", return_value=ui.sample_at+2):
+    ui.refresh_debug(); assert "Keine neuen Audiodaten" in ui.debug_state.text()
 app.recorder.backup_failed = True; ui.refresh_debug(); assert "Backup fehlgeschlagen" in ui.debug_state.text()
 app.recorder.backup_failed = False
 for i in range(400): apollo.log.info("Queue diagnostic %d", i)
 ui.tick(); ui.refresh_debug()
 assert len(ui.debug_lines) == 300 and ui.debug_text.blockCount() <= 300
 assert "Queue diagnostic 399" in ui.debug_text.toPlainText()
+app.recording = False; app._busy_recordings.add(backup.id); ui.status = "Bereit"; ui.refresh_debug()
+assert "Verarbeitung" in ui.debug_state.text() and "Bereit" not in ui.debug_state.text()
+app._busy_recordings.clear()
 ui.collapse()
 app.recording = False; ui.tick()
 ui.x = ui.bounds().right()-5; ui.orb.moved = True

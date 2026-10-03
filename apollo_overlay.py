@@ -320,7 +320,8 @@ class FloatingUI:
             cache = "Audio-Cache aktiv" if not app.recorder.backup_failed else "Audio-Backup fehlgeschlagen"
             state = f"Aufnahme · {key} · {MODES.get(mode, mode)} · {seconds//60}:{seconds%60:02d}\n{mic} · {cache}"
         elif app._busy_recordings:
-            state = f"Verarbeitung · {len(app._busy_recordings)} Aufnahme(n) · {self.status}"
+            state = f"Verarbeitung · {len(app._busy_recordings)} Aufnahme(n)"
+            if self.status != "Bereit": state += " · " + self.status
         else:
             state = "Bereit · " + " / ".join(v.upper() for k,v in app.cfg["hotkeys"].items() if k in MODES) + "\n" + self.status
         self.debug_state.setText(state)
