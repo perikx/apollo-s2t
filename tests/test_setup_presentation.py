@@ -75,58 +75,45 @@ def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, leg
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["fresh", "upgrade"])
-def test_windowed_setup_only_offers_openrouter(monkeypatch, tmp_path, legacy):
+def test_windowed_setup_passes_preserved_config_to_full_wizard(monkeypatch, tmp_path, legacy):
     path, startup = prepare_setup(monkeypatch, tmp_path, legacy)
-    dialogs, key_prompts, root_events = [], [], []
-    root = types.SimpleNamespace(
-        withdraw=lambda: root_events.append("withdraw"),
-        destroy=lambda: root_events.append("destroy"),
-    )
-
-    def ask_key(title, message, **kwargs):
-        assert kwargs["show"] == "*"
-        assert kwargs["parent"] is root
-        key_prompts.append(message)
-        return "new-openrouter-key"
-
-    def startup_choice(title, message, **kwargs):
-        dialogs.append(message)
-        return False
-
-    def unexpected_error(*args, **kwargs):
-        pytest.fail("Setup unexpectedly showed an error dialog")
-
-    tkinter = types.ModuleType("tkinter")
-    tkinter.Tk = lambda: root
-    tkinter.simpledialog = types.SimpleNamespace(askstring=ask_key)
-    tkinter.messagebox = types.SimpleNamespace(
-        askyesno=startup_choice,
-        showinfo=lambda title, message, **kwargs: dialogs.append(message),
-        showerror=unexpected_error,
-    )
-    monkeypatch.setitem(sys.modules, "tkinter", tkinter)
+    calls = []
+    module = types.ModuleType("apollo_setup")
+    def wizard(cfg, received_path, autostart, initial_error=""):
+        assert received_path == str(path)
+        assert not initial_error
+        calls.append(cfg)
+        if not apollo.api_key(cfg): cfg["smoothing"]["api_key"] = "new-openrouter-key"
+        apollo.save_config(received_path, cfg)
+        autostart(False)
+        return True
+    module.run_windowed_setup = wizard
+    monkeypatch.setitem(sys.modules, "apollo_setup", module)
     assert apollo.run_setup_gui() is True
-    assert len(key_prompts) == (0 if legacy else 1)
-    if not legacy:
-        assert "OpenRouter" in key_prompts[0]
-    assert "deepgram" not in "\n".join(dialogs + key_prompts).lower()
-    assert startup == ["disable"]
-    assert root_events == ["withdraw", "destroy"]
+    assert len(calls) == 1 and startup == ["disable"]
     check_saved_setup(path, legacy)
 
 
 def test_cancelled_windowed_setup_does_not_save_or_enable_autostart(monkeypatch, tmp_path):
     path, startup = prepare_setup(monkeypatch, tmp_path, False)
-    destroyed = []
-    tkinter = types.ModuleType("tkinter")
-    tkinter.Tk = lambda: types.SimpleNamespace(withdraw=lambda: None, destroy=lambda: destroyed.append(True))
-    tkinter.simpledialog = types.SimpleNamespace(askstring=lambda *args, **kwargs: None)
-    tkinter.messagebox = types.SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "tkinter", tkinter)
+    module = types.ModuleType("apollo_setup")
+    module.run_windowed_setup = lambda *args, **kwargs: False
+    monkeypatch.setitem(sys.modules, "apollo_setup", module)
     assert apollo.run_setup_gui() is False
-    assert not path.exists()
-    assert startup == []
-    assert destroyed == [True]
+    assert not path.exists() and startup == []
+
+
+def test_invalid_config_stays_intact_when_setup_cancelled(monkeypatch, tmp_path):
+    path, startup = prepare_setup(monkeypatch, tmp_path, False)
+    path.write_text("invalid", encoding="utf-8")
+    module = types.ModuleType("apollo_setup")
+    def cancel(cfg, received_path, autostart, initial_error=""):
+        assert initial_error and cfg == apollo.default_config()
+        return False
+    module.run_windowed_setup = cancel
+    monkeypatch.setitem(sys.modules, "apollo_setup", module)
+    assert not apollo.run_setup_gui()
+    assert path.read_text() == "invalid" and startup == []
 
 
 @pytest.mark.parametrize("relative", [
@@ -149,4 +136,4 @@ def test_current_logo_and_install_commands_are_present():
         assert f'alt="{label}"' in readme
     # Keep the user-supplied original artwork intact.
     logo = (ROOT / "assets/apollo.png").read_bytes()
-    assert hashlib.sha256(logo).hexdigest() == "ad02310429420cec82cf1c6de5afd459c5d123e691f6a75a6125a5e9e18d5674"
+    assert hashlib.sha256(logo).hexdigest() == "75d883fd9181c404c1323430c12d09d26fb4b976da0577bc66828211da6becc7"

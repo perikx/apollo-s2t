@@ -20,7 +20,8 @@ One OpenRouter API key. No subscription to Apollo. MIT licensed.
 
 For the standalone Windows app, download `Apollo.exe` from the
 [latest release](https://github.com/perikx/apollo-s2t/releases/latest) and put it in a writable folder.
-It asks for your OpenRouter API key on first launch. Existing users should quit Apollo
+First launch runs a three-step setup for your OpenRouter API key, recording keys,
+models and fallback. Invalid entries remain editable in the same window. Existing users should quit Apollo
 before replacing the executable, keeping their configuration, prompts and recovery folder.
 
 Install [Python 3.10+](https://www.python.org/downloads/) with **Add Python to PATH**
@@ -56,11 +57,15 @@ The default recording limit is five minutes; reaching it stops and processes the
 Click the floating Apollo circle to open **Recovery, Settings and Models** on its left.
 The X on its right collapses the controls. Drag the logo anywhere on your desktop;
 drop it at the right edge of a monitor to hide it. **Show Apollo** in the tray brings it back.
-While recording, a small waveform follows the actual microphone level. Errors appear
+The larger logo and charcoal/gold windows scale with Windows display settings.
+While recording, a listening pill follows real syllables and pauses from the microphone. Errors appear
 inside Apollo instead of Windows notification balloons, including when the logo is hidden.
 Settings and model changes apply to the next recording and persist across restarts.
 The interface and setup display your configured keys; F8/F9/F10 above are the defaults.
-Use `setup.bat` to change keys, or `debug.bat` to see diagnostic messages.
+In **Settings**, click a recording key and press its replacement. Save to apply it;
+keys cannot change during an active recording. Model selectors offer search, prices
+and a separate, optional fallback. Use `setup.bat` for console setup or `debug.bat`
+to see diagnostic messages.
 
 ## Recover a dictation
 
@@ -136,8 +141,9 @@ have separate messages. Logs contain counts and timings, not dictated text.
 
 **HTTP 429** means OpenRouter or the speech provider rejected a request because of a
 rate or capacity limit; it can happen even when you have made few requests. Apollo now
-switches from MAI-Transcribe-2 to MAI-Transcribe-1.5 after the first 429, reusing the same
-audio. Each new recording starts with your configured primary model again. There are
+switches to your selected fallback after the first 429, reusing the same audio.
+The shipped choice is MAI-Transcribe-2 → MAI-Transcribe-1.5. **Models** lets you
+choose another compatible pair or turn fallback off. Each new recording starts with your configured primary model again. There are
 at most three requests total, respecting the server's wait instruction. Longer waits
 and other failures leave the recording available for recovery.
 The old generic error message cannot identify which service imposed a particular limit.

@@ -1,454 +1,297 @@
-"""Small native desktop controls. All Tk calls stay on the main thread."""
-from collections import deque
+"""DPI-aware Qt desktop overlay and in-app recovery/settings."""
 from datetime import datetime
-import ctypes
-import os
+import math
 import queue
-import threading
-import tkinter as tk
-from tkinter import ttk
+import time
+from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QSize
+from PySide6.QtGui import QColor, QPainter, QPen, QFont
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit)
+from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, GOLD, TEXT,
+                           label, button, vector, icon, paint_logo)
+from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 
-from apollo_models import discover_models
-
-BG = "#171b24"
-FG = "#f0f2f7"
-MUTED = "#aab3c5"
-ACCENT = "#ffb000"
-TRANSPARENT = "#010203"
-LABELS = {"dictate": "Diktieren", "polish": "Bereinigen", "prompt": "Prompt"}
-
+class Orbit(QWidget):
+    CENTER = QPointF(252, 185)
+    ACTIONS = {"recovery": QPointF(136, 69), "settings": QPointF(88, 185),
+               "models": QPointF(136, 301), "close": QPointF(416, 185)}
+    def __init__(self, ui):
+        super().__init__()
+        self.ui = ui
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
+                            Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setWindowTitle("Apollo")
+        self.resize(454, 386)
+        self.drag = None; self.pressed = None; self.moved = False
+        self.wave = [0.] * 27
+        self.setMouseTracking(True)
+    def hit(self, point):
+        if math.hypot(point.x()-252, point.y()-185) <= 44: return "logo"
+        if self.ui.expanded:
+            for action, center in self.ACTIONS.items():
+                if math.hypot(point.x()-center.x(), point.y()-center.y()) <= 32: return action
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton: return
+        self.pressed = self.hit(event.position()); self.moved = False
+        if self.pressed == "logo": self.drag = (event.globalPosition(), self.ui.x, self.ui.y)
+    def mouseMoveEvent(self, event):
+        self.setCursor(Qt.CursorShape.PointingHandCursor if self.hit(event.position()) else Qt.CursorShape.ArrowCursor)
+        if self.drag:
+            delta = event.globalPosition() - self.drag[0]
+            if delta.manhattanLength() > 5:
+                self.moved = True
+                self.ui.x, self.ui.y = self.drag[1]+delta.x(), self.drag[2]+delta.y()
+                self.move(round(self.ui.x-252), round(self.ui.y-185))
+    def mouseReleaseEvent(self, event):
+        self.drag = None
+        if self.moved:
+            if self.ui.x >= self.ui.bounds().right()-24: self.ui.hide()
+            else: self.ui.place(); self.ui.persist_position()
+            return
+        action = self.hit(event.position())
+        if action != self.pressed: return
+        if action == "logo":
+            self.ui.expanded = not self.ui.expanded
+            if not self.ui.expanded: self.ui.close_dialog()
+            self.ui.place()
+        elif action == "close": self.ui.collapse()
+        elif action: self.ui.open_page(action)
+        self.update()
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
+        rect = QRectF(208, 141, 88, 88)
+        paint_logo(p, self.ui.pixmap, rect)
+        if self.ui.app.recording:
+            strength = max(self.wave, default=0)
+            p.setPen(QPen(QColor(GOLD), 2+strength*2)); p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(rect.adjusted(-5-strength*3, -5-strength*3, 5+strength*3, 5+strength*3))
+        elif self.ui.app._busy_recordings:
+            p.setPen(QPen(QColor(GOLD), 3)); p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawArc(rect.adjusted(-7, -7, 7, 7), -self.ui.tick_count*7*16, 110*16)
+        elif self.ui.status != "Bereit":
+            p.setPen(QPen(QColor("#202020"), 2)); p.setBrush(QColor(GOLD)); p.drawEllipse(QRectF(280, 143, 14, 14))
+        if self.ui.expanded:
+            captions = {"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle", "close": ""}
+            p.setFont(QFont("Segoe UI", 11))
+            for action, c in self.ACTIONS.items():
+                p.setPen(QPen(QColor("#4d4840"), 1)); p.setBrush(QColor("#242422"))
+                p.drawEllipse(QRectF(c.x()-32, c.y()-32, 64, 64))
+                vector(p, action, QRectF(c.x()-14, c.y()-14, 28, 28), TEXT)
+                if captions[action]:
+                    width = p.fontMetrics().horizontalAdvance(captions[action])+20
+                    plate = QRectF(c.x()-width/2, c.y()+40, width, 28)
+                    p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor("#242422")); p.drawRoundedRect(plate, 8, 8)
+                    p.setPen(QColor(TEXT)); p.drawText(plate, Qt.AlignmentFlag.AlignCenter, captions[action])
+        if self.ui.app.recording:
+            plate = QRectF(112, 391 if self.ui.expanded else 241, 280, 92)
+            p.setPen(QPen(QColor("#665235"), 1)); p.setBrush(QColor("#242422")); p.drawRoundedRect(plate, 22, 22)
+            p.setPen(QPen(QColor(GOLD), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for i, strength in enumerate(self.wave):
+                x = plate.center().x()+(i-13)*8; h = 3+strength*37
+                p.drawLine(QPointF(x, plate.top()+30-h/2), QPointF(x, plate.top()+30+h/2))
+            mode = self.ui.app.active_mode; key = self.ui.app.cfg["hotkeys"].get(mode, "").upper()
+            seconds = int(self.ui.app.recorder.sample_count/self.ui.app.samplerate)
+            p.setFont(QFont("Segoe UI", 11)); p.setPen(QColor(TEXT))
+            p.drawText(QRectF(plate.x(), plate.y()+57, plate.width(), 24), Qt.AlignmentFlag.AlignCenter,
+                       f"{key} · {MODES.get(mode, '')}  ·  {seconds//60}:{seconds%60:02d}")
+        p.end()
 
 class FloatingUI:
     def __init__(self, app, on_quit, logo=None):
-        if os.name == "nt":
-            ctypes.windll.user32.SetProcessDPIAware()
         self.app, self.on_quit = app, on_quit
-        self.events = app.ui_events
-        self.root = tk.Tk()
-        self.root.tk.call("tk", "scaling", 1.333333)
-        self.root.withdraw()
-        self.root.title("Apollo")
-        self.root.configure(bg=BG)
-        self.root.option_add("*Font", "{Segoe UI} 10")
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure("TCombobox", padding=7)
-        style.configure("TCombobox", fieldbackground="#222938", background="#293243",
-                        foreground=FG, arrowcolor=FG, bordercolor="#343e50")
-        style.map("TCombobox", fieldbackground=[("readonly", "#222938")],
-                  foreground=[("readonly", FG)], selectbackground=[("!disabled", "#46516a")])
-        self.orb = tk.Toplevel(self.root)
-        self.orb.withdraw()
-        self.orb.overrideredirect(True)
-        self.orb.attributes("-topmost", True)
-        self.orb.configure(bg=TRANSPARENT)
-        if os.name == "nt":
-            self.orb.attributes("-transparentcolor", TRANSPARENT)
-            self.orb.attributes("-toolwindow", True)
-        self.canvas = tk.Canvas(self.orb, width=270, height=248, bg=TRANSPARENT,
-                                highlightthickness=0)
-        self.canvas.pack()
-        self.expanded = False
-        self.visible = app.cfg["overlay"]["visible"]
-        self.dialog = None
-        self.page = None
-        self.status = "Bereit"
-        self.levels = deque([0.0] * 9, maxlen=9)
-        self.drag = None
-        self.moved = False
-        self.logo = None
-        if logo is not None:
-            from PIL import Image, ImageOps, ImageTk
-            self.logo = ImageTk.PhotoImage(
-                ImageOps.contain(logo, (42, 42), Image.Resampling.LANCZOS), master=self.root)
-            self.root.iconphoto(True, self.logo)
-        self.x = app.cfg["overlay"]["x"]
-        self.y = app.cfg["overlay"]["y"]
-        self.x = self.root.winfo_screenwidth() - 100 if self.x is None else self.x
-        self.y = self.root.winfo_screenheight() // 2 if self.y is None else self.y
+        self.root = qt_app(); self.pixmap = logo_pixmap(logo_path(app.base_dir))
+        self.catalog = ModelCatalog(); self.events = app.ui_events
+        self.expanded = False; self.visible = app.cfg["overlay"]["visible"]
+        self.dialog = None; self.page = None; self.status = "Bereit"; self.tick_count = 0
+        self.orb = Orbit(self)
+        screen = self.root.primaryScreen().availableGeometry()
+        self.x = app.cfg["overlay"]["x"]; self.y = app.cfg["overlay"]["y"]
+        if self.x is None: self.x = screen.right()-100
+        if self.y is None: self.y = screen.center().y()
         self.place()
-        self.canvas.bind("<ButtonPress-1>", self.press)
-        self.canvas.bind("<B1-Motion>", self.motion)
-        self.canvas.bind("<ButtonRelease-1>", self.release)
-        self.orb.bind("<Escape>", lambda e: self.collapse())
-        self.orb.update_idletasks()
-        if os.name == "nt":
-            from ctypes import wintypes
-            user = ctypes.windll.user32
-            user.GetParent.argtypes = (wintypes.HWND,)
-            user.GetParent.restype = wintypes.HWND
-            user.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
-            user.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_long)
-            hwnd = user.GetParent(self.orb.winfo_id())
-            user.SetWindowLongW(hwnd, -20, user.GetWindowLongW(hwnd, -20) | 0x08000000)
-        if self.visible:
-            self.orb.deiconify()
-        self.tick_count = 0
-        self.tick()
-
+        if self.visible: self.orb.show()
+        self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.timer.start(33)
+        self.prune_at = time.monotonic()+15
     def bounds(self):
-        if os.name == "nt":
-            from ctypes import wintypes
-            class MonitorInfo(ctypes.Structure):
-                _fields_ = [("size", wintypes.DWORD), ("monitor", wintypes.RECT),
-                            ("work", wintypes.RECT), ("flags", wintypes.DWORD)]
-            user = ctypes.windll.user32
-            user.MonitorFromPoint.argtypes = (wintypes.POINT, wintypes.DWORD)
-            user.MonitorFromPoint.restype = wintypes.HANDLE
-            user.GetMonitorInfoW.argtypes = (wintypes.HANDLE, ctypes.POINTER(MonitorInfo))
-            info = MonitorInfo()
-            info.size = ctypes.sizeof(info)
-            monitor = user.MonitorFromPoint(wintypes.POINT(self.x, self.y), 2)
-            if user.GetMonitorInfoW(monitor, ctypes.byref(info)):
-                r = info.work
-                return r.left, r.top, r.right, r.bottom
-        return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-
+        screen = self.root.screenAt(QPoint(round(self.x), round(self.y))) or self.root.primaryScreen()
+        return screen.availableGeometry()
     def place(self):
-        left, top, right, bottom = self.bounds()
-        self.x = max(left + (166 if self.expanded else 32), min(right - 76, self.x))
-        self.y = max(top + 124, min(bottom - 124, self.y))
-        # Windows coordinates may be negative on a secondary monitor.
-        self.orb.geometry(f"270x248+{self.x - 178}+{self.y - 124}")
-
+        rect = self.bounds(); left = 240 if self.expanded else 48; right = 204 if self.expanded else 48
+        self.x = max(rect.left()+left, min(rect.right()-right, self.x))
+        top = 160 if self.expanded else 52
+        bottom = 308 if self.expanded and self.app.recording else 200 if self.expanded else 155 if self.app.recording else 52
+        self.y = max(rect.top()+top, min(rect.bottom()-bottom, self.y))
+        self.orb.resize(454, 494 if self.expanded and self.app.recording else 386)
+        self.orb.move(round(self.x-252), round(self.y-185))
     def persist_position(self):
-        try:
-            self.app.update_preferences({"overlay": {"visible": self.visible, "x": self.x, "y": self.y}})
-        except (OSError, ValueError):
-            self.status = "Position konnte nicht gespeichert werden"
-
+        try: self.app.update_preferences({"overlay": {"visible": self.visible, "x": self.x, "y": self.y}})
+        except (OSError, ValueError): self.status = "Position konnte nicht gespeichert werden."
     def hide(self):
-        self.visible = False
-        self.expanded = False
-        self.orb.withdraw()
-        self.close_dialog()
-        self.persist_position()
-
+        self.visible = False; self.expanded = False; self.orb.hide(); self.close_dialog(); self.persist_position()
     def show(self):
-        self.visible = True
-        self.place()
-        self.orb.deiconify()
-        self.persist_position()
-
+        self.visible = True; self.place(); self.orb.show(); self.persist_position()
     def collapse(self):
-        self.expanded = False
-        self.close_dialog()
-        self.draw()
-
-    def hit(self, x, y):
-        circles = [(178, 124, 30, "logo")]
-        if self.expanded:
-            circles += [(103, 51, 29, "recovery"), (66, 124, 29, "settings"),
-                        (103, 197, 29, "models"), (239, 124, 18, "close")]
-        for cx, cy, radius, action in circles:
-            if (x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2:
-                return action
-
-    def press(self, event):
-        self.pressed = self.hit(event.x, event.y)
-        self.moved = False
-        if self.pressed == "logo":
-            self.drag = (event.x_root, event.y_root, self.x, self.y)
-
-    def motion(self, event):
-        if self.drag:
-            dx, dy = event.x_root - self.drag[0], event.y_root - self.drag[1]
-            if abs(dx) + abs(dy) > 5:
-                self.moved = True
-                self.x, self.y = self.drag[2] + dx, self.drag[3] + dy
-                self.orb.geometry(f"270x248+{self.x - 178}+{self.y - 124}")
-
-    def release(self, event):
-        self.drag = None
-        if self.moved:
-            if self.x >= self.bounds()[2] - 24:
-                self.hide()
-            else:
-                self.place()
-                self.persist_position()
-            return
-        action = self.hit(event.x, event.y)
-        if action != getattr(self, "pressed", None):
-            return
-        if action == "logo":
-            self.expanded = not self.expanded
-            self.place()
-            if not self.expanded:
-                self.close_dialog()
-        elif action == "close":
-            self.collapse()
-        elif action:
-            self.open_page(action)
-        self.draw()
-
-    def draw(self):
-        c = self.canvas
-        c.delete("all")
-        active = self.app.recording
-        color = ACCENT if active else "#343e50"
-        c.create_oval(146, 92, 210, 156, fill=BG, outline=color, width=2)
-        if active:
-            for i, level in enumerate(self.levels):
-                h = max(3, min(35, level * 100))
-                x = 158 + i * 5
-                c.create_line(x, 124 - h / 2, x, 124 + h / 2, fill=ACCENT, width=3, capstyle="round")
-            key = self.app.cfg["hotkeys"].get(self.app.active_mode, "")
-            self.badge(178, 174, key.upper())
-        elif self.logo:
-            c.create_image(178, 124, image=self.logo)
-        else:
-            c.create_text(178, 124, text="A", fill=ACCENT, font=("Segoe UI", 22, "bold"))
-        if self.status != "Bereit" and not active:
-            c.create_oval(201, 94, 211, 104, fill=ACCENT, outline=BG)
-        if not active and self.app._busy_recordings:
-            c.create_arc(142, 88, 214, 160, start=(self.tick_count * 12) % 360,
-                         extent=90, outline=ACCENT, width=2, style="arc")
-        if self.expanded:
-            for x, y, glyph, label in [(103, 51, "↶", "Recovery"), (66, 124, "≡", "Einstellungen"),
-                                        (103, 197, "◇", "Modelle")]:
-                c.create_oval(x-27, y-27, x+27, y+27, fill=BG, outline="#343e50", width=1)
-                c.create_text(x, y-3, text=glyph, fill=FG, font=("Segoe UI", 20))
-                self.badge(x, y+37, label)
-            c.create_oval(222, 107, 256, 141, fill=BG, outline="#343e50")
-            c.create_text(239, 123, text="×", fill=MUTED, font=("Segoe UI", 19))
-
-    def badge(self, x, y, text):
-        label = self.canvas.create_text(x, y, text=text, fill=FG, font=("Segoe UI", 9))
-        bounds = self.canvas.bbox(label)
-        plate = self.canvas.create_rectangle(bounds[0]-5, bounds[1]-2, bounds[2]+5, bounds[3]+2,
-                                              fill=BG, outline=BG)
-        self.canvas.tag_lower(plate, label)
-
+        self.expanded = False; self.close_dialog(); self.place(); self.orb.update()
     def tick(self):
         if self.app._closing.is_set():
-            self.root.destroy()
-            return
+            self.timer.stop(); self.orb.close(); self.close_dialog(); self.root.quit(); return
         while True:
-            try:
-                kind, value = self.events.get_nowait()
-            except queue.Empty:
-                break
+            try: kind, value = self.events.get_nowait()
+            except queue.Empty: break
             if kind == "status":
                 self.status = value
-                if self.page == "recovery":
-                    self.refresh_recovery()
+                if self.page == "recovery": self.refresh_recovery()
             elif kind == "open":
                 self.show()
-                if value:
-                    self.open_page(value)
-            elif kind == "catalog":
-                self.catalog_result(*value)
-            elif kind == "refresh" and self.page == "recovery":
-                self.refresh_recovery()
-        self.levels.append(getattr(self.app.recorder, "level", 0.0) if self.app.recording else 0.0)
-        self.draw()
-        self.tick_count += 1
-        if self.tick_count % 300 == 0:
-            self.app.prune_recovery()
-            if self.page == "recovery":
-                self.refresh_recovery()
-        self.root.after(50, self.tick)
-
+                if value: self.open_page(value)
+            elif kind == "refresh" and self.page == "recovery": self.refresh_recovery()
+        target = list(getattr(self.app.recorder, "visual_levels", ())) if self.app.recording else []
+        target = ([0.]*27+target)[-27:]
+        for i, level in enumerate(target):
+            old = self.orb.wave[i]; self.orb.wave[i] = old+(level-old)*(.7 if level > old else .28)
+        if getattr(self, "was_recording", False) != self.app.recording:
+            self.was_recording = self.app.recording; self.place()
+        self.orb.update(); self.tick_count += 1
+        if time.monotonic() >= self.prune_at:
+            self.prune_at = time.monotonic()+15; self.app.prune_recovery()
+            if self.page == "recovery": self.refresh_recovery()
     def close_dialog(self):
-        if self.dialog is not None:
-            self.app.ui_windows.clear()
-            self.dialog.destroy()
-        self.dialog = None
+        dialog, self.dialog = self.dialog, None
         self.page = None
-
-    def label(self, parent, text, **kwargs):
-        widget = tk.Label(parent, text=text, bg=BG, fg=FG, anchor="w", **kwargs)
-        widget.pack(fill="x", pady=(12, 4))
-        return widget
-
-    def button(self, parent, text, command):
-        widget = tk.Button(parent, text=text, command=command, bg="#293243", fg=FG,
-                           activebackground="#3a465c", activeforeground=FG, relief="flat",
-                           padx=12, pady=8, cursor="hand2")
-        widget.pack(side="left", padx=(0, 8), pady=12)
-        return widget
-
+        if dialog: dialog.reject(); dialog.deleteLater()
     def open_page(self, page):
-        self.close_dialog()
+        if page not in ("recovery", "settings", "models"): return
+        modal = self.root.activeModalWidget()
+        if modal: modal.reject()
+        if not self.dialog:
+            self.dialog = Shell("Einstellungen", self.pixmap, 920, 740)
+            row = QHBoxLayout(); row.setSpacing(24)
+            sidebar = QWidget(); sidebar.setFixedWidth(176)
+            nav = QVBoxLayout(sidebar); nav.setContentsMargins(0, 0, 0, 0); nav.setSpacing(8)
+            self.nav_buttons = {}
+            for name, text in (("recovery", "Recovery"), ("settings", "Einstellungen"), ("models", "Modelle")):
+                b = button(text, lambda checked=False, p=name: self.open_page(p))
+                b.setObjectName("nav"); b.setCheckable(True); b.setIcon(icon(name))
+                nav.addWidget(b); self.nav_buttons[name] = b
+            nav.addStretch(); nav.addWidget(label("Apollo s2t\nVersion 0.4.0", "muted")); row.addWidget(sidebar)
+            self.content = QWidget(); self.content_layout = QVBoxLayout(self.content)
+            self.content_layout.setContentsMargins(0, 0, 0, 0); self.content_layout.setSpacing(16)
+            row.addWidget(self.content, 1); self.dialog.layout.addLayout(row, 1)
+            self.dialog.finished.connect(self.dialog_closed); register_window(self.dialog, self.app)
+            rect = self.bounds()
+            self.dialog.resize(min(920, rect.width()-32), min(740, rect.height()-32))
+            self.dialog.move(rect.center()-self.dialog.rect().center())
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget(): item.widget().hide(); item.widget().deleteLater()
         self.page = page
-        window = self.dialog = tk.Toplevel(self.root)
-        window.title("Apollo · " + {"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle"}[page])
-        window.configure(bg=BG)
-        window.attributes("-topmost", True)
-        height = 440 if page == "models" else 560
-        window.minsize(520, height)
-        left, top, right, bottom = self.bounds()
-        window.geometry(f"520x{height}+{max(left, min(right-520, self.x-740))}+{max(top, min(bottom-height-40, self.y-220))}")
-        window.protocol("WM_DELETE_WINDOW", self.close_dialog)
-        window.bind("<Escape>", lambda e: self.close_dialog())
-        body = tk.Frame(window, bg=BG, padx=24, pady=12)
-        body.pack(fill="both", expand=True)
-        if page == "recovery":
-            self.recovery_page(body)
-        elif page == "settings":
-            self.settings_page(body)
-        else:
-            self.models_page(body)
-        window.update_idletasks()
-        if os.name == "nt":
-            self.app.ui_windows.add(ctypes.windll.user32.GetParent(window.winfo_id()))
-
-    def recovery_page(self, body):
-        self.label(body, "Letzte Aufnahmen", font=("Segoe UI", 18, "bold"))
-        cache = self.app.cfg["recovery_cache"]
-        self.label(body, f'{cache["minutes"]} Minuten · max. {cache["max_entries"]} Aufnahmen · {cache["max_mb"]} MB')
-        self.recovery_list = tk.Listbox(body, height=5, bg="#222938", fg=FG, relief="flat",
-                                       selectbackground="#46516a", exportselection=False)
-        self.recovery_list.pack(fill="x", pady=8)
-        self.recovery_list.bind("<<ListboxSelect>>", lambda e: self.preview())
-        self.preview_text = tk.Text(body, bg="#222938", fg=FG, wrap="word", relief="flat", height=8,
-                                    padx=12, pady=12, state="disabled")
-        self.preview_text.pack(fill="both", expand=True)
-        row = tk.Frame(body, bg=BG)
-        row.pack(fill="x")
-        self.button(row, "Wiederherstellen", self.recover_selected)
-        self.button(row, "Text kopieren", self.copy_selected)
-        self.button(row, "Löschen", self.delete_selected)
-        self.recovery_status = self.label(body, self.status, wraplength=465)
-        self.refresh_recovery()
-
-    def selected(self):
-        choice = self.recovery_list.curselection()
-        return self.entries[choice[0]] if choice and choice[0] < len(self.entries) else None
-
-    def refresh_recovery(self):
-        old = self.selected().id if hasattr(self, "entries") and self.selected() else None
-        self.entries = self.app.recovery_items()
-        self.recovery_list.delete(0, "end")
-        index = 0
-        for i, entry in enumerate(self.entries):
-            meta = entry.metadata
-            stamp = datetime.fromisoformat(meta["created_at"]).astimezone().strftime("%H:%M:%S")
-            key = meta.get("hotkey") or "Taste unbekannt"
-            label = LABELS.get(meta["mode"], meta["mode"])
-            state = "Text" if entry.read_transcript() else "Erneut versuchen"
-            self.recovery_list.insert("end", f'{stamp}   {key.upper()} · {label}   {state}')
-            if entry.id == old:
-                index = i
-        if self.entries:
-            self.recovery_list.selection_set(index)
-        self.recovery_status.configure(text=self.status)
-        self.preview()
-
-    def preview(self):
-        entry = self.selected()
+        for name, b in self.nav_buttons.items(): b.setChecked(name == page)
+        self.content_layout.addWidget(label({"recovery": "Letzte Aufnahmen", "settings": "Einstellungen", "models": "Modelle"}[page], "title"))
+        getattr(self, page+"_page")()
+        self.dialog.show(); self.dialog.raise_(); self.dialog.activateWindow()
+    def dialog_closed(self, _):
+        dialog, self.dialog = self.dialog, None
+        self.page = None
+        if dialog: dialog.deleteLater()
+    def form(self):
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 8, 0); layout.setSpacing(16)
+        scroll.setWidget(body); self.content_layout.addWidget(scroll, 1)
+        return layout
+    def card(self, layout, title):
+        card = QFrame(); card.setObjectName("card"); inside = QVBoxLayout(card)
+        inside.setContentsMargins(16, 16, 16, 16); inside.setSpacing(12)
+        inside.addWidget(label(title, "section")); layout.addWidget(card); return inside
+    def footer(self, text, save):
+        self.result = label(text, "muted", True); self.content_layout.addWidget(self.result)
+        self.content_layout.addWidget(button("Speichern", save, primary=True))
+    def settings_page(self):
+        cfg = self.app.cfg; layout = self.form(); keys = self.card(layout, "Aufnahmetasten"); self.key_fields = {}
+        for mode, text in MODES.items():
+            row = QHBoxLayout(); row.addWidget(label(text)); row.addStretch()
+            field = KeyCapture(cfg["hotkeys"][mode]); row.addWidget(field); keys.addLayout(row); self.key_fields[mode] = field
+        keys.addWidget(label("Taste anklicken und die neue Taste drücken", "muted"))
+        self.key_mode = Choice({"toggle": "Antippen zum Starten / Stoppen", "hold": "Gedrückt halten"}, cfg["hotkey_mode"], self.pixmap, self.app); keys.addWidget(self.key_mode)
+        profiles = self.card(layout, "Prompt-Profil")
+        self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], self.pixmap, self.app); profiles.addWidget(self.profile)
+        self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"], self.pixmap, self.app); profiles.addWidget(self.language)
+        cache = self.card(layout, "Recovery-Cache")
+        self.minutes = QLineEdit(str(cfg["recovery_cache"]["minutes"])); self.minutes.setAccessibleName("Recovery-Dauer in Minuten")
+        cache.addWidget(self.minutes); cache.addWidget(label("5–60 Minuten · Abgelaufene Aufnahmen werden automatisch gelöscht.", "muted", True))
+        layout.addStretch(); self.footer("Änderungen gelten ab der nächsten Aufnahme.", self.save_settings)
+    def save_settings(self):
         try:
-            text = entry.read_transcript() if entry else "Noch keine Aufnahme im Cache."
-        except (OSError, ValueError):
-            text = "Aufnahme nicht mehr verfügbar."
-        self.preview_text.configure(state="normal")
-        self.preview_text.delete("1.0", "end")
-        self.preview_text.insert("1.0", text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
-        self.preview_text.configure(state="disabled")
-
+            try: minutes = int(self.minutes.text())
+            except ValueError: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
+            if not 5 <= minutes <= 60: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
+            self.app.update_preferences({"hotkeys": {k:v.value for k,v in self.key_fields.items()}, "hotkey_mode": self.key_mode.value,
+                "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
+            self.app.prune_recovery(); self.result.setText("Gespeichert · Änderungen gelten ab der nächsten Aufnahme."); self.result.setObjectName("muted")
+        except (OSError, ValueError) as exc:
+            self.result.setText(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen."); self.result.setObjectName("error")
+        self.result.style().unpolish(self.result); self.result.style().polish(self.result)
+    def models_page(self):
+        cfg = self.app.cfg; layout = self.form(); self.model_fields = {}
+        for key, title, kind, value, allow_none in (
+            ("primary", "Haupttranskription", "transcription", cfg["openrouter_stt"]["model"], False),
+            ("fallback", "Fallback bei Rate Limit (429)", "transcription", cfg["openrouter_stt"].get("fallback_model"), True),
+            ("text", "Bereinigen & Prompt", "text", cfg["smoothing"]["model"], False)):
+            card = self.card(layout, title); field = ModelField(title, kind, value, self.catalog, self.pixmap, self.app, allow_none)
+            card.addWidget(field); self.model_fields[key] = field
+        layout.addWidget(label("Transkription zeigt nur kompatible Sprachmodelle.\nPreise in USD von OpenRouter; die Einheit steht direkt beim Modell.", "muted", True))
+        layout.addWidget(button("Katalog erneut laden", lambda: self.catalog.start(reload=True), quiet=True))
+        layout.addStretch(); self.footer("Die Audioaufnahme bleibt auch bei einem API-Fehler im Recovery-Cache.", self.save_models); self.catalog.start()
+    def save_models(self):
+        stt = self.app.cfg["openrouter_stt"]; text = self.app.cfg["smoothing"]; values = {k:f.value for k,f in self.model_fields.items()}
+        for key, kind, original in (("primary", "transcription", stt["model"]), ("fallback", "transcription", stt.get("fallback_model")), ("text", "text", text["model"])):
+            value = values[key]
+            if value is None and key == "fallback": continue
+            if value != original and value not in self.catalog.data[kind]:
+                self.result.setText("Bitte ein kompatibles Modell aus dem Katalog auswählen."); return
+        try:
+            self.app.update_preferences({"openrouter_stt": {"model": values["primary"], "fallback_model": values["fallback"]}, "smoothing": {"model": values["text"]}})
+            self.result.setText("Modelle gespeichert · gültig ab der nächsten Aufnahme.")
+        except (OSError, ValueError) as exc: self.result.setText(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen.")
+    def recovery_page(self):
+        cfg = self.app.cfg["recovery_cache"]
+        self.content_layout.addWidget(label(f'{cfg["minutes"]} Minuten · max. {cfg["max_entries"]} Aufnahmen · {cfg["max_mb"]} MB', "muted"))
+        self.recovery_list = QListWidget(); self.recovery_list.setMaximumHeight(230); self.recovery_list.currentRowChanged.connect(self.preview)
+        self.content_layout.addWidget(self.recovery_list)
+        self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setPlaceholderText("Noch keine Aufnahme im Cache."); self.content_layout.addWidget(self.preview_text, 1)
+        controls = QWidget(); row = QHBoxLayout(controls); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
+        for text, action, primary in (("Wiederherstellen", self.recover_selected, True), ("Kopieren", self.copy_selected, False), ("Löschen", self.delete_selected, False)): row.addWidget(button(text, action, primary))
+        self.content_layout.addWidget(controls); self.recovery_status = label(self.status, "muted", True); self.content_layout.addWidget(self.recovery_status)
+        self.entries = []; self.refresh_recovery()
+    def selected(self):
+        index = self.recovery_list.currentRow(); return self.entries[index] if 0 <= index < len(self.entries) else None
+    def refresh_recovery(self):
+        old = self.selected().id if self.selected() else None; self.recovery_list.blockSignals(True)
+        self.entries = self.app.recovery_items(); self.recovery_list.clear(); selected = 0
+        for i, entry in enumerate(self.entries):
+            try:
+                meta = entry.metadata; stamp = datetime.fromisoformat(meta["created_at"]).astimezone().strftime("%H:%M:%S")
+                key = meta.get("hotkey") or "Taste unbekannt"
+                text = f'{stamp}    {key.upper()} · {MODES.get(meta["mode"], meta["mode"])}\n'+("Text verfügbar" if entry.read_transcript() else "Audio gesichert · erneut versuchen")
+            except (OSError, ValueError): text = "Aufnahme nicht mehr verfügbar"
+            self.recovery_list.addItem(QListWidgetItem(text))
+            if entry.id == old: selected = i
+        if self.entries: self.recovery_list.setCurrentRow(selected)
+        self.recovery_list.blockSignals(False); self.recovery_status.setText(self.status); self.preview()
+    def preview(self, *_):
+        entry = self.selected()
+        try: text = entry.read_transcript() if entry else "Noch keine Aufnahme im Cache."
+        except (OSError, ValueError): text = "Aufnahme nicht mehr verfügbar."
+        self.preview_text.setPlainText(text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
     def recover_selected(self):
         entry = self.selected()
-        if entry:
-            self.app.recover(entry.id)
-            self.status = "Wiederherstellung läuft …"
-            self.refresh_recovery()
-
+        if entry: self.app.recover(entry.id); self.status = "Wiederherstellung läuft …"; self.refresh_recovery()
     def copy_selected(self):
         entry = self.selected()
-        if entry:
-            self.app.copy_recovery(entry.id)
-
+        if entry: self.app.copy_recovery(entry.id)
     def delete_selected(self):
         entry = self.selected()
-        if entry:
-            self.app.delete_recovery(entry.id)
-            self.refresh_recovery()
-
-    def settings_page(self, body):
-        self.label(body, "Einstellungen", font=("Segoe UI", 18, "bold"))
-        for mode, label in LABELS.items():
-            self.label(body, f'{self.app.cfg["hotkeys"][mode].upper()} · {label}')
-        self.label(body, "Prompt-Profil")
-        profile = tk.StringVar(value=self.app.cfg["prompt_profiles"]["active"])
-        ttk.Combobox(body, textvariable=profile, values=self.app.available_profiles(), state="readonly").pack(fill="x")
-        self.label(body, "Prompt-Sprache")
-        language = tk.StringVar(value=self.app.cfg["prompt_profiles"]["output_language"])
-        ttk.Combobox(body, textvariable=language, values=("english", "german", "match")).pack(fill="x")
-        self.label(body, "Recovery behalten (Minuten)")
-        minutes = tk.StringVar(value=str(self.app.cfg["recovery_cache"]["minutes"]))
-        ttk.Combobox(body, textvariable=minutes, values=(5, 10, 15, 30, 60), state="readonly").pack(fill="x")
-        self.label(body, "Abgelaufene Aufnahmen werden automatisch gelöscht.\nLogo an den rechten Bildschirmrand ziehen: im Tray ausblenden.", wraplength=460)
-        result = self.label(body, "")
-        row = tk.Frame(body, bg=BG)
-        row.pack(fill="x")
-        def save():
-            try:
-                self.app.update_preferences({"prompt_profiles": {"active": profile.get(), "output_language": language.get()},
-                                             "recovery_cache": {"minutes": int(minutes.get())}})
-                self.app.prune_recovery()
-                result.configure(text="Gespeichert · gilt ab der nächsten Aufnahme")
-            except (OSError, ValueError):
-                result.configure(text="Einstellungen konnten nicht gespeichert werden.")
-        self.button(row, "Speichern", save)
-        self.button(row, "Im Tray ausblenden", self.hide)
-
-    def models_page(self, body):
-        self.label(body, "Modelle", font=("Segoe UI", 18, "bold"))
-        self.model_generation = object()
-        generation = self.model_generation
-        self.model_vars, self.model_boxes, self.catalogs = {}, {}, {}
-        self.catalog_finished = set()
-        for kind, title, section in (("transcription", "Transkription", "openrouter_stt"), ("text", "Cleanup & Prompt", "smoothing")):
-            self.label(body, title)
-            var = tk.StringVar(value=self.app.cfg[section]["model"])
-            box = ttk.Combobox(body, textvariable=var)
-            box.pack(fill="x")
-            self.model_vars[kind], self.model_boxes[kind] = var, box
-            box.bind("<KeyRelease>", lambda e, k=kind: self.filter_models(k))
-        self.label(body, "Tippen zum Filtern, Pfeil zum Auswählen.\nTranskription zeigt ausschließlich kompatible Sprachmodelle.\nMAI-2 verwendet bei 429 weiterhin MAI-1.5 als Fallback.", wraplength=460)
-        self.model_status = self.label(body, "Modellkatalog wird geladen …", wraplength=460)
-        row = tk.Frame(body, bg=BG)
-        row.pack(fill="x")
-        self.button(row, "Speichern", self.save_models)
-        self.button(row, "Neu laden", lambda: self.open_page("models"))
-        def fetch(kind):
-            try:
-                data = discover_models(kind)
-            except Exception:
-                data = None
-            self.events.put(("catalog", (generation, kind, data)))
-        for kind in ("transcription", "text"):
-            threading.Thread(target=fetch, args=(kind,), daemon=True, name="apollo-models").start()
-
-    def filter_models(self, kind):
-        query = self.model_vars[kind].get().lower()
-        values = [name for name, label in self.catalogs.get(kind, {}).items() if query in name.lower() or query in label.lower()]
-        self.model_boxes[kind]["values"] = values
-
-    def catalog_result(self, generation, kind, data):
-        if self.page != "models" or generation is not self.model_generation:
-            return
-        self.catalog_finished.add(kind)
-        if data:
-            self.catalogs[kind] = data
-            self.model_boxes[kind]["values"] = list(data)
-        self.model_status.configure(text=("Katalog geladen. Auswahl gilt ab der nächsten Aufnahme."
-            if len(self.catalogs) == 2 else "Katalog wird geladen …" if len(self.catalog_finished) < 2 else
-            "Katalog nicht erreichbar. Bestehende Modelle bleiben erhalten; bitte neu laden."))
-
-    def save_models(self):
-        changes = {}
-        for kind, section in (("transcription", "openrouter_stt"), ("text", "smoothing")):
-            value = self.model_vars[kind].get()
-            if value != self.app.cfg[section]["model"] and value not in self.catalogs.get(kind, {}):
-                self.model_status.configure(text="Bitte ein kompatibles Modell aus dem Katalog auswählen.")
-                return
-            changes[section] = {"model": value}
-        try:
-            self.app.update_preferences(changes)
-            self.model_status.configure(text="Modelle gespeichert.")
-        except (OSError, ValueError):
-            self.model_status.configure(text="Modelle konnten nicht gespeichert werden.")
-
-    def run(self):
-        self.root.mainloop()
+        if entry: self.app.delete_recovery(entry.id); self.refresh_recovery()
+    def run(self): self.root.exec()

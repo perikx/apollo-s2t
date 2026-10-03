@@ -255,3 +255,15 @@ def test_connection_hint_explains_why_it_was_not_resent():
     hint = api.http_error_hint("STT", requests.Timeout("secret url/private-key"))
     assert "outcome is unknown" in hint and "Not automatically resent" in hint
     assert "secret" not in hint and "private-key" not in hint
+
+@pytest.mark.parametrize("primary,fallback", [("openai/whisper-1", "microsoft/mai-transcribe-1.5"),
+                                               ("microsoft/mai-transcribe-2", None)])
+def test_user_selected_fallback_or_disabled_fallback(monkeypatch, clock, primary, fallback):
+    post = Mock(side_effect=[response(429), response(200, {"text": "ok"})])
+    monkeypatch.setattr(api._http, "post", post)
+    cfg = {"model": primary, "fallback_model": fallback}
+    notify = Mock()
+    assert api.transcribe_openrouter(b"wav", cfg, "key", on_fallback=notify) == "ok"
+    assert [c.kwargs["json"]["model"] for c in post.call_args_list] == [primary, fallback or primary]
+    if fallback: notify.assert_called_once_with(fallback)
+    else: notify.assert_not_called()
