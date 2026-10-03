@@ -51,7 +51,7 @@ except Exception:
     HAVE_TRAY = False
 
 APP_NAME = "Apollo s2t"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")

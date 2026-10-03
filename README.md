@@ -1,7 +1,7 @@
 # Apollo s2t
 
 <p align="center">
-  <img src="assets/banner.svg" alt="Apollo s2t - speech to text, push-to-talk" width="600">
+  <img src="assets/apollo.png" alt="Apollo s2t – weiße Lyra auf goldenem Hintergrund" width="240">
 </p>
 
 <p align="center">
