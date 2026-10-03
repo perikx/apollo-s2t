@@ -42,9 +42,17 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore"],
+    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore", "__main__"],
     noarchive=False,
 )
+
+# Qt uses the unsuffixed Windows ICU API. A tool on the build machine's PATH
+# (e.g. Poppler) can supply a different icuuc.dll with version-suffixed exports.
+# Bundling that causes QtCore to fail even though imports work in the venv.
+# Leave Windows' own ICU in place; unrelated ICU data DLLs are not app resources.
+a.binaries = [entry for entry in a.binaries
+              if not (Path(entry[0]).name.lower() == "icuuc.dll"
+                      or Path(entry[0]).name.lower().startswith("icudt"))]
 
 # Python may ship an older MSVC runtime. Loading that at the archive root first
 # can make QtCore fail with "specified procedure could not be found", even when

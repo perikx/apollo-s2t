@@ -89,3 +89,8 @@ QtCore/QtGui/QtWidgets come from PySide6 Essentials on Windows; Tk is excluded.
 The original PNG stays intact. Widgets crop its transparent outer viewport for a
 circle that fills the complete control. Qt handles per-monitor DPI/transparency.
 No executable binary is committed by this change; build output stays under `dist/`.
+
+Run `python packaging/check-exe.py` after building. It checks the original logo,
+Qt platform plugin, absence of private config and unrelated ICU DLLs, then launches
+the real executable without configuration and cancels its setup. This exercises
+actual DLL loading; source/GUI tests alone do not prove a frozen app starts.
