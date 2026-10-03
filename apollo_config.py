@@ -37,6 +37,8 @@ DEFAULTS = {
     },
     "min_record_seconds": 0.3, "max_record_seconds": 300,
     "max_pending_recordings": 3, "beep": True,
+    "overlay": {"visible": True, "x": None, "y": None},
+    "recovery_cache": {"minutes": 15, "max_entries": 10, "max_mb": 64},
 }
 
 
@@ -108,6 +110,15 @@ def _number(value, label, low, high, integer=False):
 
 
 def validate_config(cfg):
+    cache = cfg["recovery_cache"]
+    _number(cache["minutes"], "recovery_cache.minutes", 5, 60, True)
+    _number(cache["max_entries"], "recovery_cache.max_entries", 1, 30, True)
+    _number(cache["max_mb"], "recovery_cache.max_mb", 16, 256, True)
+    if type(cfg["overlay"]["visible"]) is not bool:
+        raise ConfigError("overlay.visible must be true or false.")
+    for axis in ("x", "y"):
+        if cfg["overlay"][axis] is not None:
+            _number(cfg["overlay"][axis], "overlay." + axis, -100000, 100000, True)
     keys = cfg["hotkeys"]
     names = [keys[name] for name in ("dictate", "polish", "prompt")]
     if any(not isinstance(k, str) or not k.strip() or "+" in k for k in names):

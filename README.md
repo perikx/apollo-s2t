@@ -53,23 +53,32 @@ Apollo inserts the complete result after recording, not word by word while speak
 A second mode key does not interrupt an active recording. Stop it with the key that started it.
 The default recording limit is five minutes; reaching it stops and processes the recording.
 
-The microphone icon next to the clock has **recovery, settings, F10 profiles, autostart and Quit**.
-Use `setup.bat` to reconfigure, or `debug.bat` to see diagnostic messages.
-Quit the running copy and restart after changing settings.
+Click the floating Apollo circle to open **Recovery, Settings and Models** on its left.
+The X on its right collapses the controls. Drag the logo anywhere on your desktop;
+drop it at the right edge of a monitor to hide it. **Show Apollo** in the tray brings it back.
+While recording, a small waveform follows the actual microphone level. Errors appear
+inside Apollo instead of Windows notification balloons, including when the logo is hidden.
+Settings and model changes apply to the next recording and persist across restarts.
+The interface and setup display your configured keys; F8/F9/F10 above are the defaults.
+Use `setup.bat` to change keys, or `debug.bat` to see diagnostic messages.
 
 ## Recover a dictation
 
 Apollo saves audio locally while you speak and keeps it when transcription, rewriting,
-or insertion fails. After a failure, right-click the tray icon, open **Recover saved dictation**,
-and select the recording. The result is copied to the clipboard; press **Ctrl+V** where you want it.
+or insertion fails. Click **Recovery** beside the floating logo to preview recent text,
+copy it, retry saved audio or delete a recording. Each entry identifies its original key
+and mode. The result is copied to the clipboard; press **Ctrl+V** where you want it.
 Saved text is reused without an API call. If only audio is available, this action sends it
 again using your current API settings and the original F8/F9/F10 mode and F10 context.
 Restarting Apollo never resends saved recordings automatically.
 
-**Open saved audio and text** opens `recovery/` beside `apollo.py` or `Apollo.exe`.
-The folder contains audio, transcripts and private prompt context in plain local files.
-Successful recordings stay there too; delete recordings you no longer need. Files with
-the same name stem belong together. There is no automatic retention cleanup.
+Recovery is a short-lived local cache: **15 minutes, at most 10 completed recordings and
+64 MB** by default. Settings offer 5–60 minutes. Older entries, including recordings from
+earlier Apollo versions, are automatically deleted on startup and during use. Keep text
+you need by copying it elsewhere. Active recording/processing is protected and can
+temporarily exceed these limits; retention starts from its last state update.
+The internal `recovery/` cache contains private, unencrypted audio, text and prompt context.
+There is no need to open that folder to recover a dictation.
 
 Audio is flushed to disk roughly every half second and at normal stop. This protects
 against an API failure or an interrupted process, but disk, power or microphone failures

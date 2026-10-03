@@ -133,14 +133,36 @@ final text, or its raw transcript if no final text exists, is copied without a n
 request. Otherwise, recovery sends the saved audio using **current** API/model settings
 and the original recording mode and prompt context. This can incur normal API charges.
 Recovery only puts the result on the clipboard for Ctrl+V; it never pastes automatically
-into whichever app happens to be focused. On startup Apollo only announces available
-recordings; it does not send them again.
+into whichever app happens to be focused. Startup never resends recordings.
+The floating logo's **Recovery** window also previews text, copies it and deletes
+individual entries. New recordings include the actual hotkey used; older entries
+without this information are labelled unknown rather than guessing a default key.
 
-Use **Open saved audio and text** to inspect files or remove recordings, preferably
-after quitting Apollo. Remove the files with the same stem together. Successful and
-failed recordings are retained until you delete them; there is no automatic cleanup
-or storage quota. At the default 16 kHz mono format, five minutes uses about 9.6 MB of
-audio. Recovery files contain private audio/text/context in plain, unencrypted form.
+`recovery_cache` defaults to `minutes: 15`, `max_entries: 10`, `max_mb: 64`.
+Completed recordings are removed when expired or above the count/size limit; active
+capture and queued/processing jobs are protected, so limits can be exceeded temporarily.
+Age is measured from the last state update. Cleanup runs at startup, on recording start,
+after processing and every 15 seconds while running. Old recordings from previous
+versions follow the same policy. Orphan/corrupt UUID files and abandoned temporary
+files expire by modification time. Unrelated files and symbolic links are untouched.
+The cache is not an archive; copy important text elsewhere before it expires.
+At 16 kHz mono, five minutes uses about 9.6 MB. Cache contents remain private,
+unencrypted local files, even though the interface no longer requires opening them.
+
+## Floating controls and models
+
+Click the logo to expand Recovery, Settings and Models; the X collapses these controls.
+Drag the logo to a monitor's right edge to hide it; choose **Show Apollo** in the tray
+to restore it. Visibility and position persist in `overlay`. Windows notification
+balloons are disabled. The waveform uses microphone RMS levels; processing has its
+own activity ring. Apollo avoids pasting a completed dictation into its own dialogs.
+
+The Models popup loads the public OpenRouter catalog without credentials or audio.
+Speech choices require `architecture.output_modalities: ["transcription"]`;
+audio-capable chat models alone do not qualify. Cleanup choices require text input
+and text output. Type to filter, then use the dropdown to select. Changed choices
+must exist in the compatible catalog; if loading fails, existing choices are retained.
+Model and profile changes are saved atomically and apply to subsequent recordings.
 
 This is recovery protection, not a guarantee against every failure: an unavailable
 microphone cannot supply audio, a full/broken disk cannot save it, and abrupt process
@@ -171,8 +193,8 @@ being pasted into an unrelated window. Field detection is best effort, not an ac
 ## F10 profiles
 
 Create `prompts/my-project.md` with the project context and select it in the tray's
-**F10 profile** menu. Or set `prompt_profiles.active` to `my-project` in configuration.
-Tray selection is session-only; editing the configuration sets the startup choice.
+profile menu (labelled with your actual prompt hotkey), or the floating Settings window.
+Selections are saved for the next startup. `prompt_profiles.active` also accepts `my-project`.
 Profile contents are read at recording start, so edits affect the next recording.
 
 `prompt_profiles.output_language: "english"` produces an English prompt. `"match"`
