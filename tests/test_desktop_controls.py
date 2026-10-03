@@ -132,3 +132,17 @@ def test_completed_dictation_never_pastes_into_apollo_dialog(app, desktop):
     app.insert_text("saved words", 0)
     assert desktop.clip.text == "saved words"
     assert desktop.sent == []
+
+
+def test_visual_envelope_follows_quiet_speech_and_pauses_without_altering_pcm():
+    recorder = apollo.Recorder(16000, 1, None)
+    samples = np.concatenate([np.zeros((320, 1), dtype=np.int16),
+        np.full((320, 1), 330, dtype=np.int16), np.full((320, 1), 3300, dtype=np.int16),
+        np.zeros((320, 1), dtype=np.int16)])
+    original = samples.copy()
+    recorder._callback(samples, len(samples), None, None)
+    levels = recorder.visual_levels
+    assert levels[0] == levels[-1] == 0
+    assert .3 < levels[1] < levels[2] <= 1
+    assert np.array_equal(samples, original)
+    assert np.array_equal(np.concatenate(recorder._frames), original)

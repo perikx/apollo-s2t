@@ -17,6 +17,7 @@ DEFAULTS = {
     "autostart_delay_seconds": 20,
     "openrouter_stt": {
         "model": DEFAULT_STT_MODEL,
+        "fallback_model": "microsoft/mai-transcribe-1.5",
         "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
         "language": "", "timeout_seconds": 60,
     },
@@ -80,6 +81,9 @@ def normalize_config(raw):
     if legacy or old_engine:
         notes.append("Removed the legacy speech engine; all dictation now uses OpenRouter.")
     cfg = _merge(DEFAULTS, raw)
+    supplied_stt = raw.get("openrouter_stt", {})
+    if "fallback_model" not in supplied_stt and cfg["openrouter_stt"]["model"] != DEFAULT_STT_MODEL:
+        cfg["openrouter_stt"]["fallback_model"] = None
     if version < CONFIG_VERSION:
         stt = cfg["openrouter_stt"]
         if stt["model"] in ("microsoft/mai-transcribe-1.5", "qwen/qwen3-asr-flash-2026-02-10"):
@@ -110,6 +114,12 @@ def _number(value, label, low, high, integer=False):
 
 
 def validate_config(cfg):
+    stt = cfg["openrouter_stt"]
+    fallback = stt.get("fallback_model")
+    if fallback is not None and (not isinstance(fallback, str) or not fallback.strip()):
+        raise ConfigError("Bitte ein Fallback-Modell wählen oder den Fallback deaktivieren.")
+    if fallback == stt["model"]:
+        raise ConfigError("Hauptmodell und Fallback müssen verschieden sein.")
     cache = cfg["recovery_cache"]
     _number(cache["minutes"], "recovery_cache.minutes", 5, 60, True)
     _number(cache["max_entries"], "recovery_cache.max_entries", 1, 30, True)
@@ -124,7 +134,7 @@ def validate_config(cfg):
     if any(not isinstance(k, str) or not k.strip() or "+" in k for k in names):
         raise ConfigError("Hotkeys must be single key names, e.g. f8, f9, f10.")
     if len({k.strip().lower() for k in names}) != len(names):
-        raise ConfigError("The three hotkeys must be different.")
+        raise ConfigError("Bitte drei verschiedene Aufnahmetasten wählen.")
     for name in keys:
         if isinstance(keys[name], str):
             keys[name] = keys[name].strip().lower()

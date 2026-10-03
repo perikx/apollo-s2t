@@ -9,6 +9,7 @@
   "autostart_delay_seconds": 20,
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-2",
+    "fallback_model": "microsoft/mai-transcribe-1.5",
     "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
     "language": "",
     "timeout_seconds": 60

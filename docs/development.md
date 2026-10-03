@@ -29,6 +29,10 @@ retired-provider references from returning to setup, launchers or user documenta
 - `apollo_config.py`: one source of defaults, validation, atomic writes and migration.
 - `apollo_api.py`: OpenRouter transcription and rewrite request/response contracts.
 - `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
+- `apollo_overlay.py`: floating control, listening pill and in-app settings/recovery.
+- `apollo_design.py` / `apollo_widgets.py`: Qt surfaces, vector icons and selectors.
+- `apollo_setup.py`: three-step setup, read-only API-key validation and editable errors.
+- `apollo_models.py`: capability-filtered public catalog and explicitly labeled pricing.
 - `bootstrap.bat`: shared environment creation and dependency refresh.
 - `selftest.py`: offline checks, with explicitly opt-in paid end-to-end diagnostics.
 
@@ -69,12 +73,24 @@ is quit and restarted; an older running instance still uses the previous code.
 Windows floating controls with synthetic recordings and a fake model catalog. It checks
 satellite-button navigation, stored key/text preview, incompatible-model rejection,
 waveform rendering, right-edge hiding, silent errors while hidden, tray-style reopening
-and X collapse. Screenshots remain local for visual inspection. The Windows pytest
+and X collapse. It also checks invalid-input correction, editable keys, optional
+fallback, model prices and all three wizard steps. Screenshots use Qt's own render
+capture, so a locked desktop does not produce an empty screenshot. Inspect both
+normal and high DPI output; real microphone/recognition checks remain separate.
+Screenshots remain local for visual inspection. The Windows pytest
 suite also runs this isolated smoke test; it does not record, paste or call providers.
 
 ## Packaging
 
 `packaging\build-exe.bat` builds a windowed executable with PyInstaller on Windows.
 The bundled model/configuration defaults and profiles use the same Python modules as the
-source app. First launch uses a Tk key-entry dialog because the executable has no console.
+source app. The windowed executable uses a complete Qt setup wizard because it has no console.
+QtCore/QtGui/QtWidgets come from PySide6 Essentials on Windows; Tk is excluded.
+The original PNG stays intact. Widgets crop its transparent outer viewport for a
+circle that fills the complete control. Qt handles per-monitor DPI/transparency.
 No executable binary is committed by this change; build output stays under `dist/`.
+
+Run `python packaging/check-exe.py` after building. It checks the original logo,
+Qt platform plugin, absence of private config and unrelated ICU DLLs, then launches
+the real executable without configuration and cancels its setup. This exercises
+actual DLL loading; source/GUI tests alone do not prove a frozen app starts.

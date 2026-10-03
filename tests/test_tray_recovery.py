@@ -98,7 +98,7 @@ try:
     assert user32.IsWindow(hwnd)
     assert recovery_labels() == ["No saved dictations"]
 
-    audio = app.recovery.create(16000, 1, "dictate")
+    audio = app.recovery.create(16000, 1, "dictate", hotkey="n")
     audio.append(b"\x00\x00" * 8000)
     audio.finish()
     audio.update(state="failed")
@@ -106,14 +106,14 @@ try:
     assert recovery_labels() == ["No saved dictations"]
     app.refresh_recovery_menu()
     assert len(recovery_labels()) == 1
-    assert recovery_labels()[0].endswith("| dictate | Retry audio")
+    assert recovery_labels()[0].endswith("| N · dictate | Retry audio")
 
     app._busy_recordings.add(audio.id)
     app.refresh_recovery_menu()
     assert recovery_labels() == ["No saved dictations"]
     app._busy_recordings.remove(audio.id)
 
-    text = app.recovery.create(16000, 1, "polish")
+    text = app.recovery.create(16000, 1, "polish", hotkey="m")
     text.append(b"\x00\x00" * 8000)
     text.finish()
     text.save_transcript("Synthetic recovery smoke test.", final=True)
@@ -121,8 +121,8 @@ try:
     app.refresh_recovery_menu()
     labels = recovery_labels()
     assert len(labels) == 2
-    assert any(item.endswith("| polish | Copy text") for item in labels)
-    assert any(item.endswith("| dictate | Retry audio") for item in labels)
+    assert any(item.endswith("| M · polish | Copy text") for item in labels)
+    assert any(item.endswith("| N · dictate | Retry audio") for item in labels)
 
     # Dispatch through the callbacks associated with real native menu item IDs.
     # Pystray invokes the app action with (icon, item), catching signature and
@@ -130,7 +130,7 @@ try:
     for expected_mode, expected_id in (("dictate", audio.id), ("polish", text.id)):
         menu, callbacks = recovery_menu()
         index = next(i for i in range(user32.GetMenuItemCount(menu))
-                     if f"| {expected_mode} |" in label(menu, i))
+                     if f"· {expected_mode} |" in label(menu, i))
         item_id = user32.GetMenuItemID(menu, index)
         assert 0 < item_id <= len(callbacks)
         callbacks[item_id - 1](icon)

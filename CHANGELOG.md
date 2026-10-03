@@ -3,6 +3,25 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-10-03
+
+### Changed
+- Replace Tk/color-keyed circles and native dropdowns with a Qt overlay: smooth
+  transparency, automatic Windows DPI scaling, 88 px full-artwork logo, 64 px
+  controls, balanced spacing and large charcoal/gold popups.
+- Use the newly supplied transparent glitter/lyre PNG unchanged, plus its Windows icon.
+- Display real 20 ms microphone envelopes with logarithmic gain and smooth motion.
+- Full windowed first-run setup: validated API key, editable recording keys,
+  language, models, fallback and autostart. Invalid entries stay editable.
+
+### Added
+- Change/rebind all three recording keys in Settings without restarting; failed
+  saves retain working hooks. Apollo input fields allow configured letter keys.
+- Choose any compatible primary transcription model and a separate 429 fallback,
+  or disable fallback. Keep the existing bounded retry and audio recovery behavior.
+- Searchable model cards with public OpenRouter USD prices and explicit audio/token
+  billing units. Unknown prices are shown as unavailable, never guessed.
+
 ## [0.3.1] - 2026-10-03
 
 ### Changed

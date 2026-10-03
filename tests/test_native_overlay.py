@@ -1,4 +1,4 @@
-"""Exercise real Tk controls in an isolated Windows process without hardware/API."""
+"""Exercise real Qt controls in an isolated Windows process without hardware/API."""
 import os
 from pathlib import Path
 import subprocess
