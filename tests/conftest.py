@@ -45,7 +45,7 @@ class Timer:
 
 
 @pytest.fixture(autouse=True)
-def desktop(monkeypatch):
+def desktop(monkeypatch, tmp_path):
     clipboard, sent, timers = Clipboard(), [], []
     def timer(*args, **kwargs):
         value = Timer(*args, **kwargs)
@@ -60,6 +60,7 @@ def desktop(monkeypatch):
     monkeypatch.setattr(apollo, "focused_is_editable", lambda: None)
     monkeypatch.setattr(apollo.threading, "Timer", timer)
     monkeypatch.setattr(apollo, "beep", lambda *args: None)
+    monkeypatch.setattr(apollo, "BASE_DIR", str(tmp_path))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     import apollo_api
     def no_network(*args, **kwargs):
