@@ -1,20 +1,37 @@
 """DPI-aware Qt desktop overlay and in-app recovery/settings."""
 from datetime import datetime
+from collections import deque
+import logging
 import math
 import queue
 import time
-from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QSize
-from PySide6.QtGui import QColor, QPainter, QPen, QFont
+from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent
+from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
-                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit)
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QPlainTextEdit, QToolTip, QSizePolicy)
 from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, GOLD, TEXT,
                            label, button, vector, icon, paint_logo)
-from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
+from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window, WheelRouter
+
+
+class DebugLog(logging.Handler):
+    """Only Apollo's safe diagnostics, bounded in RAM; no response bodies/tracebacks."""
+    def __init__(self):
+        super().__init__(logging.INFO)
+        self.pending = queue.Queue(maxsize=300)
+    def emit(self, record):
+        line = f'{datetime.fromtimestamp(record.created):%H:%M:%S} {record.levelname}  {record.getMessage()[:1000]}'
+        if self.pending.full():
+            try: self.pending.get_nowait()
+            except queue.Empty: pass
+        self.pending.put_nowait(line)
 
 class Orbit(QWidget):
-    CENTER = QPointF(252, 185)
-    ACTIONS = {"recovery": QPointF(136, 69), "settings": QPointF(88, 185),
-               "models": QPointF(136, 301), "close": QPointF(416, 185)}
+    CENTER = QPointF(116, 84)
+    ACTIONS = {"recovery": QPointF(74, 42), "settings": QPointF(56, 84),
+               "models": QPointF(74, 126), "close": QPointF(176, 84)}
+    CAPTIONS = {"logo": "apollo s2t · Menü öffnen", "recovery": "Recovery und Live-Debug",
+                "settings": "Einstellungen", "models": "Modelle", "close": "Menü schließen"}
     def __init__(self, ui):
         super().__init__()
         self.ui = ui
@@ -22,16 +39,29 @@ class Orbit(QWidget):
                             Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setWindowTitle("Apollo")
-        self.resize(454, 386)
+        self.setWindowTitle("apollo s2t"); self.setAccessibleName("apollo s2t · schwebendes Menü")
+        self.resize(200, 168)
         self.drag = None; self.pressed = None; self.moved = False
         self.wave = [0.] * 27
         self.setMouseTracking(True)
     def hit(self, point):
-        if math.hypot(point.x()-252, point.y()-185) <= 44: return "logo"
+        if math.hypot(point.x()-self.CENTER.x(), point.y()-self.CENTER.y()) <= 26: return "logo"
         if self.ui.expanded:
             for action, center in self.ACTIONS.items():
-                if math.hypot(point.x()-center.x(), point.y()-center.y()) <= 32: return action
+                if math.hypot(point.x()-center.x(), point.y()-center.y()) <= 16: return action
+    def event(self, event):
+        if event.type() == QEvent.Type.ToolTip:
+            action = self.hit(event.pos())
+            if action:
+                text = self.CAPTIONS[action]
+                if action == "logo" and self.ui.app.recording:
+                    mode = self.ui.app.active_mode; key = self.ui.app.cfg["hotkeys"].get(mode, "").upper()
+                    seconds = int(self.ui.app.recorder.sample_count/self.ui.app.samplerate)
+                    text = f'{key} · {MODES.get(mode, "")} · {seconds//60}:{seconds%60:02d}'
+                QToolTip.showText(event.globalPos(), text, self)
+            else: QToolTip.hideText()
+            return True
+        return super().event(event)
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton: return
         self.pressed = self.hit(event.position()); self.moved = False
@@ -43,7 +73,7 @@ class Orbit(QWidget):
             if delta.manhattanLength() > 5:
                 self.moved = True
                 self.ui.x, self.ui.y = self.drag[1]+delta.x(), self.drag[2]+delta.y()
-                self.move(round(self.ui.x-252), round(self.ui.y-185))
+                self.move(round(self.ui.x-self.CENTER.x()), round(self.ui.y-self.CENTER.y()))
     def mouseReleaseEvent(self, event):
         self.drag = None
         if self.moved:
@@ -62,41 +92,30 @@ class Orbit(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
-        rect = QRectF(208, 141, 88, 88)
-        paint_logo(p, self.ui.pixmap, rect)
+        rect = QRectF(self.CENTER.x()-22, self.CENTER.y()-22, 44, 44)
         if self.ui.app.recording:
-            strength = max(self.wave, default=0)
-            p.setPen(QPen(QColor(GOLD), 2+strength*2)); p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(rect.adjusted(-5-strength*3, -5-strength*3, 5+strength*3, 5+strength*3))
-        elif self.ui.app._busy_recordings:
-            p.setPen(QPen(QColor(GOLD), 3)); p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawArc(rect.adjusted(-7, -7, 7, 7), -self.ui.tick_count*7*16, 110*16)
-        elif self.ui.status != "Bereit":
-            p.setPen(QPen(QColor("#202020"), 2)); p.setBrush(QColor(GOLD)); p.drawEllipse(QRectF(280, 143, 14, 14))
+            bubble = QRectF(self.CENTER.x()-28, self.CENTER.y()-18, 56, 36)
+            p.setPen(QPen(QColor("#665235"), 1)); p.setBrush(QColor("#242422")); p.drawRoundedRect(bubble, 16, 16)
+            tail = QPainterPath(); tail.moveTo(self.CENTER.x()-4, bubble.bottom()-1)
+            tail.lineTo(self.CENTER.x()-4, bubble.bottom()+5); tail.lineTo(self.CENTER.x()+3, bubble.bottom()-1)
+            p.setPen(Qt.PenStyle.NoPen); p.drawPath(tail)
+            p.setPen(QPen(QColor(GOLD), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for i in range(11):
+                strength = max(self.wave[i*2:i*2+3], default=0)
+                x = self.CENTER.x()+(i-5)*4; h = 3+strength*23
+                p.drawLine(QPointF(x, self.CENTER.y()-h/2), QPointF(x, self.CENTER.y()+h/2))
+        else:
+            paint_logo(p, self.ui.pixmap, rect)
+            if self.ui.app._busy_recordings:
+                p.setPen(QPen(QColor(GOLD), 2)); p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawArc(rect.adjusted(-3, -3, 3, 3), -self.ui.tick_count*7*16, 110*16)
+            elif self.ui.status != "Bereit":
+                p.setPen(QPen(QColor("#202020"), 1)); p.setBrush(QColor(GOLD)); p.drawEllipse(rect.adjusted(33, 0, 0, -33))
         if self.ui.expanded:
-            captions = {"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle", "close": ""}
-            p.setFont(QFont("Segoe UI", 11))
             for action, c in self.ACTIONS.items():
                 p.setPen(QPen(QColor("#4d4840"), 1)); p.setBrush(QColor("#242422"))
-                p.drawEllipse(QRectF(c.x()-32, c.y()-32, 64, 64))
-                vector(p, action, QRectF(c.x()-14, c.y()-14, 28, 28), TEXT)
-                if captions[action]:
-                    width = p.fontMetrics().horizontalAdvance(captions[action])+20
-                    plate = QRectF(c.x()-width/2, c.y()+40, width, 28)
-                    p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor("#242422")); p.drawRoundedRect(plate, 8, 8)
-                    p.setPen(QColor(TEXT)); p.drawText(plate, Qt.AlignmentFlag.AlignCenter, captions[action])
-        if self.ui.app.recording:
-            plate = QRectF(112, 391 if self.ui.expanded else 241, 280, 92)
-            p.setPen(QPen(QColor("#665235"), 1)); p.setBrush(QColor("#242422")); p.drawRoundedRect(plate, 22, 22)
-            p.setPen(QPen(QColor(GOLD), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            for i, strength in enumerate(self.wave):
-                x = plate.center().x()+(i-13)*8; h = 3+strength*37
-                p.drawLine(QPointF(x, plate.top()+30-h/2), QPointF(x, plate.top()+30+h/2))
-            mode = self.ui.app.active_mode; key = self.ui.app.cfg["hotkeys"].get(mode, "").upper()
-            seconds = int(self.ui.app.recorder.sample_count/self.ui.app.samplerate)
-            p.setFont(QFont("Segoe UI", 11)); p.setPen(QColor(TEXT))
-            p.drawText(QRectF(plate.x(), plate.y()+57, plate.width(), 24), Qt.AlignmentFlag.AlignCenter,
-                       f"{key} · {MODES.get(mode, '')}  ·  {seconds//60}:{seconds%60:02d}")
+                p.drawEllipse(QRectF(c.x()-16, c.y()-16, 32, 32))
+                vector(p, action, QRectF(c.x()-9, c.y()-9, 18, 18), TEXT)
         p.end()
 
 class FloatingUI:
@@ -106,6 +125,10 @@ class FloatingUI:
         self.catalog = ModelCatalog(); self.events = app.ui_events
         self.expanded = False; self.visible = app.cfg["overlay"]["visible"]
         self.dialog = None; self.page = None; self.status = "Bereit"; self.tick_count = 0
+        self.debug_log = DebugLog(); logging.getLogger("apollo").addHandler(self.debug_log)
+        self.debug_lines = deque(maxlen=300); self.debug_revision = 0
+        self.last_samples = 0; self.sample_at = time.monotonic()
+        self.root.aboutToQuit.connect(self.detach_debug)
         self.orb = Orbit(self)
         screen = self.root.primaryScreen().availableGeometry()
         self.x = app.cfg["overlay"]["x"]; self.y = app.cfg["overlay"]["y"]
@@ -119,13 +142,11 @@ class FloatingUI:
         screen = self.root.screenAt(QPoint(round(self.x), round(self.y))) or self.root.primaryScreen()
         return screen.availableGeometry()
     def place(self):
-        rect = self.bounds(); left = 240 if self.expanded else 48; right = 204 if self.expanded else 48
+        rect = self.bounds(); left = 76 if self.expanded else 32; right = 80 if self.expanded else 32
         self.x = max(rect.left()+left, min(rect.right()-right, self.x))
-        top = 160 if self.expanded else 52
-        bottom = 308 if self.expanded and self.app.recording else 200 if self.expanded else 155 if self.app.recording else 52
+        top = bottom = 60 if self.expanded else 32
         self.y = max(rect.top()+top, min(rect.bottom()-bottom, self.y))
-        self.orb.resize(454, 494 if self.expanded and self.app.recording else 386)
-        self.orb.move(round(self.x-252), round(self.y-185))
+        self.orb.move(round(self.x-self.orb.CENTER.x()), round(self.y-self.orb.CENTER.y()))
     def persist_position(self):
         try: self.app.update_preferences({"overlay": {"visible": self.visible, "x": self.x, "y": self.y}})
         except (OSError, ValueError): self.status = "Position konnte nicht gespeichert werden."
@@ -137,7 +158,11 @@ class FloatingUI:
         self.expanded = False; self.close_dialog(); self.place(); self.orb.update()
     def tick(self):
         if self.app._closing.is_set():
-            self.timer.stop(); self.orb.close(); self.close_dialog(); self.root.quit(); return
+            self.detach_debug(); self.timer.stop(); self.orb.close(); self.close_dialog(); self.root.quit(); return
+        while True:
+            try: line = self.debug_log.pending.get_nowait()
+            except queue.Empty: break
+            self.debug_lines.append(line); self.debug_revision += 1
         while True:
             try: kind, value = self.events.get_nowait()
             except queue.Empty: break
@@ -155,9 +180,15 @@ class FloatingUI:
         if getattr(self, "was_recording", False) != self.app.recording:
             self.was_recording = self.app.recording; self.place()
         self.orb.update(); self.tick_count += 1
+        samples = self.app.recorder.sample_count
+        if samples != self.last_samples or not self.app.recording:
+            self.last_samples = samples; self.sample_at = time.monotonic()
+        if self.page == "recovery" and self.tick_count % 6 == 0: self.refresh_debug()
         if time.monotonic() >= self.prune_at:
             self.prune_at = time.monotonic()+15; self.app.prune_recovery()
             if self.page == "recovery": self.refresh_recovery()
+    def detach_debug(self):
+        logging.getLogger("apollo").removeHandler(self.debug_log)
     def close_dialog(self):
         dialog, self.dialog = self.dialog, None
         self.page = None
@@ -167,22 +198,23 @@ class FloatingUI:
         modal = self.root.activeModalWidget()
         if modal: modal.reject()
         if not self.dialog:
-            self.dialog = Shell("Einstellungen", self.pixmap, 920, 740)
-            row = QHBoxLayout(); row.setSpacing(24)
-            sidebar = QWidget(); sidebar.setFixedWidth(176)
+            self.dialog = Shell("Einstellungen", self.pixmap, 680, 560)
+            row = QHBoxLayout(); row.setSpacing(16)
+            sidebar = QWidget(); sidebar.setFixedWidth(120)
             nav = QVBoxLayout(sidebar); nav.setContentsMargins(0, 0, 0, 0); nav.setSpacing(8)
             self.nav_buttons = {}
             for name, text in (("recovery", "Recovery"), ("settings", "Einstellungen"), ("models", "Modelle")):
                 b = button(text, lambda checked=False, p=name: self.open_page(p))
                 b.setObjectName("nav"); b.setCheckable(True); b.setIcon(icon(name))
                 nav.addWidget(b); self.nav_buttons[name] = b
-            nav.addStretch(); nav.addWidget(label("Apollo s2t\nVersion 0.4.0", "muted")); row.addWidget(sidebar)
+            from apollo import APP_NAME, APP_VERSION
+            nav.addStretch(); nav.addWidget(label(f"{APP_NAME}\nVersion {APP_VERSION}", "muted")); row.addWidget(sidebar)
             self.content = QWidget(); self.content_layout = QVBoxLayout(self.content)
-            self.content_layout.setContentsMargins(0, 0, 0, 0); self.content_layout.setSpacing(16)
+            self.content_layout.setContentsMargins(0, 0, 0, 0); self.content_layout.setSpacing(8)
             row.addWidget(self.content, 1); self.dialog.layout.addLayout(row, 1)
             self.dialog.finished.connect(self.dialog_closed); register_window(self.dialog, self.app)
             rect = self.bounds()
-            self.dialog.resize(min(920, rect.width()-32), min(740, rect.height()-32))
+            self.dialog.resize(min(680, rect.width()-32), min(560, rect.height()-32))
             self.dialog.move(rect.center()-self.dialog.rect().center())
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -198,12 +230,14 @@ class FloatingUI:
         if dialog: dialog.deleteLater()
     def form(self):
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 8, 0); layout.setSpacing(16)
+        scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus); scroll.wheel_router = WheelRouter(scroll)
+        body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 8, 0); layout.setSpacing(8)
         scroll.setWidget(body); self.content_layout.addWidget(scroll, 1)
         return layout
     def card(self, layout, title):
         card = QFrame(); card.setObjectName("card"); inside = QVBoxLayout(card)
-        inside.setContentsMargins(16, 16, 16, 16); inside.setSpacing(12)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        inside.setContentsMargins(12, 8, 12, 8); inside.setSpacing(6)
         inside.addWidget(label(title, "section")); layout.addWidget(card); return inside
     def footer(self, text, save):
         self.result = label(text, "muted", True); self.content_layout.addWidget(self.result)
@@ -258,13 +292,43 @@ class FloatingUI:
     def recovery_page(self):
         cfg = self.app.cfg["recovery_cache"]
         self.content_layout.addWidget(label(f'{cfg["minutes"]} Minuten · max. {cfg["max_entries"]} Aufnahmen · {cfg["max_mb"]} MB', "muted"))
-        self.recovery_list = QListWidget(); self.recovery_list.setMaximumHeight(230); self.recovery_list.currentRowChanged.connect(self.preview)
+        self.recovery_list = QListWidget(); self.recovery_list.setFixedHeight(86); self.recovery_list.currentRowChanged.connect(self.preview)
         self.content_layout.addWidget(self.recovery_list)
-        self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setPlaceholderText("Noch keine Aufnahme im Cache."); self.content_layout.addWidget(self.preview_text, 1)
+        self.preview_text = QTextEdit(); self.preview_text.setReadOnly(True); self.preview_text.setMinimumHeight(60)
+        self.preview_text.setPlaceholderText("Noch keine Aufnahme im Cache."); self.content_layout.addWidget(self.preview_text, 1)
         controls = QWidget(); row = QHBoxLayout(controls); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         for text, action, primary in (("Wiederherstellen", self.recover_selected, True), ("Kopieren", self.copy_selected, False), ("Löschen", self.delete_selected, False)): row.addWidget(button(text, action, primary))
         self.content_layout.addWidget(controls); self.recovery_status = label(self.status, "muted", True); self.content_layout.addWidget(self.recovery_status)
+        self.content_layout.addWidget(label("Live-Debug", "section"))
+        self.debug_state = label("", "muted", True); self.content_layout.addWidget(self.debug_state)
+        self.debug_text = QPlainTextEdit(); self.debug_text.setReadOnly(True); self.debug_text.setMaximumBlockCount(300)
+        self.debug_text.setPlaceholderText("Hier erscheinen Aufnahme, Verarbeitung, Fallbacks und Fehler dieses Programmlaufs.")
+        self.debug_text.setFixedHeight(108); self.debug_text.setAccessibleName("Live-Debug-Verlauf")
+        self.debug_text.setStyleSheet("QPlainTextEdit { background: #181818; border: 1px solid #383734; border-radius: 8px; padding: 6px; font-size: 12px; }")
+        self.content_layout.addWidget(self.debug_text); self.rendered_debug = -1
         self.entries = []; self.refresh_recovery()
+        self.refresh_debug()
+    def refresh_debug(self):
+        app = self.app
+        if app.recording:
+            mode = app.active_mode; key = app.cfg["hotkeys"].get(mode, "").upper()
+            seconds = int(app.recorder.sample_count/app.samplerate)
+            mic = "Audiodaten kommen an"
+            if not app.recorder.sample_count: mic = "Noch keine Audiodaten"
+            if time.monotonic()-self.sample_at > 1: mic = "Keine neuen Audiodaten seit über 1 s"
+            if app.recorder.capture_warning: mic = "Mikrofon meldet eine Unterbrechung"
+            cache = "Audio-Cache aktiv" if not app.recorder.backup_failed else "Audio-Backup fehlgeschlagen"
+            state = f"Aufnahme · {key} · {MODES.get(mode, mode)} · {seconds//60}:{seconds%60:02d}\n{mic} · {cache}"
+        elif app._busy_recordings:
+            state = f"Verarbeitung · {len(app._busy_recordings)} Aufnahme(n)"
+            if self.status != "Bereit": state += " · " + self.status
+        else:
+            state = "Bereit · " + " / ".join(v.upper() for k,v in app.cfg["hotkeys"].items() if k in MODES) + "\n" + self.status
+        self.debug_state.setText(state)
+        if self.rendered_debug != self.debug_revision:
+            bar = self.debug_text.verticalScrollBar(); tail = bar.value() >= bar.maximum()-2; position = bar.value()
+            self.debug_text.setPlainText("\n".join(self.debug_lines)); self.rendered_debug = self.debug_revision
+            bar.setValue(bar.maximum() if tail else position)
     def selected(self):
         index = self.recovery_list.currentRow(); return self.entries[index] if 0 <= index < len(self.entries) else None
     def refresh_recovery(self):
@@ -274,7 +338,9 @@ class FloatingUI:
             try:
                 meta = entry.metadata; stamp = datetime.fromisoformat(meta["created_at"]).astimezone().strftime("%H:%M:%S")
                 key = meta.get("hotkey") or "Taste unbekannt"
-                text = f'{stamp}    {key.upper()} · {MODES.get(meta["mode"], meta["mode"])}\n'+("Text verfügbar" if entry.read_transcript() else "Audio gesichert · erneut versuchen")
+                state = {"recording": "Aufnahme läuft", "pending": "Wartet auf Verarbeitung", "processing": "Wird transkribiert",
+                         "failed": "Fehlgeschlagen · Audio gesichert", "interrupted": "Unterbrochen · Audio prüfen", "too_short": "Aufnahme zu kurz", "ready": "Text verfügbar"}.get(meta["state"], meta["state"])
+                text = f'{stamp}    {key.upper()} · {MODES.get(meta["mode"], meta["mode"])}\n{state}'
             except (OSError, ValueError): text = "Aufnahme nicht mehr verfügbar"
             self.recovery_list.addItem(QListWidgetItem(text))
             if entry.id == old: selected = i
@@ -282,7 +348,10 @@ class FloatingUI:
         self.recovery_list.blockSignals(False); self.recovery_status.setText(self.status); self.preview()
     def preview(self, *_):
         entry = self.selected()
-        try: text = entry.read_transcript() if entry else "Noch keine Aufnahme im Cache."
+        try:
+            text = entry.read_transcript() if entry else "Noch keine Aufnahme im Cache."
+            cause = entry.metadata.get("error") if entry else None
+            if isinstance(cause, str) and cause: text = "Ursache: " + cause + "\n\n" + (text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
         except (OSError, ValueError): text = "Aufnahme nicht mehr verfügbar."
         self.preview_text.setPlainText(text or "Audio gesichert. Wiederherstellen versucht die Transkription erneut.")
     def recover_selected(self):

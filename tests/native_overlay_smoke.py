@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 import tempfile
 import types
+import logging
+import json
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 for name in ("keyboard", "sounddevice", "pyperclip", "mouse"):
     sys.modules[name] = types.ModuleType(name)
@@ -12,14 +15,16 @@ from apollo_design import qt_app
 import apollo_widgets
 import apollo_overlay
 import apollo_setup
-from PySide6.QtCore import Qt, QPoint, QTimer
+from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtWidgets import QScrollArea, QWidget
 from PySide6.QtTest import QTest
-from apollo_widgets import ModelPicker
 from apollo_config import default_config
 
 output = Path(sys.argv[1]).resolve(); output.mkdir(parents=True, exist_ok=True)
 temporary = tempfile.TemporaryDirectory(); apollo.BASE_DIR = temporary.name
 app = apollo.App({"beep": False, "hotkeys": {"dictate": "n", "polish": "m", "prompt": "p"}})
+apollo.log.setLevel(logging.INFO)
 backup = app.recovery.create(16000, 1, "polish", hotkey="m")
 backup.append(b"\x00\x00"*16000); backup.finish()
 backup.save_transcript("Das ist wichtig. Wirklich wichtig. Bitte behalte meine Wiederholungen.", final=True); backup.update(state="ready")
@@ -28,7 +33,7 @@ def start(self, reload=False):
     self.started = True
     self.data = {"transcription": {
         "microsoft/mai-transcribe-2": {"name": "Microsoft: MAI Transcribe 2", "price": "Audio: $0.1 / Std. Audio"},
-        "microsoft/mai-transcribe-1.5": {"name": "Microsoft: MAI Transcribe 1.5", "price": "Audio: $0.22 / Std. Audio"},
+        "microsoft/mai-transcribe-1.5": {"name": "Microsoft: MAI Transcribe 1.5", "price": "Audio: $0.36 / Std. Audio"},
         "openai/whisper-1": {"name": "OpenAI: Whisper", "price": "Audio: $0.0001 / Sek. Audio"}},
         "text": {"google/gemini-3.5-flash-lite": {"name": "Google: Gemini 3.5 Flash Lite", "price": "$0.10 Eingabe · $0.40 Ausgabe / Mio. Tokens"}}}
     self.changed.emit()
@@ -45,12 +50,51 @@ def click(action):
     qt_app().processEvents()
 
 click("logo"); assert ui.expanded
+assert ui.orb.size().width() == 200 and ui.orb.size().height() == 168
 screenshot("overlay.png", ui.orb)
 click("recovery"); assert ui.page == "recovery"
 assert "M · Bereinigen" in ui.recovery_list.item(0).text()
 assert "Wirklich wichtig" in ui.preview_text.toPlainText()
+apollo.log.error("Transcription: HTTP 429. The upstream provider reported a rate/capacity limit. Audio kept.")
+ui.tick(); ui.refresh_debug()
+assert "HTTP 429" in ui.debug_text.toPlainText() and "N / M / P" in ui.debug_state.text()
+backup.update(state="failed", error="Transcription: HTTP 429. Upstream capacity limit.")
+ui.refresh_recovery()
+assert "Ursache:" in ui.preview_text.toPlainText() and "HTTP 429" in ui.preview_text.toPlainText()
+metadata_path = backup.path.with_suffix(".json")
+metadata = json.loads(metadata_path.read_text()); metadata["error"] = ["malformed legacy diagnostic"]
+metadata_path.write_text(json.dumps(metadata)); ui.refresh_recovery()
+assert ui.dialog.isVisible() and "Wirklich wichtig" in ui.preview_text.toPlainText()
+backup.update(state="ready", error=""); ui.refresh_recovery()
 screenshot("recovery.png", ui.dialog)
 click("settings"); assert ui.page == "settings"
+assert not ui.dialog.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
+assert ui.dialog.windowType() == Qt.WindowType.Window
+assert ui.dialog.windowTitle().startswith("apollo s2t")
+# Native z-order: another ordinary window can cover settings when focus changes.
+import ctypes
+other = QWidget(); other.setWindowTitle("Apollo test focus peer"); other.resize(200, 100); other.show(); other.raise_(); other.activateWindow()
+QTest.qWait(50)
+user = ctypes.windll.user32
+user.GetWindowLongPtrW.argtypes = (ctypes.c_void_p, ctypes.c_int); user.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+assert not user.GetWindowLongPtrW(int(ui.dialog.winId()), -20) & 8  # WS_EX_TOPMOST
+order = []
+callback = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_ssize_t)(lambda hwnd, _: order.append(hwnd) or True)
+user.EnumWindows(callback, 0)
+assert order.index(int(other.winId())) < order.index(int(ui.dialog.winId()))
+other.close(); ui.dialog.raise_(); ui.dialog.activateWindow()
+# The wheel works on an unfocused field without an initial click.
+ui.dialog.resize(680, 430); qt_app().processEvents()
+area = ui.content.findChild(QScrollArea); bar = area.verticalScrollBar()
+assert bar.maximum() > 0
+bar.setValue(0); ui.nav_buttons["settings"].setFocus()
+event = QWheelEvent(QPointF(8, 8), QPointF(ui.minutes.mapToGlobal(QPoint(8, 8))), QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+qt_app().sendEvent(ui.minutes, event)
+assert bar.value() > 0 and area.horizontalScrollBar().maximum() == 0
+ui.dialog.resize(680, 560); qt_app().processEvents()
+# Profile/behavior choices are embedded too.
+ui.key_mode.choose(); assert ui.key_mode.items.isVisible() and ui.key_mode.items.window() is ui.dialog
+ui.key_mode.apply(ui.key_mode.items.item(0)); assert ui.key_mode.items.isHidden()
 ui.minutes.setText("bad"); ui.save_settings()
 assert ui.dialog.isVisible() and ui.minutes.text() == "bad" and "5 bis 60" in ui.result.text()
 QTest.keyClick(ui.minutes, Qt.Key.Key_Return); assert ui.dialog.isVisible()
@@ -59,6 +103,7 @@ QTest.mouseClick(ui.key_fields["dictate"], Qt.MouseButton.LeftButton)
 QTest.keyClick(ui.key_fields["dictate"], Qt.Key.Key_K)
 assert ui.key_fields["dictate"].value == "k"
 ui.save_settings(); assert app.cfg["hotkeys"]["dictate"] == "k" and app.cfg["recovery_cache"]["minutes"] == 10
+area.verticalScrollBar().setValue(0)
 screenshot("settings.png", ui.dialog)
 click("models"); assert ui.page == "models"
 original = app.cfg["openrouter_stt"]["model"]
@@ -70,17 +115,48 @@ assert "verschieden" in ui.result.text() and ui.dialog.isVisible()
 ui.model_fields["fallback"].value = None; ui.model_fields["fallback"].refresh(); ui.save_models()
 assert app.cfg["openrouter_stt"]["fallback_model"] is None
 screenshot("models.png", ui.dialog)
-picker = ModelPicker(ui.model_fields["fallback"]); picker.show(); qt_app().processEvents()
+windows = set(qt_app().topLevelWidgets())
+QTest.mouseClick(ui.model_fields["fallback"].button, Qt.MouseButton.LeftButton); qt_app().processEvents()
+picker = ui.model_fields["fallback"].picker
+assert not picker.isWindow() and picker.window() is ui.dialog and set(qt_app().topLevelWidgets()) == windows
 assert picker.items.count() == 4
 picker.search.setText("Whisper"); assert picker.items.count() == 1
-picker.items.setCurrentRow(0); screenshot("picker.png", picker); picker.apply()
+assert picker.items.item(0).sizeHint().height() == 32
+picker.items.setCurrentRow(0); screenshot("picker.png", ui.dialog)
+QTest.mouseClick(picker.items.viewport(), Qt.MouseButton.LeftButton, pos=picker.items.visualItemRect(picker.items.item(0)).center())
 assert ui.model_fields["fallback"].value == "openai/whisper-1"
+assert picker.isHidden()
+ui.model_fields["primary"].choose(); ui.model_fields["text"].choose()
+assert ui.model_fields["primary"].picker.isHidden() and ui.model_fields["text"].picker.isVisible()
+ui.model_fields["text"].picker.search.setText("no such model")
+assert ui.model_fields["text"].picker.items.count() == 0
+QTest.keyClick(ui.model_fields["text"].picker.search, Qt.Key.Key_Escape)
+assert ui.model_fields["text"].picker.isHidden() and ui.dialog.isVisible()
 ui.save_models(); assert app.cfg["openrouter_stt"]["fallback_model"] == "openai/whisper-1"
 click("close"); assert ui.dialog is None and not ui.expanded
 app.recording = True; app.active_mode = "dictate"
 app.recorder.visual_levels = tuple([.1, .3, .5, .75, .9, .65, .4, .1, 0]*3)
 app.recorder._sample_count = 16000*65
-ui.tick(); screenshot("recording.png", ui.orb)
+size = ui.orb.size(); ui.tick(); screenshot("recording.png", ui.orb)
+assert ui.orb.size() == size
+ui.open_page("recovery")
+# A synthetic one-shot buffer has no ongoing microphone callback. Control time
+# here so rendering/build-machine load cannot falsely turn it into a stall.
+with patch("apollo_overlay.time.monotonic", return_value=ui.sample_at):
+    ui.refresh_debug()
+    assert "K · Diktieren · 1:05" in ui.debug_state.text() and "Audiodaten kommen an" in ui.debug_state.text()
+with patch("apollo_overlay.time.monotonic", return_value=ui.sample_at+2):
+    ui.refresh_debug(); assert "Keine neuen Audiodaten" in ui.debug_state.text()
+app.recorder.backup_failed = True; ui.refresh_debug(); assert "Backup fehlgeschlagen" in ui.debug_state.text()
+app.recorder.backup_failed = False
+for i in range(400): apollo.log.info("Queue diagnostic %d", i)
+ui.tick(); ui.refresh_debug()
+assert len(ui.debug_lines) == 300 and ui.debug_text.blockCount() <= 300
+assert "Queue diagnostic 399" in ui.debug_text.toPlainText()
+app.recording = False; app._busy_recordings.add(backup.id); ui.status = "Bereit"; ui.refresh_debug()
+assert "Verarbeitung" in ui.debug_state.text() and "Bereit" not in ui.debug_state.text()
+app._busy_recordings.clear()
+ui.collapse()
 app.recording = False; ui.tick()
 ui.x = ui.bounds().right()-5; ui.orb.moved = True
 ui.orb.mouseReleaseEvent(types.SimpleNamespace())
@@ -115,5 +191,6 @@ assert config_path.exists() and startup == [False] and not wizard.isVisible()
 cancel_path = Path(temporary.name)/"cancel.json"
 cancelled = apollo_setup.SetupWizard(default_config(), cancel_path, startup.append)
 cancelled.show(); cancelled.reject(); assert not cancel_path.exists() and startup == [False]
-app.close(); ui.timer.stop(); ui.orb.close(); temporary.cleanup()
+app.close(); ui.detach_debug(); ui.timer.stop(); ui.orb.close(); temporary.cleanup()
+assert ui.debug_log not in apollo.log.handlers
 print("Native Qt overlay, retryable forms, editable keys, fallback, prices, full setup, hide/show: PASS", flush=True)

@@ -3,6 +3,25 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] - 2026-10-03
+
+### Changed
+- Compact 44 px logo and 32 px controls, closer spacing and icon tooltips instead
+  of permanent captions. The live speech bubble replaces the logo while recording.
+- Smaller settings/setup windows and controls; display the name as `apollo s2t`.
+- Model and profile choices expand in the existing window. Model rows show names
+  and explicit USD audio/token prices in one line, with full details on hover.
+
+### Fixed
+- Settings/setup are ordinary windows that other apps can cover when switching focus.
+- Wheel scrolling works over unfocused settings fields without a preliminary click.
+
+### Added
+- Recovery live-debug view: recording/key/duration, stalled audio and backup errors,
+  API errors, retries and fallbacks. Keep at most 300 safe diagnostics in RAM.
+- Preserve safe failure causes with cached audio across restarts; clear the cause
+  when a retry succeeds. Never store provider response bodies in diagnostics.
+
 ## [0.4.0] - 2026-10-03
 
 ### Changed
