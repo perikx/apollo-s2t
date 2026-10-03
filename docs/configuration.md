@@ -121,7 +121,7 @@ Captured audio stays in the recovery folder, including cancelled work.
 
 ## Saved recordings and recovery
 
-`recovery/` lives beside `apollo.py` for source installations or beside `Apollo.exe`
+`recovery/` lives beside `apollo.py` for source installations or beside `apollo.exe`
 for executable installations. The folder must be writable. A separate save thread
 checkpoints captured audio about every 0.5 seconds with disk flushes (`fsync`); normal
 stop flushes the remaining audio before processing. Microphone stop/close failures
@@ -146,6 +146,12 @@ into whichever app happens to be focused. Startup never resends recordings.
 The floating logo's **Recovery** window also previews text, copies it and deletes
 individual entries. New recordings include the actual hotkey used; older entries
 without this information are labelled unknown rather than guessing a default key.
+Safe failure causes (for example transcription HTTP 429 and its reported limit source)
+remain with each cache entry across restarts. Successful recovery clears that cause.
+The embedded Live Debug shows microphone/capture state, current configured key,
+duration, missing audio, backup problems and the current run's API/retry/fallback logs.
+Its last 300 diagnostics live in memory only; closing the panel does not discard them.
+Provider bodies, dictated text and API keys are excluded from diagnostic messages.
 
 `recovery_cache` defaults to `minutes: 15`, `max_entries: 10`, `max_mb: 64`.
 Completed recordings are removed when expired or above the count/size limit; active
@@ -161,15 +167,20 @@ unencrypted local files, even though the interface no longer requires opening th
 ## Floating controls and models
 
 Click the logo to expand Recovery, Settings and Models; the X collapses these controls.
-Drag the logo to a monitor's right edge to hide it; choose **Show Apollo** in the tray
+Drag the logo to a monitor's right edge to hide it; choose **Show apollo s2t** in the tray
 to restore it. Visibility and position persist in `overlay`. Windows notification
 balloons are disabled. The waveform uses microphone RMS levels; processing has its
-own activity ring. Apollo avoids pasting a completed dictation into its own dialogs.
+own activity ring. The speech bubble replaces the logo during recording. Only the
+floating control stays above other apps; settings/setup participate in normal window
+stacking. Apollo avoids pasting a completed dictation into its own dialogs.
 
 The Models popup loads the public OpenRouter catalog without credentials or audio.
 Speech choices require `architecture.output_modalities: ["transcription"]`;
 audio-capable chat models alone do not qualify. Cleanup choices require text input
-and text output. Type to filter, then use the dropdown to select. Changed choices
+and text output. Clicking a selector expands a search and compact one-line list
+inside the existing window. Click a row to select; Escape closes just the list.
+Prices show input/output and verified billing units; hover for the full name/ID/price.
+Changed choices
 must exist in the compatible catalog; if loading fails, existing choices are retained.
 Model and profile changes are saved atomically and apply to subsequent recordings.
 
@@ -211,7 +222,7 @@ keeps the dictated language; any other language name forces that language. This 
 F10 only. F9 keeps the original language. Code identifiers remain unchanged.
 `include_karpathy: false` disables the small coding-specific guidance.
 
-In an executable build, custom profiles go next to `Apollo.exe` in `prompts/`.
+In an executable build, custom profiles go next to `apollo.exe` in `prompts/`.
 Once that directory exists it takes precedence over bundled profiles; copy any bundled
 profiles you want to retain into the same directory.
 

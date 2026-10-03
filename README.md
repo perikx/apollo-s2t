@@ -1,4 +1,4 @@
-# Apollo s2t
+# apollo s2t
 
 <p align="center">
   <img src="assets/apollo.png" alt="Apollo s2t – weiße Lyra auf goldenem Hintergrund" width="240">
@@ -18,7 +18,7 @@ One OpenRouter API key. No subscription to Apollo. MIT licensed.
 
 ## Install and run
 
-For the standalone Windows app, download `Apollo.exe` from the
+For the standalone Windows app, download `apollo.exe` from the
 [latest release](https://github.com/perikx/apollo-s2t/releases/latest) and put it in a writable folder.
 First launch runs a three-step setup for your OpenRouter API key, recording keys,
 models and fallback. Invalid entries remain editable in the same window. Existing users should quit Apollo
@@ -56,14 +56,15 @@ The default recording limit is five minutes; reaching it stops and processes the
 
 Click the floating Apollo circle to open **Recovery, Settings and Models** on its left.
 The X on its right collapses the controls. Drag the logo anywhere on your desktop;
-drop it at the right edge of a monitor to hide it. **Show Apollo** in the tray brings it back.
-The larger logo and charcoal/gold windows scale with Windows display settings.
-While recording, a listening pill follows real syllables and pauses from the microphone. Errors appear
+drop it at the right edge of a monitor to hide it. **Show apollo s2t** in the tray brings it back.
+The compact 44 px logo and 32 px controls scale with Windows display settings;
+hover an icon for its label. Settings windows move behind other apps when switching focus.
+While recording, a speech bubble replaces the logo and follows real syllables and pauses. Errors appear
 inside Apollo instead of Windows notification balloons, including when the logo is hidden.
 Settings and model changes apply to the next recording and persist across restarts.
 The interface and setup display your configured keys; F8/F9/F10 above are the defaults.
 In **Settings**, click a recording key and press its replacement. Save to apply it;
-keys cannot change during an active recording. Model selectors offer search, prices
+keys cannot change during an active recording. Model selectors expand inside the same window with search and one-line USD prices
 and a separate, optional fallback. Use `setup.bat` for console setup or `debug.bat`
 to see diagnostic messages.
 
@@ -73,6 +74,10 @@ Apollo saves audio locally while you speak and keeps it when transcription, rewr
 or insertion fails. Click **Recovery** beside the floating logo to preview recent text,
 copy it, retry saved audio or delete a recording. Each entry identifies its original key
 and mode. The result is copied to the clipboard; press **Ctrl+V** where you want it.
+Recovery includes live microphone/capture state and a bounded debug history of the
+current run (300 messages in memory). It reports API errors, retries and fallbacks
+without response bodies, transcript content or API keys. Safe failure causes are
+kept with each recording and remain visible after restarting, until its cache expires.
 Saved text is reused without an API call. If only audio is available, this action sends it
 again using your current API settings and the original F8/F9/F10 mode and F10 context.
 Restarting Apollo never resends saved recordings automatically.

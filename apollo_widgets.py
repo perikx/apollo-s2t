@@ -3,11 +3,13 @@ import queue
 import threading
 import time
 
-from PySide6.QtCore import QObject, Signal, Qt, QSize
+from PySide6.QtCore import QObject, Signal, Qt, QSize, QEvent, QRect
+from PySide6.QtGui import QPainter, QColor
 from PySide6.QtWidgets import (QHBoxLayout, QVBoxLayout, QWidget, QPushButton,
-                              QLineEdit, QListWidget, QListWidgetItem)
+                              QLineEdit, QListWidget, QListWidgetItem, QStyledItemDelegate,
+                              QStyle, QStyleOptionViewItem, QScrollArea, QApplication, QSizePolicy)
 
-from apollo_design import Shell, button, label, icon
+from apollo_design import label, icon, TEXT, MUTED
 from apollo_models import discover_catalog, discover_price
 
 MODES = {"dictate": "Diktieren", "polish": "Bereinigen", "prompt": "Prompt"}
@@ -27,7 +29,7 @@ class KeyCapture(QPushButton):
         super().__init__(key.upper())
         self.value = key
         self.capturing = False
-        self.setMinimumSize(112, 48)
+        self.setMinimumSize(100, 34)
         self.setAutoDefault(False)
         self.setAccessibleName("Aufnahmetaste ändern")
         self.clicked.connect(self.capture)
@@ -66,33 +68,55 @@ class KeyCapture(QPushButton):
         event.accept()
 
 
-class Choice(QPushButton):
-    """A readable custom list instead of a platform-native dropdown."""
+class Choice(QWidget):
+    """Small inline choices; no extra native window or modal event loop."""
     def __init__(self, options, value, pixmap, app=None):
+        super().__init__()
         self.options, self.value, self.pixmap, self.app = options, value, pixmap, app
-        super().__init__(options.get(value, str(value)))
-        self.setMinimumHeight(48)
-        self.setAutoDefault(False)
-        self.setIcon(icon("chevron"))
-        self.clicked.connect(self.choose)
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
+        self.button = QPushButton(options.get(value, str(value)))
+        self.button.setAutoDefault(False); self.button.setMinimumHeight(34); self.button.setIcon(icon("chevron"))
+        layout.addWidget(self.button)
+        self.items = QListWidget(); self.items.setFixedHeight(min(len(options)*34+8, 150))
+        for key, text in options.items():
+            item = QListWidgetItem(text); item.setData(Qt.ItemDataRole.UserRole, key); self.items.addItem(item)
+        layout.addWidget(self.items); self.items.hide()
+        self.button.clicked.connect(self.choose)
+        self.items.itemClicked.connect(self.apply); self.items.itemActivated.connect(self.apply)
+        self.items.installEventFilter(self)
     def choose(self):
-        picker = Shell("Auswahl", self.pixmap, 620, 460, self.window())
-        register_window(picker, self.app)
-        picker.layout.addWidget(label("Auswählen", "title"))
-        choices = QListWidget()
-        for key, text in self.options.items():
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, key)
-            choices.addItem(item)
-            if key == self.value: choices.setCurrentItem(item)
-        picker.layout.addWidget(choices, 1)
-        def apply():
-            if choices.currentItem():
-                self.value = choices.currentItem().data(Qt.ItemDataRole.UserRole)
-                self.setText(self.options[self.value])
-                picker.accept()
-        picker.layout.addWidget(button("Übernehmen", apply, primary=True))
-        picker.exec()
+        self.items.setVisible(self.items.isHidden())
+        if self.items.isVisible(): self.items.setFocus()
+    def apply(self, item):
+        self.value = item.data(Qt.ItemDataRole.UserRole)
+        self.button.setText(self.options[self.value]); self.items.hide(); self.button.setFocus()
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            self.items.hide(); self.button.setFocus(); return True
+        return super().eventFilter(watched, event)
+
+
+class WheelRouter(QObject):
+    """Wheel the area under the pointer, even when its fields lack focus.
+
+    Lists and text previews retain their own scroll behavior. The app filter is
+    parented to the area and automatically disappears when a page is destroyed.
+    """
+    def __init__(self, area):
+        super().__init__(area); self.area = area
+        QApplication.instance().installEventFilter(self)
+    def eventFilter(self, watched, event):
+        if event.type() != QEvent.Type.Wheel or not isinstance(watched, QWidget): return False
+        node = watched
+        while node is not None and node is not self.area:
+            if isinstance(node, (QListWidget, QScrollArea)) or node.inherits("QTextEdit"): return False
+            node = node.parentWidget()
+        if node is not self.area: return False
+        bar = self.area.verticalScrollBar()
+        if bar.maximum() <= 0: return False
+        delta = event.pixelDelta().y() or event.angleDelta().y()/120*bar.singleStep()*3
+        if not delta: return False
+        bar.setValue(bar.value()-round(delta)); event.accept(); return True
 
 
 class ModelCatalog(QObject):
@@ -151,28 +175,78 @@ class ModelCatalog(QObject):
         return self.data[kind].get(value, {"name": value, "price": "Preis nicht verfügbar"})
 
 
-class ModelPicker(Shell):
+def compact_price(price):
+    """Shorten only presentation; retain explicit, verified billing units."""
+    return (price.replace(" Eingabe", " In").replace(" Ausgabe", " Out")
+            .replace(" / Mio. Tokens", " / 1M Token").replace("Std. Audio", "h Audio")
+            .replace("Sek. Audio", "s Audio").removeprefix("Audio: "))
+
+
+def paint_model(painter, rect, name, price):
+    name_font = painter.font(); price_font = painter.font(); price_font.setPixelSize(12)
+    painter.setFont(price_font); metrics = painter.fontMetrics()
+    price_width = min(metrics.horizontalAdvance(price)+6, round(rect.width()*.58))
+    painter.setPen(QColor(MUTED))
+    painter.drawText(QRect(rect.right()-price_width, rect.y(), price_width, rect.height()),
+                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, metrics.elidedText(price, Qt.TextElideMode.ElideRight, price_width))
+    painter.setPen(QColor(TEXT))
+    painter.setFont(name_font); metrics = painter.fontMetrics()
+    name_width = max(0, rect.width()-price_width-12)
+    painter.drawText(QRect(rect.x(), rect.y(), name_width, rect.height()),
+                     Qt.AlignmentFlag.AlignVCenter, metrics.elidedText(name, Qt.TextElideMode.ElideRight, name_width))
+
+
+class ModelRow(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        option = QStyleOptionViewItem(option); self.initStyleOption(option, index); option.text = ""
+        option.widget.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, option, painter, option.widget)
+        painter.save(); painter.setFont(option.font)
+        name, price = index.data(Qt.ItemDataRole.UserRole+1)
+        paint_model(painter, option.rect.adjusted(10, 0, -10, 0), name,
+                    compact_price(price) if index.data(Qt.ItemDataRole.UserRole) else "Aus"); painter.restore()
+
+
+class ModelButton(QPushButton):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self); p.setFont(self.font())
+        info = self.field.catalog.details(self.field.kind, self.field.value)
+        paint_model(p, self.rect().adjusted(10, 0, -30, 0), info["name"], compact_price(info["price"]) if self.field.value else "Aus")
+        icon("chevron").paint(p, self.width()-24, (self.height()-16)//2, 16, 16); p.end()
+
+
+class ModelPicker(QWidget):
+    """Embedded search and one-line model rows in the existing form."""
     def __init__(self, field):
-        super().__init__(field.title, field.pixmap, 760, 680, field.window())
+        super().__init__(field)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.field = field
         self.selection = field.value
-        register_window(self, field.app)
-        self.layout.addWidget(label(field.title, "title"))
-        self.search = QLineEdit(); self.search.setPlaceholderText("Modelle suchen …"); self.search.setMinimumHeight(50)
+        self.layout = QVBoxLayout(self); self.layout.setContentsMargins(0, 0, 0, 0); self.layout.setSpacing(4)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Modelle suchen …"); self.search.setAccessibleName(field.title + " suchen")
         self.layout.addWidget(self.search)
-        self.items = QListWidget(); self.items.setStyleSheet("QListWidget::item { padding: 0; }")
-        self.layout.addWidget(self.items, 1)
-        self.note = label("OpenRouter · USD · Preise werden direkt vom Anbieter geladen", "muted", True)
+        self.items = QListWidget(); self.items.setStyleSheet("QListWidget::item { padding: 0; margin: 0; border-radius: 6px; }")
+        self.items.setItemDelegate(ModelRow(self.items)); self.items.setFixedHeight(166)
+        self.layout.addWidget(self.items)
+        self.note = label("Eingabe / Ausgabe · USD · Einheit beim Modell", "muted", True)
         self.layout.addWidget(self.note)
-        self.layout.addWidget(button("Modell verwenden", self.apply, primary=True))
         self.items.currentItemChanged.connect(self.selected)
+        self.items.itemClicked.connect(lambda _: self.apply()); self.items.itemActivated.connect(lambda _: self.apply())
         self.search.textChanged.connect(self.refresh)
+        self.search.returnPressed.connect(self.apply)
+        self.search.installEventFilter(self); self.items.installEventFilter(self)
         field.catalog.changed.connect(self.refresh)
-        self.finished.connect(lambda _: field.catalog.changed.disconnect(self.refresh))
         self.refresh()
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            self.hide(); self.field.button.setFocus(); return True
+        if watched is self.search and event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Down:
+            self.items.setFocus(); self.items.setCurrentRow(0); return True
+        return super().eventFilter(watched, event)
     def selected(self, item, previous):
         if item is not None: self.selection = item.data(Qt.ItemDataRole.UserRole)
     def refresh(self):
+        scroll = self.items.verticalScrollBar().value()
         self.items.blockSignals(True)
         self.items.clear()
         query = self.search.text().casefold()
@@ -182,20 +256,19 @@ class ModelPicker(Shell):
         for model, info in data.items():
             if query not in (str(model) + " " + info["name"]).casefold(): continue
             item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, model)
-            item.setSizeHint(QSize(0, 104))
+            item.setSizeHint(QSize(0, 32)); item.setText(info["name"])
+            item.setData(Qt.ItemDataRole.UserRole+1, (info["name"], info["price"]))
+            item.setToolTip(f'{info["name"]}\n{model or "Deaktiviert"}\n{info["price"]}')
             self.items.addItem(item)
-            row = QWidget(); layout = QVBoxLayout(row); layout.setContentsMargins(16, 10, 16, 10); layout.setSpacing(4)
-            name = label(info["name"], "section"); name.setWordWrap(True); layout.addWidget(name)
-            layout.addWidget(label(model or "Deaktiviert", "muted"))
-            layout.addWidget(label(info["price"], "muted", True))
-            row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            self.items.setItemWidget(item, row)
             if model == self.selection: self.items.setCurrentItem(item)
         self.items.blockSignals(False)
+        self.items.setFixedHeight(max(38, min(self.items.count(), 5)*32+4))
+        self.items.verticalScrollBar().setValue(scroll)
         error = self.field.catalog.errors.get(self.field.kind)
         if error: self.note.setText(error)
         elif not data: self.note.setText("Katalog wird geladen …")
-        else: self.note.setText("OpenRouter · USD · Audio- und Tokenpreise zeigen ihre jeweilige Einheit")
+        elif not self.items.count(): self.note.setText("Keine passenden Modelle gefunden.")
+        else: self.note.setText("Eingabe / Ausgabe · USD · Einheit beim Modell")
     def apply(self):
         item = self.items.currentItem()
         if item is None:
@@ -203,34 +276,36 @@ class ModelPicker(Shell):
             return
         self.field.value = item.data(Qt.ItemDataRole.UserRole)
         self.field.refresh()
-        self.accept()
+        self.hide(); self.field.button.setFocus()
 
 
-class ModelField(QPushButton):
+class ModelField(QWidget):
     def __init__(self, title, kind, value, catalog, pixmap, app=None, allow_none=False):
         super().__init__()
         self.title, self.kind, self.value = title, kind, value
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.catalog, self.pixmap, self.app, self.allow_none = catalog, pixmap, app, allow_none
-        self.setMinimumHeight(72)
-        self.setAutoDefault(False)
-        self.setAccessibleName(title)
-        row = QHBoxLayout(self); row.setContentsMargins(16, 12, 16, 12); row.setSpacing(12)
-        layout = QVBoxLayout(); layout.setSpacing(5); row.addLayout(layout, 1)
-        arrow = label(""); arrow.setPixmap(icon("chevron").pixmap(QSize(22, 22)))
-        arrow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents); row.addWidget(arrow)
-        self.name_label = label("", "section", True)
-        self.price_label = label("", "muted", True)
-        for child in (self.name_label, self.price_label):
-            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-            layout.addWidget(child)
-        self.clicked.connect(self.choose)
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
+        self.button = ModelButton(); self.button.field = self; self.button.setAutoDefault(False)
+        self.button.setFixedHeight(38); self.button.setAccessibleName(title)
+        layout.addWidget(self.button); self.picker = None
+        self.button.clicked.connect(self.choose)
         catalog.changed.connect(self.refresh)
         self.refresh()
     def refresh(self):
         info = self.catalog.details(self.kind, self.value)
-        self.name_label.setText(info["name"])
-        self.price_label.setText(info["price"])
+        self.button.setAccessibleName(f'{self.title}: {info["name"]}. {info["price"]}')
+        self.button.setToolTip(f'{info["name"]}\n{self.value or "Deaktiviert"}\n{info["price"]}'); self.button.update()
     def choose(self):
         self.catalog.start()
-        picker = ModelPicker(self)
-        picker.exec()
+        if self.picker is None:
+            self.picker = ModelPicker(self); self.layout().addWidget(self.picker); self.picker.hide()
+        opening = self.picker.isHidden()
+        for field in self.window().findChildren(ModelField):
+            if field.picker: field.picker.hide()
+        self.picker.setVisible(opening)
+        if opening:
+            self.picker.selection = self.value; self.picker.search.clear(); self.picker.refresh(); self.picker.search.setFocus()
+            area = self.parentWidget()
+            while area and not isinstance(area, QScrollArea): area = area.parentWidget()
+            if area: area.ensureWidgetVisible(self.picker)
