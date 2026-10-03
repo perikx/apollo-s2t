@@ -11,16 +11,16 @@ GOLD = "#f5b546"
 TEXT = "#f5f3ef"
 MUTED = "#aaa7a2"
 STYLE = """
-QWidget { color: #f5f3ef; font-family: 'Segoe UI'; font-size: 16px; }
+QWidget { color: #f5f3ef; font-family: 'Segoe UI'; font-size: 14px; }
 QFrame#surface { background: #202020; border: 1px solid #42403b; border-radius: 24px; }
 QFrame#card { background: #2a2a29; border: 1px solid #383734; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
-QLabel#title { font-size: 27px; font-weight: 600; }
-QLabel#section { font-size: 17px; font-weight: 600; }
-QLabel#muted { color: #aaa7a2; font-size: 14px; }
-QLabel#error { color: #ffb5a6; font-size: 15px; }
+QLabel#title { font-size: 21px; font-weight: 600; }
+QLabel#section { font-size: 14px; font-weight: 600; }
+QLabel#muted { color: #aaa7a2; font-size: 12px; }
+QLabel#error { color: #ffb5a6; font-size: 13px; }
 QPushButton { background: #333332; border: 1px solid #494741; border-radius: 12px;
-              padding: 12px 16px; font-size: 16px; text-align: left; }
+              padding: 7px 10px; font-size: 14px; text-align: left; }
 QPushButton:hover { background: #3e3d39; border-color: #71654c; }
 QPushButton:pressed { background: #474238; }
 QPushButton:focus { border-color: #f5b546; }
@@ -28,14 +28,14 @@ QPushButton:disabled { color: #74716b; border-color: #373633; }
 QPushButton#primary { background: #f5b546; color: #231b0c; border: none; font-weight: 600; text-align: center; }
 QPushButton#primary:hover { background: #ffc96e; }
 QPushButton#quiet { background: transparent; border: none; color: #aaa7a2; }
-QPushButton#nav { background: transparent; border: none; color: #aaa7a2; padding: 14px; }
+QPushButton#nav { background: transparent; border: none; color: #aaa7a2; padding: 8px; }
 QPushButton#nav:checked { background: #39352d; color: #f5c56e; }
 QLineEdit, QTextEdit { background: #292928; border: 1px solid #494741; border-radius: 12px;
-                       padding: 12px; selection-background-color: #725725; }
+                       padding: 8px; selection-background-color: #725725; }
 QLineEdit:focus, QTextEdit:focus { border-color: #f5b546; }
 QListWidget { background: transparent; border: none; outline: none; padding: 3px; }
 QListWidget::item { background: #2b2b29; border: 1px solid #393835; border-radius: 13px;
-                    margin: 4px 0px; padding: 14px; }
+                    margin: 2px 0px; padding: 8px; }
 QListWidget::item:selected { background: #3e3628; border-color: #ae8240; }
 QListWidget::item:hover { background: #353431; }
 QScrollArea { background: transparent; border: none; }
@@ -53,7 +53,7 @@ def qt_app():
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv[:1])
-        app.setApplicationName("Apollo")
+        app.setApplicationName("apollo s2t")
         app.setQuitOnLastWindowClosed(False)
         app.setStyle("Fusion")
         palette = QPalette()
@@ -63,7 +63,7 @@ def qt_app():
                             (QPalette.ColorRole.Highlight, "#725725"), (QPalette.ColorRole.HighlightedText, TEXT)):
             palette.setColor(role, QColor(color))
         app.setPalette(palette)
-        app.setFont(QFont("Segoe UI", 12))
+        app.setFont(QFont("Segoe UI", 10))
         app.setStyleSheet(STYLE)
     return app
 
@@ -142,7 +142,7 @@ def paint_logo(painter, pixmap, rect):
 
 
 class Logo(QWidget):
-    def __init__(self, pixmap, size=42):
+    def __init__(self, pixmap, size=28):
         super().__init__(); self.pixmap = pixmap; self.setFixedSize(size, size)
     def paintEvent(self, event):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing); p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -159,7 +159,7 @@ def label(text, name=None, wrap=False):
 def button(text, callback, primary=False, quiet=False):
     result = QPushButton(text); result.setCursor(Qt.CursorShape.PointingHandCursor)
     result.setAutoDefault(False)
-    result.setMinimumHeight(46)
+    result.setMinimumHeight(34)
     if primary: result.setObjectName("primary")
     if quiet: result.setObjectName("quiet")
     result.clicked.connect(callback)
@@ -168,18 +168,18 @@ def button(text, callback, primary=False, quiet=False):
 
 class Shell(QDialog):
     """Frameless rounded popup with its own draggable title bar and Apollo icon."""
-    def __init__(self, title, pixmap, width=840, height=680, parent=None):
+    def __init__(self, title, pixmap, width=680, height=540, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Apollo · " + title); self.setWindowIcon(QIcon(pixmap))
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowTitle("apollo s2t · " + title); self.setWindowIcon(QIcon(pixmap))
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(width, height); self.setMinimumSize(min(width, 620), min(height, 460))
+        self.resize(width, height); self.setMinimumSize(min(width, 520), min(height, 400))
         outer = QVBoxLayout(self); outer.setContentsMargins(8, 8, 8, 8)
         self.surface = QFrame(); self.surface.setObjectName("surface"); outer.addWidget(self.surface)
-        self.layout = QVBoxLayout(self.surface); self.layout.setContentsMargins(24, 20, 24, 24); self.layout.setSpacing(20)
-        header = QWidget(); header.setFixedHeight(48); row = QHBoxLayout(header); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(12)
-        row.addWidget(Logo(pixmap)); row.addWidget(label("Apollo", "section")); row.addStretch()
-        close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(22, 22)); close.setFixedSize(42, 42)
+        self.layout = QVBoxLayout(self.surface); self.layout.setContentsMargins(16, 12, 16, 16); self.layout.setSpacing(12)
+        header = QWidget(); header.setFixedHeight(34); row = QHBoxLayout(header); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
+        row.addWidget(Logo(pixmap)); row.addWidget(label("apollo s2t", "section")); row.addStretch()
+        close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
         close.setObjectName("quiet"); close.setAccessibleName("Fenster schließen"); close.clicked.connect(self.reject); row.addWidget(close)
         self.layout.addWidget(header)
         header.mousePressEvent = self.start_move

@@ -48,7 +48,7 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         response = requests.Response()
         response.status_code = 429
         response.headers["Retry-After"] = "0"
-        response._content = b'{"error":{"metadata":{"provider_code":"429"}}}'
+        response._content = b'{"error":{"message":"private transcript test-key","metadata":{"provider_code":"429"}}}'
         response._content_consumed = True
         return response
     monkeypatch.setattr(apollo_api._http, "post", rejected)
@@ -63,6 +63,9 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
     entry = app.recovery_items()[0]
     assert read_pcm(entry.path) == audio.tobytes()
     assert entry.metadata["state"] == "failed"
+    assert "HTTP 429" in entry.metadata["error"] and "upstream provider" in entry.metadata["error"]
+    assert "private transcript" not in entry.path.with_suffix(".json").read_text()
+    assert "private transcript" not in caplog.text
     assert desktop.sent == []
     app.close()
     app._worker.join(3)
@@ -75,12 +78,14 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
     monkeypatch.setattr(apollo, "transcribe_openrouter", succeed)
     try:
         assert restarted._worker is None  # Startup never resends private audio.
+        assert "HTTP 429" in restarted.recovery_items()[0].metadata["error"]
         restarted.recover(entry.id)
         restarted._jobs.join()
         assert sent_audio == [audio.tobytes()]
         assert desktop.clip.text == "recovered three minute dictation"
         assert desktop.sent == []  # Explicit recovery copies, never auto-pastes.
         assert entry.read_transcript() == desktop.clip.text
+        assert entry.metadata["state"] == "ready" and entry.metadata["error"] == ""
         assert "recovered three minute dictation" not in caplog.text
         assert "test-key" not in entry.path.with_suffix(".json").read_text()
     finally:
@@ -98,6 +103,7 @@ def test_failed_processing_keeps_exact_audio(app, monkeypatch, failure):
     entry = app.recovery_items()[0]
     assert read_pcm(entry.path) == pcm.tobytes()
     assert entry.metadata["state"] == "failed"
+    assert entry.metadata["error"]  # Safe cause is available inside recovery after restart.
 
 
 def test_clipboard_failure_keeps_text_and_recovery_does_not_pay_again(app, monkeypatch, desktop):
@@ -135,6 +141,7 @@ def test_audio_checkpoint_exists_while_still_recording(app, monkeypatch):
     app.close()
     assert read_pcm(backup.path) == audio.tobytes()
     assert backup.metadata["state"] == "interrupted"
+    assert "Programm während der Aufnahme geschlossen" in backup.metadata["error"]
 
 
 def test_quit_keeps_active_and_queued_audio_without_late_paste(app, monkeypatch, desktop):

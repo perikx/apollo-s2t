@@ -3,7 +3,7 @@
 Apollo's own source is MIT licensed. The application uses unmodified Qt 6,
 PySide6 Essentials and Shiboken6 from the Qt for Python Community Edition,
 Copyright The Qt Company Ltd. and other contributors, under LGPL version 3.
-The Windows 0.4.0 binary uses version 6.11.2. QtCore, QtGui, QtWidgets and their
+The Windows binary uses version 6.11.2. QtCore, QtGui, QtWidgets and their
 runtime dependencies are dynamically loaded; no Qt source modifications are made.
 
 - Project and license information: https://doc.qt.io/qtforpython-6/

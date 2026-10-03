@@ -16,7 +16,7 @@ import time
 from PyInstaller.archive.readers import CArchiveReader
 
 root = Path(__file__).resolve().parents[1]
-exe = root / 'dist/Apollo.exe'
+exe = root / 'dist/apollo.exe'
 archive = CArchiveReader(str(exe))
 pyz = next(name for name in archive.toc if name.endswith('.pyz'))
 modules = archive.open_embedded_archive(pyz).toc
@@ -49,7 +49,7 @@ user.EnumWindows.argtypes = (callback_type, w.LPARAM)
 
 with tempfile.TemporaryDirectory(prefix='apollo-package-check-') as directory:
     folder = Path(directory)
-    target = folder / 'Apollo.exe'
+    target = folder / 'apollo.exe'
     shutil.copy2(exe, target)
     env = os.environ.copy()
     env.pop('OPENROUTER_API_KEY', None)

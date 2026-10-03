@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLineEdit, QHBoxLayout, QWidget, QVBoxLayout, QCheckBox, QScrollArea
 from apollo_config import api_key, normalize_config, save_config, ConfigError
 from apollo_design import Shell, qt_app, logo_path, logo_pixmap, label, button
-from apollo_widgets import KeyCapture, Choice, ModelCatalog, ModelField, MODES
+from apollo_widgets import KeyCapture, Choice, ModelCatalog, ModelField, MODES, WheelRouter
 
 
 def check_key(key):
@@ -30,15 +30,16 @@ def check_key(key):
 class SetupWizard(Shell):
     checked = Signal(str)
     def __init__(self, cfg, path, set_autostart, initial_error=""):
-        super().__init__("Einrichten", logo_pixmap(logo_path()), 800, 740)
+        super().__init__("Einrichten", logo_pixmap(logo_path()), 640, 540)
         self.cfg = deepcopy(cfg); self.path = Path(path); self.set_autostart = set_autostart
         self.catalog = ModelCatalog(); self.step = 0; self.checking = False
         self.verified_key = None; self.pixmap = logo_pixmap(logo_path())
         self.step_label = label("", "muted"); self.layout.addWidget(self.step_label)
         self.heading = label("", "title"); self.layout.addWidget(self.heading)
         self.body = QWidget(); self.body_layout = QVBoxLayout(self.body)
-        self.body_layout.setContentsMargins(0, 0, 0, 0); self.body_layout.setSpacing(16)
+        self.body_layout.setContentsMargins(0, 0, 0, 0); self.body_layout.setSpacing(8)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(self.body)
+        scroll.wheel_router = WheelRouter(scroll)
         self.layout.addWidget(scroll, 1)
         self.error = label(initial_error, "error", True); self.layout.addWidget(self.error)
         row = QHBoxLayout(); self.back = button("Zurück", self.previous, quiet=True)
@@ -52,15 +53,15 @@ class SetupWizard(Shell):
             item = self.body_layout.takeAt(0)
             if item.widget(): item.widget().hide(); item.widget().deleteLater()
         self.step_label.setText(f"Einrichten · Schritt {self.step+1} von 3")
-        self.back.setVisible(self.step > 0); self.next.setText("Apollo starten" if self.step == 2 else "Weiter")
+        self.back.setVisible(self.step > 0); self.next.setText("apollo s2t starten" if self.step == 2 else "Weiter")
         self.error.setText("")
         if self.step == 0:
-            self.heading.setText("Willkommen bei Apollo")
+            self.heading.setText("Willkommen bei apollo s2t")
             self.body_layout.addWidget(label("Ein OpenRouter-Schlüssel verbindet Spracherkennung und Textbearbeitung.", wrap=True))
             self.body_layout.addWidget(label("API-Nutzung wird über dein OpenRouter-Guthaben abgerechnet.\nSchlüssel erstellen: openrouter.ai/keys", "muted", True))
             self.body_layout.addWidget(label("OpenRouter API-Schlüssel", "section"))
             self.key = QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password)
-            self.key.setMinimumHeight(50); self.key.setPlaceholderText("API-Schlüssel eingeben …")
+            self.key.setMinimumHeight(36); self.key.setPlaceholderText("API-Schlüssel eingeben …")
             self.key.setText(self.cfg["smoothing"]["api_key"])
             self.key.setEnabled(not bool(os.environ.get("OPENROUTER_API_KEY")))
             self.body_layout.addWidget(self.key)
@@ -89,7 +90,7 @@ class SetupWizard(Shell):
                 self.body_layout.addWidget(label(title, "section"))
                 field = ModelField(title, kind, value, self.catalog, self.pixmap, allow_none=allow_none)
                 self.fields[key] = field; self.body_layout.addWidget(field)
-            self.autostart = QCheckBox("Apollo bei Windows-Anmeldung starten")
+            self.autostart = QCheckBox("apollo s2t bei Windows-Anmeldung starten")
             self.body_layout.addWidget(self.autostart)
             self.body_layout.addWidget(label("Preise in USD · kompatible Modelle von OpenRouter\nDas schwebende Logo lässt sich verschieben und über den Tray wieder öffnen.", "muted", True))
             self.catalog.start()

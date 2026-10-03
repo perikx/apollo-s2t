@@ -51,8 +51,8 @@ try:
 except Exception:
     HAVE_TRAY = False
 
-APP_NAME = "Apollo s2t"
-APP_VERSION = "0.4.0"
+APP_NAME = "apollo s2t"
+APP_VERSION = "0.4.1"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -703,10 +703,10 @@ class App:
             except Exception:
                 log.warning("Could not refresh recovery menu; reopen Apollo to reload saved dictations.")
 
-    def _saved_status(self, backup, state):
+    def _saved_status(self, backup, state, error=""):
         if backup is not None:
             try:
-                backup.update(state=state)
+                backup.update(state=state, error=error)
             except (OSError, ValueError):
                 log.error("Could not update recovery status; saved audio has been kept.")
 
@@ -903,7 +903,7 @@ class App:
                 self._record_timer.daemon = True
                 self._record_timer.start()
                 beep("start", self.beep_enabled)
-                log.info("Recording started (%s).", mode)
+                log.info("Recording started (%s, %s).", mode, cfg["hotkeys"][mode].upper())
             except Exception:
                 if self._record_timer is not None:
                     self._record_timer.cancel()
@@ -914,7 +914,7 @@ class App:
                     pass
                 self.recording, self.active_mode, self._capture = False, None, None
                 if self._backup is not None:
-                    self._saved_status(self._backup, "interrupted")
+                    self._saved_status(self._backup, "interrupted", "Aufnahme konnte nicht starten. Mikrofon, Ordnerzugriff und Speicherplatz prüfen.")
                     self._busy_recordings.discard(self._backup.id)
                     try:
                         self._backup.finish()
@@ -963,7 +963,7 @@ class App:
                 self._jobs.put_nowait((capture, data, time.monotonic(), backup, False))
             except Exception:
                 self._slots.release()
-                self._saved_status(backup, "failed")
+                self._saved_status(backup, "failed", "Aufnahme konnte nicht abgeschlossen werden. Speicherplatz und Ordnerzugriff prüfen; Audio kann unvollständig sein.")
                 if backup is not None:
                     self._busy_recordings.discard(backup.id)
                 self.refresh_recovery_menu()
@@ -1012,7 +1012,7 @@ class App:
                 text = transcribe_openrouter(wav, cfg["openrouter_stt"], api_key(cfg),
                                              on_retry=on_retry, on_fallback=on_fallback, wait=self._closing.wait)
             if not text:
-                self._saved_status(backup, "failed")
+                self._saved_status(backup, "failed", "Keine Sprache erkannt. Mikrofon und Audiosignal prüfen.")
                 log.warning("No speech recognized. Audio kept in recovery folder.")
                 self.notify("Keine Sprache erkannt. Audio ist im Recovery-Cache gesichert.")
                 beep("error", self.beep_enabled)
@@ -1047,17 +1047,18 @@ class App:
                         self.notify("Bereit")
                         self.insert_text(text, t0)
         except requests.RequestException as exc:
-            self._saved_status(backup, "failed")
-            log.error("%s Audio kept in recovery folder.", http_error_hint("Transcription", exc))
+            hint = http_error_hint("Transcription", exc)
+            self._saved_status(backup, "failed", hint)
+            log.error("%s Audio kept in recovery folder.", hint)
             self.notify("Transkription fehlgeschlagen. Audio gesichert – in Recovery erneut versuchen.")
             beep("error", self.beep_enabled)
         except (ResponseError, ValueError, TypeError):
-            self._saved_status(backup, "failed")
+            self._saved_status(backup, "failed", "Keine vollständige Transkription erhalten. Audio ist gesichert; erneut versuchen.")
             log.error("No complete transcription; nothing pasted. Audio kept in recovery folder.")
             self.notify("Transkription unvollständig. Audio gesichert – in Recovery erneut versuchen.")
             beep("error", self.beep_enabled)
         except Exception:
-            self._saved_status(backup, "failed")
+            self._saved_status(backup, "failed", "Diktat konnte nicht gespeichert, verarbeitet oder eingefügt werden. Recovery, Speicherplatz und Zwischenablage prüfen.")
             log.error("Could not save, process or insert dictation. Check recovery folder, disk space and clipboard.")
             self.notify("Diktat nicht abgeschlossen. Recovery und freien Speicherplatz prüfen.")
             beep("error", self.beep_enabled)
@@ -1072,7 +1073,7 @@ class App:
                     self.recorder.stop()
                 except Exception:
                     pass
-                self._saved_status(self._backup, "interrupted")
+                self._saved_status(self._backup, "interrupted", "Programm während der Aufnahme geschlossen. Gesichertes Audio kann unvollständig sein.")
                 if self._backup is not None:
                     self._busy_recordings.discard(self._backup.id)
                 self._backup = None
@@ -1119,7 +1120,7 @@ def run_tray(on_quit, app):
             pystray.MenuItem(name, select(name), radio=True,
                              checked=lambda item, n=name: app.cfg["prompt_profiles"]["active"] == n)
             for name in profiles])))
-    items.append(pystray.MenuItem("Show Apollo", lambda icon, item: app.open_panel(), default=True))
+    items.append(pystray.MenuItem("Show apollo s2t", lambda icon, item: app.open_panel(), default=True))
     items.append(pystray.MenuItem("Settings", lambda icon, item: app.open_panel("settings")))
     items.append(pystray.MenuItem("Models", lambda icon, item: app.open_panel("models")))
     items.append(pystray.MenuItem("Open log", lambda icon, item: os.startfile(LOG_PATH)))
@@ -1218,7 +1219,7 @@ def run_setup_gui():
         cfg = load_config() if os.path.exists(CONFIG_PATH) else default_config()
     except ConfigError:
         cfg = default_config()
-        error = "Die bisherige Konfiguration ist ungültig. Richte Apollo neu ein; die alte Datei wird beim Speichern gesichert."
+        error = "Die bisherige Konfiguration ist ungültig. Richte apollo s2t neu ein; die alte Datei wird beim Speichern gesichert."
     def autostart(enabled):
         (enable_autostart if enabled else disable_autostart)()
     return run_windowed_setup(cfg, CONFIG_PATH, autostart, initial_error=error)
@@ -1226,7 +1227,7 @@ def run_setup_gui():
 
 def run_setup():
     cfg = load_config() if os.path.exists(CONFIG_PATH) else default_config()
-    print("Apollo s2t | Setup\nOne OpenRouter key handles dictation and rewriting.")
+    print("apollo s2t | Setup\nOne OpenRouter key handles dictation and rewriting.")
     print("API usage is paid from your OpenRouter balance: https://openrouter.ai/keys")
     if os.environ.get("OPENROUTER_API_KEY"):
         print("Using OPENROUTER_API_KEY from your environment; it will not be saved.")
@@ -1260,7 +1261,7 @@ def run_setup():
     cfg, _ = normalize_config(cfg)
     save_config(CONFIG_PATH, cfg)
     print("Saved config.json. Custom profiles and other settings were preserved.")
-    if input("Start Apollo at Windows login? [Y/n]: ").strip().lower() not in ("n", "no"):
+    if input("Start apollo s2t at Windows login? [Y/n]: ").strip().lower() not in ("n", "no"):
         enable_autostart()
     else:
         disable_autostart()

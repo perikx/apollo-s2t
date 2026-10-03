@@ -29,7 +29,7 @@ retired-provider references from returning to setup, launchers or user documenta
 - `apollo_config.py`: one source of defaults, validation, atomic writes and migration.
 - `apollo_api.py`: OpenRouter transcription and rewrite request/response contracts.
 - `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
-- `apollo_overlay.py`: floating control, listening pill and in-app settings/recovery.
+- `apollo_overlay.py`: floating control/speech bubble and in-app settings/recovery/debug.
 - `apollo_design.py` / `apollo_widgets.py`: Qt surfaces, vector icons and selectors.
 - `apollo_setup.py`: three-step setup, read-only API-key validation and editable errors.
 - `apollo_models.py`: capability-filtered public catalog and explicitly labeled pricing.
@@ -51,7 +51,7 @@ Before a release, run these checks on a Windows PC with an OpenRouter balance:
 6. Upgrade a copy of a legacy configuration: verify backup, preserved keys/hotkeys/profiles,
    new defaults and an OpenRouter-only setup. Never commit real credentials.
 7. Run `selftest.py --live`, then build with `packaging\build-exe.bat`; test first launch
-   of `dist\Apollo.exe` from a separate writable folder without `config.json`.
+   of `dist\apollo.exe` from a separate writable folder without `config.json`.
 8. Record several minutes. Verify a growing playable WAV in `recovery/`, then simulate
    a transcription rejection with a local test double. Verify retry progress and that
    failed audio remains available. Do not provoke real provider limits for this check.
@@ -74,7 +74,11 @@ Windows floating controls with synthetic recordings and a fake model catalog. It
 satellite-button navigation, stored key/text preview, incompatible-model rejection,
 waveform rendering, right-edge hiding, silent errors while hidden, tray-style reopening
 and X collapse. It also checks invalid-input correction, editable keys, optional
-fallback, model prices and all three wizard steps. Screenshots use Qt's own render
+fallback, model prices and all three wizard steps. It verifies normal Windows
+z-order against a second test window, wheel scrolling over unfocused fields,
+inline selectors without additional top-level windows, persistent safe failure
+causes, live microphone/stall/backup state and the bounded 300-message debug view.
+Screenshots use Qt's own render
 capture, so a locked desktop does not produce an empty screenshot. Inspect both
 normal and high DPI output; real microphone/recognition checks remain separate.
 Screenshots remain local for visual inspection. The Windows pytest

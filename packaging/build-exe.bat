@@ -8,13 +8,13 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean packaging\apollo.spec
 if errorlevel 1 goto failed
-if not exist "dist\Apollo.exe" goto failed
-echo Built dist\Apollo.exe. Copy it into a writable folder on Windows.
-echo First launch asks for an OpenRouter key in a small dialog.
+if not exist "dist\apollo.exe" goto failed
+echo Built dist\apollo.exe. Copy it into a writable folder on Windows.
+echo First launch runs the OpenRouter key, hotkey and model setup.
 echo config.json, apollo.log and custom prompts live next to the exe.
 pause
 exit /b 0
 :failed
-echo Build failed. Check the errors above; any older dist\Apollo.exe is not this build.
+echo Build failed. Check the errors above; any older dist\apollo.exe is not this build.
 pause
 exit /b 1
