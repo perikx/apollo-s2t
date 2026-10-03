@@ -6,13 +6,18 @@ platform-independent. Use Python 3.10+.
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
-python -m compileall -q apollo.py apollo_api.py apollo_config.py selftest.py
+python -m compileall -q apollo.py apollo_api.py apollo_config.py apollo_recovery.py selftest.py
 ```
 
 Tests replace the microphone, keyboard, clipboard and timers with isolated doubles.
 They never call a paid provider. FIFO/shutdown tests use real worker threads with explicit
 synchronization. Regression coverage includes hotkey toggle behavior, clipboard ownership,
 stale timers, origin snapshots, bounded capture, rewrite fallback and configuration migration.
+Recovery regressions use temporary folders to check WAV checkpoints, interrupted writes,
+saved raw/final text, restart recovery and clipboard-only recovery. API doubles cover
+429 recovery, Retry-After seconds/dates, retry limits, cancellation, ambiguous network
+failures and privacy-safe error hints. These tests do not reproduce physical power loss
+or prove durability on every disk/controller.
 The GitHub Actions matrix runs the suite on Windows and Ubuntu with Python 3.10 and 3.13.
 Setup regressions exercise the console and windowed first-run paths, including upgrades
 from old configurations. Presentation checks retain the original README banner and prevent
@@ -23,6 +28,7 @@ retired-provider references from returning to setup, launchers or user documenta
 - `apollo.py`: recording, tray/hotkeys, FIFO processing, prompts and Windows insertion.
 - `apollo_config.py`: one source of defaults, validation, atomic writes and migration.
 - `apollo_api.py`: OpenRouter transcription and rewrite request/response contracts.
+- `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
 - `bootstrap.bat`: shared environment creation and dependency refresh.
 - `selftest.py`: offline checks, with explicitly opt-in paid end-to-end diagnostics.
 
@@ -42,9 +48,22 @@ Before a release, run these checks on a Windows PC with an OpenRouter balance:
    new defaults and an OpenRouter-only setup. Never commit real credentials.
 7. Run `selftest.py --live`, then build with `packaging\build-exe.bat`; test first launch
    of `dist\Apollo.exe` from a separate writable folder without `config.json`.
+8. Record several minutes. Verify a growing playable WAV in `recovery/`, then simulate
+   a transcription rejection with a local test double. Verify retry progress and that
+   failed audio remains available. Do not provoke real provider limits for this check.
+9. Restart with a saved failed recording. Verify no automatic API request. Select it
+   through **Recover saved dictation**, then paste with Ctrl+V. Confirm a cached text
+   recovery makes no API call and does not inject text into the focused app.
+10. Interrupt an isolated test process during capture and reopen its saved audio. Verify
+    completed checkpoints remain usable; do not claim the unflushed tail was preserved.
 
 Live checks can incur API charges. A silence-only HTTP 200 is not evidence of recognition
 quality. Compare real recordings against reference text before claiming accuracy improvements.
+
+Recovery data is private and retained until manually deleted. Use synthetic recordings
+for tests, temporary recovery directories, and never commit `recovery/`, transcripts or
+real prompt context. Source changes take effect only after the running Apollo process
+is quit and restarted; an older running instance still uses the previous code.
 
 ## Packaging
 

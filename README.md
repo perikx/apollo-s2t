@@ -18,6 +18,11 @@ One OpenRouter API key. No subscription to Apollo. MIT licensed.
 
 ## Install and run
 
+For the standalone Windows app, download `Apollo.exe` from the
+[latest release](https://github.com/perikx/apollo-s2t/releases/latest) and put it in a writable folder.
+It asks for your OpenRouter API key on first launch. Existing users should quit Apollo
+before replacing the executable, keeping their configuration, prompts and recovery folder.
+
 Install [Python 3.10+](https://www.python.org/downloads/) with **Add Python to PATH**
 and [Git](https://git-scm.com/downloads/win), then paste this into PowerShell:
 
@@ -41,16 +46,35 @@ recording started; the low tone means it stopped. Wait for the final text to app
 | Key | Result |
 | --- | --- |
 | **F8** | Transcription only. |
-| **F9** | Transcription with grammar and fillers cleaned up. Keeps the spoken language. |
+| **F9** | Light cleanup of punctuation, structure and clear hesitation fillers. Preserves your wording, tone and repetitions. |
 | **F10** | A compact prompt for another AI. English output by default. |
 
 Apollo inserts the complete result after recording, not word by word while speaking.
 A second mode key does not interrupt an active recording. Stop it with the key that started it.
 The default recording limit is five minutes; reaching it stops and processes the recording.
 
-The microphone icon next to the clock has **settings, F10 profiles, autostart and Quit**.
+The microphone icon next to the clock has **recovery, settings, F10 profiles, autostart and Quit**.
 Use `setup.bat` to reconfigure, or `debug.bat` to see diagnostic messages.
 Quit the running copy and restart after changing settings.
+
+## Recover a dictation
+
+Apollo saves audio locally while you speak and keeps it when transcription, rewriting,
+or insertion fails. After a failure, right-click the tray icon, open **Recover saved dictation**,
+and select the recording. The result is copied to the clipboard; press **Ctrl+V** where you want it.
+Saved text is reused without an API call. If only audio is available, this action sends it
+again using your current API settings and the original F8/F9/F10 mode and F10 context.
+Restarting Apollo never resends saved recordings automatically.
+
+**Open saved audio and text** opens `recovery/` beside `apollo.py` or `Apollo.exe`.
+The folder contains audio, transcripts and private prompt context in plain local files.
+Successful recordings stay there too; delete recordings you no longer need. Files with
+the same name stem belong together. There is no automatic retention cleanup.
+
+Audio is flushed to disk roughly every half second and at normal stop. This protects
+against an API failure or an interrupted process, but disk, power or microphone failures
+can still lose audio, including the last unflushed portion. Details are in the
+[recovery guide](docs/configuration.md#saved-recordings-and-recovery).
 
 ## Defaults
 
@@ -101,6 +125,15 @@ microphone permissions and the selected input. Pasting into an elevated app can 
 the same privilege level. API authentication, missing credit and invalid-model errors
 have separate messages. Logs contain counts and timings, not dictated text.
 
+**HTTP 429** means OpenRouter or the speech provider rejected a request because of a
+rate or capacity limit; it can happen even when you have made few requests. Apollo now
+switches from MAI-Transcribe-2 to MAI-Transcribe-1.5 after the first 429, reusing the same
+audio. Each new recording starts with your configured primary model again. There are
+at most three requests total, respecting the server's wait instruction. Longer waits
+and other failures leave the recording available for recovery.
+The old generic error message cannot identify which service imposed a particular limit.
+See [OpenRouter's rate-limit explanation](https://openrouter.ai/docs/api_reference/limits).
+
 ## More
 
 [Configuration, profiles and clipboard modes](docs/configuration.md) ·
@@ -111,9 +144,14 @@ It opens a key-entry dialog on first launch. Python is not needed on the target 
 
 ## Privacy
 
-Audio is kept in memory and sent to OpenRouter for transcription. F9/F10 additionally
-send the transcript, and F10's selected project context, for rewriting. Provider data
-policies apply. No Apollo telemetry. No local transcript/audio history is written.
+Audio is saved in the local `recovery/` folder and sent to OpenRouter for transcription.
+Raw and final transcripts are saved there too, along with the recording mode and original
+prompt context. These files are **not encrypted** and remain until you delete them.
+Recovery metadata does not copy your API configuration or credentials; the folder is
+ignored by Git. Do not share it without checking its contents.
+
+F9/F10 additionally send the transcript, and F10's selected project context, for rewriting.
+Provider data policies apply. No Apollo telemetry. Saved recordings are not uploaded on startup.
 Clipboard insertion necessarily makes the text available through the system clipboard.
 
 `config.json` and its migration backup can contain an API key in plain text; both are

@@ -3,9 +3,19 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased] - 2026-09-29
+## [0.2.0] - 2026-10-03
 
 ### Changed
+- F9 now requests minimal transcript cleanup, explicitly preserving meaningful repetitions,
+  tone, conditions and original phrasing instead of freely polishing or shortening the message.
+- Audio is checkpointed locally during recording and all audio/text remains until manually
+  deleted from `recovery/`. Recovery files contain private, unencrypted content.
+- Explicit transcription HTTP 429 rejections receive at most two retries, respecting
+  Retry-After within a 30-second retry-start window. Ambiguous network failures and
+  rewrite requests are not automatically resent.
+- MAI-Transcribe-2's first 429 switches that recording to MAI-Transcribe-1.5, within the
+  existing request budget. New recordings retain the configured primary; custom models
+  are not replaced. The same saved audio is used and the switch is reported in the tray/log.
 - OpenRouter-only speech pipeline. Default speech model is `microsoft/mai-transcribe-2`;
   F9/F10 use `google/gemini-3.5-flash-lite` with compact prompts and minimal reasoning.
 - One bounded FIFO worker preserves recording order, model/profile snapshots and origin windows.
@@ -16,6 +26,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Offline self-test is now the default. Paid recording/API checks require `--live`.
 
 ### Added
+- Tray recovery for saved dictations and a shortcut to local audio/text. Existing text
+  is reused offline; audio-only recovery uses current API settings and saved mode/context,
+  then copies the result for Ctrl+V. Startup never resends recordings automatically.
+- Separate raw and final transcript files, recoverable WAV checkpoints and local metadata
+  without copied API credentials. Disk writes run outside the microphone callback.
+- Tests for interrupted recovery files, retry timing/cancellation, privacy-safe diagnostics
+  and clipboard-only recovery.
 - Versioned, validated configuration with atomic writes and a one-time `config.json.bak` backup.
 - `OPENROUTER_API_KEY` environment support without writing the environment value to disk.
 - Five-minute recording cap, bounded pending jobs, and clean cancellation on quit.
@@ -25,6 +42,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
   preserved legacy settings, and the original banner above the install instructions.
 
 ### Fixed
+- API errors, interrupted processing and microphone stop/close failures no longer discard
+  already saved dictation. Checkpoints reduce process-crash loss; disk/power/device failures
+  and an unflushed audio tail remain possible.
+- Rate-limit messages distinguish OpenRouter/platform and upstream hints when the response
+  provides evidence, without logging provider bodies or dictated content.
 - Restored the original README banner and badges after the documentation cleanup.
 - Removed retired-provider branding from the current README, configuration guide and changelog.
 - Concurrent dictations could be inserted out of order or use the next recording's origin/context.

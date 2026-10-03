@@ -18,12 +18,19 @@ class FakeRecorder:
         self.sample_count = samples
         self.starts = self.stops = 0
 
-    def start(self):
+    capture_warning = backup_failed = False
+
+    def start(self, backup=None, on_error=None):
+        self.backup = backup
         self.starts += 1
 
     def stop(self):
         self.stops += 1
-        return np.full((self.sample_count, 1), self.starts, dtype=np.int16)
+        data = np.full((self.sample_count, 1), self.starts, dtype=np.int16)
+        if self.backup is not None:
+            self.backup.append(data.tobytes())
+            self.backup.finish()
+        return data
 
 
 def capture(app, mode="dictate", origin="window-a"):
@@ -37,7 +44,7 @@ def run_process(app, mode="dictate"):
 @pytest.mark.parametrize("mode", ["dictate", "polish", "prompt"])
 def test_modes_use_correct_calls(app, monkeypatch, mode):
     calls, delivered = [], []
-    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args: "raw")
+    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "raw")
     def rewrite(text, prompt, cfg):
         calls.append((text, prompt, cfg["api_key"]))
         return "edited"
@@ -53,7 +60,7 @@ def test_modes_use_correct_calls(app, monkeypatch, mode):
 @pytest.mark.parametrize("failure", [requests.Timeout("private text"), apollo.ResponseError("truncated"), RuntimeError("private text")])
 def test_rewrite_failure_preserves_raw_and_keeps_content_out_of_log(app, monkeypatch, caplog, failure):
     secret, delivered = "personal dictation 123", []
-    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args: secret)
+    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: secret)
     def fail(*args):
         raise failure
     monkeypatch.setattr(apollo, "smooth", fail)
@@ -67,8 +74,8 @@ def test_rewrite_failure_preserves_raw_and_keeps_content_out_of_log(app, monkeyp
 
 def test_empty_rewrite_preserves_raw(app, monkeypatch):
     delivered = []
-    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args: "raw")
-    monkeypatch.setattr(apollo, "smooth", lambda *args: "")
+    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "raw")
+    monkeypatch.setattr(apollo, "smooth", lambda *args, **kwargs: "")
     monkeypatch.setattr(app, "insert_text", lambda text, t0: delivered.append(text))
     run_process(app, "polish")
     assert delivered == ["raw"]
@@ -77,12 +84,12 @@ def test_empty_rewrite_preserves_raw(app, monkeypatch):
 @pytest.mark.parametrize("failure", [None, requests.Timeout("secret"), apollo.ResponseError("bad")])
 def test_empty_or_failed_stt_never_pastes(app, monkeypatch, failure):
     delivered = []
-    def stt(*args):
+    def stt(*args, **kwargs):
         if failure:
             raise failure
         return ""
     monkeypatch.setattr(apollo, "transcribe_openrouter", stt)
-    monkeypatch.setattr(app, "insert_text", lambda *args: delivered.append(args))
+    monkeypatch.setattr(app, "insert_text", lambda *args, **kwargs: delivered.append(args))
     run_process(app)
     assert delivered == []
 
@@ -96,7 +103,7 @@ def test_fifo_and_per_recording_context_snapshots(app, monkeypatch, tmp_path):
     profile = tmp_path / "prompts" / "default.md"
     profile.write_text("first context")
     monkeypatch.setattr(apollo, "get_foreground_window", lambda: windows[0])
-    def stt(audio, cfg, key):
+    def stt(audio, cfg, key, **kwargs):
         seen.append(cfg["model"])
         if len(seen) == 1:
             started.set()
@@ -155,12 +162,12 @@ def test_shutdown_during_network_call_cannot_paste(app, monkeypatch):
     started, release = threading.Event(), threading.Event()
     app.recorder = FakeRecorder()
     delivered = []
-    def stt(*args):
+    def stt(*args, **kwargs):
         started.set()
         assert release.wait(3)
         return "late"
     monkeypatch.setattr(apollo, "transcribe_openrouter", stt)
-    monkeypatch.setattr(app, "insert_text", lambda *args: delivered.append(args))
+    monkeypatch.setattr(app, "insert_text", lambda *args, **kwargs: delivered.append(args))
     app.on_press("dictate")
     app.on_release("dictate")
     try:
@@ -250,8 +257,9 @@ def test_stream_closed_and_frames_released_even_when_stop_raises():
     def fail():
         raise OSError("stop failed")
     recorder._stream = SimpleNamespace(stop=fail, close=lambda: closed.append(True))
-    with pytest.raises(OSError):
-        recorder.stop()
+    result = recorder.stop()
+    assert len(result) == 10
+    assert recorder.capture_warning
     assert closed == [True]
     assert recorder._stream is None and recorder._frames == []
 
