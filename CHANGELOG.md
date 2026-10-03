@@ -3,6 +3,17 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-10-03
+
+### Added
+- Draggable floating Apollo logo with Recovery, Settings and Models controls, live microphone
+  levels, collapse button, right-edge hiding and tray restoration. No Windows notification balloons.
+- Native recovery preview, clipboard copy, retry and deletion with the originally used key.
+- Searchable OpenRouter model catalog separated by transcription/text output capabilities.
+- Persistent profile/model choices and actual configured key labels in setup and controls.
+- Automatic recovery cache retention: 15 minutes, 10 completed entries and 64 MB by default;
+  active work is protected. Older version recordings are subject to the same cleanup policy.
+
 ## [0.2.0] - 2026-10-03
 
 ### Changed

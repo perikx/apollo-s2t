@@ -51,7 +51,7 @@ except Exception:
     HAVE_TRAY = False
 
 APP_NAME = "Apollo s2t"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -233,8 +233,12 @@ class Recorder:
         self._checkpoint_thread = None
         self.capture_warning = False
         self.backup_failed = False
+        self.level = 0.0
 
     def _callback(self, indata, frames, time_info, status):
+        if len(indata):
+            samples = indata.astype(np.float32) / 32768.0
+            self.level = float(np.sqrt(np.mean(samples * samples)))
         if status:
             self.capture_warning = True
         remaining = self.max_samples - self._sample_count
@@ -268,6 +272,7 @@ class Recorder:
                 return
 
     def start(self, backup=None, on_error=None):
+        self.level = 0.0
         self._frames = []
         self._sample_count = 0
         self.backup = backup
@@ -564,13 +569,61 @@ class App:
         self._backup = None
         self._busy_recordings = set()
         self._tray = None
+        self.ui_events = queue.Queue(maxsize=128)
+        self.ui_windows = set()
+
+    def open_panel(self, page=None):
+        self._ui_event("open", page)
+
+    def _ui_event(self, kind, value):
+        try:
+            self.ui_events.put_nowait((kind, value))
+        except queue.Full:
+            pass
+
+    def update_preferences(self, changes):
+        with self._lock:
+            cfg = deepcopy(self.cfg)
+            for section, values in changes.items():
+                if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing"):
+                    raise ConfigError("Unsupported preference")
+                cfg[section].update(values)
+            cfg, _ = normalize_config(cfg)
+            save_config(os.path.join(self.base_dir, "config.json"), cfg)
+            self.cfg = cfg
+        self.refresh_recovery_menu()
+
+    def available_profiles(self):
+        return list_profiles(self.cfg, self.base_dir)
+
+    def prune_recovery(self):
+        try:
+            with self._lock:
+                return self.recovery.prune(**self.cfg["recovery_cache"], protected=self._busy_recordings)
+        except (OSError, ValueError):
+            log.warning("Recovery cache cleanup could not complete.")
+            return []
+
+    def delete_recovery(self, recording_id):
+        with self._lock:
+            if recording_id not in self._busy_recordings:
+                self.recovery.delete(recording_id)
+        self.refresh_recovery_menu()
+
+    def copy_recovery(self, recording_id):
+        with self._lock:
+            if recording_id in self._busy_recordings:
+                return
+            try:
+                text = self.recovery.open(recording_id).read_transcript()
+                if text:
+                    _copy_owned(text)
+                    self.notify("Text kopiert.")
+            except (OSError, ValueError):
+                self.notify("Aufnahme nicht mehr verfügbar.")
 
     def notify(self, message):
-        if self._tray is not None:
-            try:
-                self._tray.notify(message, APP_NAME)
-            except Exception:
-                pass
+        self._ui_event("status", message)
 
     def refresh_recovery_menu(self):
         if self._tray is not None:
@@ -620,7 +673,7 @@ class App:
                 self._busy_recordings.discard(recording_id)
                 self._slots.release()
                 log.error("Could not open saved dictation. Check the recovery folder.")
-                self.notify("Could not open saved dictation. Check the recovery folder.")
+                self.notify("Aufnahme nicht verfügbar. Bitte Recovery erneut öffnen.")
 
     def recovery_items(self):
         try:
@@ -640,9 +693,8 @@ class App:
             self.notify("Could not open the recovery folder. Check folder access.")
 
     def set_profile(self, name):
-        with self._lock:
-            self.cfg["prompt_profiles"]["active"] = name
-        log.info("Active F10 prompt profile changed.")
+        self.update_preferences({"prompt_profiles": {"active": name}})
+        log.info("Active prompt profile changed.")
 
     def _origin_ready(self, text):
         if self.insert_target != "origin" or not self._origin_hwnd:
@@ -655,6 +707,10 @@ class App:
         return False
 
     def insert_text(self, text, t0):
+        if get_foreground_window() in self.ui_windows:
+            _copy_owned(text)
+            self.notify("Text kopiert. Mit Strg+V im gewünschten Fenster einfügen.")
+            return
         if not self._origin_ready(text):
             return
         if self.insert_mode == "armed":
@@ -763,7 +819,9 @@ class App:
                 cfg = deepcopy(self.cfg)
                 prompt = build_prompt_system(cfg, self.base_dir) if mode == "prompt" else PROMPTS.get(mode, "")
                 self._capture = (mode, get_foreground_window(), cfg, prompt)
-                self._backup = self.recovery.create(self.samplerate, self.channels, mode, prompt)
+                self.prune_recovery()
+                self._backup = self.recovery.create(self.samplerate, self.channels, mode, prompt,
+                                                    hotkey=cfg["hotkeys"][mode])
                 self._busy_recordings.add(self._backup.id)
                 capture = self._capture
                 self.recorder.start(self._backup, on_error=lambda: self._capture_failed(capture))
@@ -856,6 +914,8 @@ class App:
             finally:
                 with self._lock:
                     self._busy_recordings.discard(job[3].id)
+                self.prune_recovery()
+                self._ui_event("refresh", None)
                 self.refresh_recovery_menu()
                 self._jobs.task_done()
                 self._slots.release()
@@ -883,7 +943,7 @@ class App:
             if not text:
                 self._saved_status(backup, "failed")
                 log.warning("No speech recognized. Audio kept in recovery folder.")
-                self.notify("No speech recognized. Your recording is saved; recover it from the tray menu.")
+                self.notify("Keine Sprache erkannt. Audio ist im Recovery-Cache gesichert.")
                 beep("error", self.beep_enabled)
                 return
             log.info("STT complete (%d characters, %.0f ms).", len(text), (time.monotonic() - t0) * 1000)
@@ -913,21 +973,22 @@ class App:
                         beep("ready", self.beep_enabled)
                     else:
                         self._origin_hwnd = origin  # per-job snapshot, not the next recording's window
+                        self.notify("Bereit")
                         self.insert_text(text, t0)
         except requests.RequestException as exc:
             self._saved_status(backup, "failed")
             log.error("%s Audio kept in recovery folder.", http_error_hint("Transcription", exc))
-            self.notify("Transcription failed. Your recording is saved. Use Recover saved dictation in the tray.")
+            self.notify("Transkription fehlgeschlagen. Audio gesichert – in Recovery erneut versuchen.")
             beep("error", self.beep_enabled)
         except (ResponseError, ValueError, TypeError):
             self._saved_status(backup, "failed")
             log.error("No complete transcription; nothing pasted. Audio kept in recovery folder.")
-            self.notify("No complete transcription. Your recording is saved; recover it from the tray.")
+            self.notify("Transkription unvollständig. Audio gesichert – in Recovery erneut versuchen.")
             beep("error", self.beep_enabled)
         except Exception:
             self._saved_status(backup, "failed")
             log.error("Could not save, process or insert dictation. Check recovery folder, disk space and clipboard.")
-            self.notify("Could not finish dictation. Check saved audio/text in the recovery folder and free disk space.")
+            self.notify("Diktat nicht abgeschlossen. Recovery und freien Speicherplatz prüfen.")
             beep("error", self.beep_enabled)
 
     def close(self):
@@ -983,11 +1044,13 @@ def run_tray(on_quit, app):
     if profiles:
         def select(name):
             return lambda icon, item: app.set_profile(name)
-        items.append(pystray.MenuItem("F10 profile", pystray.Menu(*[
+        items.append(pystray.MenuItem(f'{app.cfg["hotkeys"]["prompt"].upper()} profile', pystray.Menu(*[
             pystray.MenuItem(name, select(name), radio=True,
                              checked=lambda item, n=name: app.cfg["prompt_profiles"]["active"] == n)
             for name in profiles])))
-    items.append(pystray.MenuItem("Open settings (restart after editing)", lambda icon, item: os.startfile(CONFIG_PATH)))
+    items.append(pystray.MenuItem("Show Apollo", lambda icon, item: app.open_panel(), default=True))
+    items.append(pystray.MenuItem("Settings", lambda icon, item: app.open_panel("settings")))
+    items.append(pystray.MenuItem("Models", lambda icon, item: app.open_panel("models")))
     items.append(pystray.MenuItem("Open log", lambda icon, item: os.startfile(LOG_PATH)))
     def recovery_menu():
         entries = app.recovery_items()
@@ -1003,7 +1066,7 @@ def run_tray(on_quit, app):
                 app.recover(recording_id)
             yield pystray.MenuItem(label, recover)
     items.append(pystray.MenuItem("Recover saved dictation", pystray.Menu(recovery_menu)))
-    items.append(pystray.MenuItem("Open saved audio and text", lambda icon, item: app.open_recovery_folder()))
+    items.append(pystray.MenuItem("Recovery window", lambda icon, item: app.open_panel("recovery")))
     if HAVE_WINREG:
         items.append(pystray.MenuItem("Start at login", lambda icon, item:
                                      disable_autostart() if is_autostart_enabled() else enable_autostart(),
@@ -1012,8 +1075,6 @@ def run_tray(on_quit, app):
     app._tray = pystray.Icon("apollo", make_tray_image(), APP_NAME, menu=pystray.Menu(*items))
     def ready(icon):
         icon.visible = True
-        if app.recovery_items():
-            app.notify("Saved dictations are available in Recover saved dictation. Nothing is resent automatically.")
     app._tray.run(setup=ready)
 
 
@@ -1062,7 +1123,15 @@ def main():
         log.info("Apollo running: %s. STT: %s. Rewrite: %s. Version: %s.", cfg["hotkey_mode"],
                  cfg["openrouter_stt"]["model"], cfg["smoothing"]["model"], APP_VERSION)
         if HAVE_TRAY:
-            run_tray(quit_app, app)
+            from apollo_overlay import FloatingUI
+            ui = FloatingUI(app, quit_app, make_tray_image())
+            app.prune_recovery()
+            threading.Thread(target=run_tray, args=(quit_app, app), daemon=True, name="apollo-tray").start()
+            try:
+                ui.run()
+            finally:
+                if app._tray is not None:
+                    app._tray.stop()
         elif sys.stdin is not None:
             log.warning("Tray unavailable; Ctrl+C quits this console session.")
             keyboard.wait()
@@ -1094,7 +1163,8 @@ def run_setup_gui():
             enable_autostart()
         else:
             disable_autostart()
-        messagebox.showinfo(APP_NAME, "F8: dictate. F9: polish. F10: build a prompt.\n"
+        messagebox.showinfo(APP_NAME, f'{cfg["hotkeys"]["dictate"].upper()}: dictate. '
+                            f'{cfg["hotkeys"]["polish"].upper()}: polish. {cfg["hotkeys"]["prompt"].upper()}: build a prompt.\n'
                             "Tap once to start, again to stop.\nSettings and Quit are in the tray menu.", parent=root)
         return True
     finally:
@@ -1115,7 +1185,7 @@ def run_setup():
     if not api_key(cfg):
         raise ConfigError("A valid API key is required. No new configuration was saved.")
     print(f'Speech: {cfg["openrouter_stt"]["model"]}\nRewrite: {cfg["smoothing"]["model"]}')
-    print("Default: F8 dictate, F9 polish, F10 prompt. Tap once to start, again to stop.")
+    print(" · ".join(f"{key.upper()}: {mode}" for mode, key in cfg["hotkeys"].items()))
     if input("Customize language, hotkeys or insertion? [y/N]: ").strip().lower() in ("y", "yes"):
         current = cfg["openrouter_stt"]["language"] or "auto"
         language = input(f"Speech language [Enter keeps {current}; auto/de/en/...]: ").strip()

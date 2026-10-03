@@ -124,7 +124,7 @@ class RecoveryStore:
                 raise
             raise RecoveryError("Cannot read recovery metadata") from exc
 
-    def create(self, samplerate: int, channels: int, mode: str, prompt: str = "") -> RecordingBackup:
+    def create(self, samplerate: int, channels: int, mode: str, prompt: str = "", *, hotkey: str = "") -> RecordingBackup:
         if type(samplerate) is not int or not 1 <= samplerate <= 384000:
             raise ValueError("Invalid recording sample rate")
         if type(channels) is not int or not 1 <= channels <= 8:
@@ -138,7 +138,7 @@ class RecoveryStore:
         metadata = {
             "version": 1, "id": recording_id, "samplerate": samplerate,
             "channels": channels, "sample_width": 2, "mode": mode, "prompt": prompt,
-            "created_at": timestamp, "updated_at": timestamp, "state": "recording",
+            "created_at": timestamp, "updated_at": timestamp, "state": "recording", "hotkey": hotkey,
         }
         with self._lock(recording_id):
             # Complete the initial header before this backup can accept samples.
@@ -151,6 +151,54 @@ class RecoveryStore:
             backup = RecordingBackup(self, recording_id)
             backup._repair_wav()
             return backup
+
+    def delete(self, recording_id: str) -> None:
+        """Caller must exclude active entries under its application lock."""
+        with self._lock(recording_id):
+            paths = [self._path(recording_id, s) for s in (".wav", ".txt", ".transcript.txt", ".json")]
+            for path in paths:
+                path.unlink(missing_ok=True)
+
+    def prune(self, *, minutes=15, max_entries=10, max_mb=64, protected=(), now=None):
+        """Expire completed entries; active capture/processing can temporarily exceed limits.
+
+        Retention starts at the last state update, so a long recording still has
+        a full recovery window after processing. Only our UUID files are touched.
+        """
+        now = now or datetime.now(timezone.utc)
+        total = count = 0
+        removed = []
+        for entry in self.list_recordings():
+            if entry.id in protected:
+                continue
+            meta = entry.metadata
+            stamp = datetime.fromisoformat(meta.get("updated_at", meta["created_at"]))
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            paths = [self._path(entry.id, s) for s in (".wav", ".json", ".txt", ".transcript.txt")]
+            size = sum(p.stat().st_size for p in paths if p.exists())
+            if ((now - stamp).total_seconds() >= minutes * 60 or count >= max_entries
+                    or total + size > max_mb * 1024 * 1024 or meta["state"] == "too_short"):
+                self.delete(entry.id)
+                removed.append(entry.id)
+            else:
+                total += size
+                count += 1
+        # A crash can leave an orphan WAV, corrupt JSON or atomic-write temp.
+        # Expire only our exact filenames; never follow symlinks or delete user files.
+        for path in self.root.iterdir():
+            match = re.fullmatch(r"\.?([0-9a-f]{32})\.(?:wav|json|txt|transcript\.txt)(?:\.[0-9a-f]{32}\.tmp)?", path.name)
+            if not match or match[1] in protected or path.is_symlink() or not path.is_file():
+                continue
+            try:
+                metadata = self._read_metadata(match[1])
+                if not path.name.endswith(".tmp") and self._path(match[1], ".wav").exists():
+                    continue
+            except (OSError, ValueError):
+                pass
+            if now.timestamp() - path.stat().st_mtime >= minutes * 60:
+                path.unlink(missing_ok=True)
+        return removed
 
     def list_recordings(self) -> list[RecordingBackup]:
         entries: list[tuple[str, RecordingBackup]] = []

@@ -60,10 +60,17 @@ Before a release, run these checks on a Windows PC with an OpenRouter balance:
 Live checks can incur API charges. A silence-only HTTP 200 is not evidence of recognition
 quality. Compare real recordings against reference text before claiming accuracy improvements.
 
-Recovery data is private and retained until manually deleted. Use synthetic recordings
+Recovery data is private and expires under the configured cache policy. Use synthetic recordings
 for tests, temporary recovery directories, and never commit `recovery/`, transcripts or
 real prompt context. Source changes take effect only after the running Apollo process
 is quit and restarted; an older running instance still uses the previous code.
+
+`python tests/native_overlay_smoke.py .pytest_cache/overlay-preview` exercises the actual
+Windows floating controls with synthetic recordings and a fake model catalog. It checks
+satellite-button navigation, stored key/text preview, incompatible-model rejection,
+waveform rendering, right-edge hiding, silent errors while hidden, tray-style reopening
+and X collapse. Screenshots remain local for visual inspection. The Windows pytest
+suite also runs this isolated smoke test; it does not record, paste or call providers.
 
 ## Packaging
 
