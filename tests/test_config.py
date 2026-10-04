@@ -74,7 +74,8 @@ def test_placeholder_key_is_not_valid():
     {"audio": {"samplerate": float("nan")}}, {"insertion": {"restore_delay": -1}},
     {"smoothing": {"timeout_seconds": "20"}}, {"smoothing": {"api_key": None}},
     {"prompt_profiles": {"active": "../secret"}}, {"beep": "false"},
-    {"min_record_seconds": 5, "max_record_seconds": 2}, {"hotkey_mode": "wat"}])
+    {"min_record_seconds": 5, "max_record_seconds": 2}, {"hotkey_mode": "wat"},
+    {"ui_language": "fr"}, {"ui_language": None}, {"ui_language": {}}])
 def test_invalid_config_rejected_before_runtime(raw):
     with pytest.raises(ConfigError):
         normalize_config(raw)

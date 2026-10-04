@@ -6,13 +6,29 @@ import math
 import random
 import time
 import requests
-from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL
+from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL, validate_vocabulary
 
 # A single processing worker uses this pool for both requests, reusing TLS connections.
 _http = requests.Session()
 STT_MAX_ATTEMPTS = 3
 STT_RETRY_WINDOW_SECONDS = 30
 STT_RATE_LIMIT_FALLBACKS = {"microsoft/mai-transcribe-2": "microsoft/mai-transcribe-1.5"}
+
+
+def check_key(key):
+    """Read-only authentication check; no model inference, audio or billing."""
+    try:
+        response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
+        try:
+            if response.status_code in (401, 403):
+                return "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
+            return ""
+        finally: response.close()
+    except (requests.RequestException, ValueError):
+        return "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
 
 
 class ResponseError(ValueError):
@@ -137,6 +153,15 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     }
     if cfg.get("language"):
         body["language"] = cfg["language"]
+    vocabulary = validate_vocabulary(cfg.get("vocabulary", []))
+    def hints(request):
+        # Only the documented MAI 2 Azure integration is enabled. Keep unsupported
+        # models usable; never turn the list into transcript replacements.
+        request.pop("provider", None)
+        if vocabulary and request["model"] == "microsoft/mai-transcribe-2":
+            request["provider"] = {"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
+        return request
+    hints(body)
     deadline = time.monotonic() + STT_RETRY_WINDOW_SECONDS
     for attempt in range(1, STT_MAX_ATTEMPTS + 1):
         try:
@@ -165,7 +190,7 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
             if fallback_model:
                 # Reuse the exact recording/options, without changing the configured
                 # primary or mutating the body associated with the previous request.
-                body = dict(body, model=fallback_model)
+                body = hints(dict(body, model=fallback_model))
                 if on_fallback is not None:
                     on_fallback(fallback_model)
     text = data.get("text")

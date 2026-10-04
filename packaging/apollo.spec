@@ -18,6 +18,7 @@ datas = [
     (os.path.join(root, "prompts"), "prompts"),
     (os.path.join(root, "assets", "apollo.ico"), "assets"),
     (os.path.join(root, "assets", "apollo.png"), "assets"),
+    (os.path.join(root, "assets", "fonts"), "assets/fonts"),
     (os.path.join(root, "LICENSE"), "."),
     (os.path.join(root, "THIRD_PARTY_NOTICES.md"), "."),
     (os.path.join(root, "licenses"), "licenses"),

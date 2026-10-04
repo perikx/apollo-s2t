@@ -5,6 +5,25 @@ import re
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
 
+# Reviewed against the live OpenRouter catalog and model pages on 2026-10-04.
+# These are task-specific suggestions, not a benchmark ranking. Only models
+# present in the compatible live catalog are ever promoted.
+RECOMMENDATIONS = {
+    "transcription": {
+        "microsoft/mai-transcribe-2": "Hauptmodell · mehrsprachig, schnell und günstig",
+        "qwen/qwen3-asr-1.7b": "Günstige mehrsprachige Alternative",
+        "qwen/qwen3-asr-0.6b": "Besonders günstige Transkription",
+        "mistralai/voxtral-mini-3b-2507": "Alternative von Mistral",
+    },
+    "text": {
+        "qwen/qwen3.8-flash": "Aktuelle günstige Textbearbeitung",
+        "z-ai/glm-5.3-flash": "Günstige Alternative von Z.ai",
+        "qwen/qwen3.7-flash": "Besonders günstige Textbearbeitung",
+        "deepseek/deepseek-v4-flash-20260731": "Alternative von DeepSeek",
+        "google/gemini-3.5-flash-lite": "Geringe Startlatenz · höhere Ausgabekosten",
+    },
+}
+
 
 def discover_catalog(kind, get=requests.get):
     if kind not in ("transcription", "text"):

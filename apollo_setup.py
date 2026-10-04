@@ -3,37 +3,27 @@ from copy import deepcopy
 import os
 from pathlib import Path
 import threading
-import requests
+from apollo_api import check_key
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLineEdit, QHBoxLayout, QWidget, QVBoxLayout, QCheckBox, QScrollArea
 from apollo_config import api_key, normalize_config, save_config, ConfigError
 from apollo_design import Shell, qt_app, logo_path, logo_pixmap, label, button
 from apollo_widgets import KeyCapture, Choice, ModelCatalog, ModelField, MODES, WheelRouter
-
-
-def check_key(key):
-    """Read-only authentication check; no model inference, audio or billing."""
-    try:
-        response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
-        try:
-            if response.status_code in (401, 403):
-                return "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
-            response.raise_for_status()
-            data = response.json()
-            if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
-            return ""
-        finally: response.close()
-    except (requests.RequestException, ValueError):
-        return "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
+from apollo_i18n import t, set_language, LANGUAGES
 
 
 class SetupWizard(Shell):
     checked = Signal(str)
     def __init__(self, cfg, path, set_autostart, initial_error=""):
+        set_language(cfg["ui_language"])
         super().__init__("Einrichten", logo_pixmap(logo_path()), 640, 540)
         self.cfg = deepcopy(cfg); self.path = Path(path); self.set_autostart = set_autostart
         self.catalog = ModelCatalog(); self.step = 0; self.checking = False
         self.verified_key = None; self.pixmap = logo_pixmap(logo_path())
+        self.interface_label = label("Sprache der Oberfläche", "muted"); self.layout.addWidget(self.interface_label)
+        self.interface_language = Choice(LANGUAGES, cfg["ui_language"], self.pixmap)
+        self.interface_language.changed.connect(self.change_language)
+        self.layout.addWidget(self.interface_language)
         self.step_label = label("", "muted"); self.layout.addWidget(self.step_label)
         self.heading = label("", "title"); self.layout.addWidget(self.heading)
         self.body = QWidget(); self.body_layout = QVBoxLayout(self.body)
@@ -47,27 +37,44 @@ class SetupWizard(Shell):
         row.addWidget(self.back); row.addStretch(); row.addWidget(self.next); self.layout.addLayout(row)
         self.checked.connect(self.key_checked)
         self.render()
-        if initial_error: self.error.setText(initial_error)
+        if initial_error: self.error.setText(t(initial_error))
+    def change_language(self, language):
+        if self.checking: return
+        # Keep even invalid/unfinished entries editable across a language switch.
+        if self.step == 0: self.cfg["smoothing"]["api_key"] = self.key.text()
+        elif self.step == 1:
+            self.cfg["hotkeys"] = {key: field.value for key, field in self.keys.items()}
+            self.cfg["hotkey_mode"] = self.behavior.value
+            self.cfg["openrouter_stt"]["language"] = self.language.text()
+        else:
+            self.save_model_choices(); self.start_at_login = self.autostart.isChecked()
+        self.cfg["ui_language"] = language; set_language(language)
+        self.interface_language.value = language
+        self.interface_language.button.setText(LANGUAGES[language])
+        self.interface_language.items.hide()
+        self.interface_label.setText(t("Sprache der Oberfläche"))
+        self.setWindowTitle("apollo s2t · " + t("Einrichten"))
+        self.back.setText(t("Zurück")); self.render()
     def render(self):
         while self.body_layout.count():
             item = self.body_layout.takeAt(0)
             if item.widget(): item.widget().hide(); item.widget().deleteLater()
-        self.step_label.setText(f"Einrichten · Schritt {self.step+1} von 3")
-        self.back.setVisible(self.step > 0); self.next.setText("apollo s2t starten" if self.step == 2 else "Weiter")
-        self.error.setText("")
+        self.step_label.setText(t("Einrichten · Schritt {step} von 3").format(step=self.step+1))
+        self.back.setVisible(self.step > 0); self.next.setText(t("apollo s2t starten" if self.step == 2 else "Weiter"))
+        self.error.setText(t(""))
         if self.step == 0:
-            self.heading.setText("Willkommen bei apollo s2t")
+            self.heading.setText(t("Willkommen bei apollo s2t"))
             self.body_layout.addWidget(label("Ein OpenRouter-Schlüssel verbindet Spracherkennung und Textbearbeitung.", wrap=True))
             self.body_layout.addWidget(label("API-Nutzung wird über dein OpenRouter-Guthaben abgerechnet.\nSchlüssel erstellen: openrouter.ai/keys", "muted", True))
             self.body_layout.addWidget(label("OpenRouter API-Schlüssel", "section"))
             self.key = QLineEdit(); self.key.setEchoMode(QLineEdit.EchoMode.Password)
-            self.key.setMinimumHeight(36); self.key.setPlaceholderText("API-Schlüssel eingeben …")
+            self.key.setMinimumHeight(36); self.key.setPlaceholderText(t("API-Schlüssel eingeben …"))
             self.key.setText(self.cfg["smoothing"]["api_key"])
             self.key.setEnabled(not bool(os.environ.get("OPENROUTER_API_KEY")))
             self.body_layout.addWidget(self.key)
             self.body_layout.addWidget(label("Der Schlüssel wird ohne Modellaufruf geprüft.\nAufnahmen bleiben bei Fehlern im begrenzten Recovery-Cache.", "muted", True))
         elif self.step == 1:
-            self.heading.setText("Deine Aufnahmetasten")
+            self.heading.setText(t("Deine Aufnahmetasten"))
             self.body_layout.addWidget(label("Taste anklicken und deine gewünschte Taste drücken.", "muted", True))
             self.keys = {}
             for mode, text in MODES.items():
@@ -79,9 +86,9 @@ class SetupWizard(Shell):
             self.body_layout.addWidget(self.behavior)
             self.body_layout.addWidget(label("Sprache der Aufnahme", "section"))
             self.language = QLineEdit(self.cfg["openrouter_stt"]["language"] or "auto")
-            self.language.setPlaceholderText("auto / de / en …"); self.body_layout.addWidget(self.language)
+            self.language.setPlaceholderText(t("auto / de / en …")); self.body_layout.addWidget(self.language)
         else:
-            self.heading.setText("Wähle deine Modelle")
+            self.heading.setText(t("Wähle deine Modelle"))
             self.fields = {}
             for key, title, kind, value, allow_none in (
                 ("primary", "Haupttranskription", "transcription", self.cfg["openrouter_stt"]["model"], False),
@@ -90,7 +97,8 @@ class SetupWizard(Shell):
                 self.body_layout.addWidget(label(title, "section"))
                 field = ModelField(title, kind, value, self.catalog, self.pixmap, allow_none=allow_none)
                 self.fields[key] = field; self.body_layout.addWidget(field)
-            self.autostart = QCheckBox("apollo s2t bei Windows-Anmeldung starten")
+            self.autostart = QCheckBox(t("apollo s2t bei Windows-Anmeldung starten"))
+            self.autostart.setChecked(getattr(self, "start_at_login", False))
             self.body_layout.addWidget(self.autostart)
             self.body_layout.addWidget(label("Preise in USD · kompatible Modelle von OpenRouter\nDas schwebende Logo lässt sich verschieben und über den Tray wieder öffnen.", "muted", True))
             self.catalog.start()
@@ -108,10 +116,11 @@ class SetupWizard(Shell):
             self.cfg["smoothing"]["api_key"] = self.key.text().strip()
             value = api_key(self.cfg)
             if not value:
-                self.error.setText("Bitte einen OpenRouter API-Schlüssel eingeben."); self.key.setFocus(); return
+                self.error.setText(t("Bitte einen OpenRouter API-Schlüssel eingeben.")); self.key.setFocus(); return
             if value != self.verified_key:
                 self.checking = True; self.next.setEnabled(False); self.key.setEnabled(False)
-                self.error.setText("Schlüssel wird geprüft …")
+                self.interface_language.setEnabled(False)
+                self.error.setText(t("Schlüssel wird geprüft …"))
                 threading.Thread(target=lambda: self.checked.emit(check_key(value)), daemon=True, name="apollo-key-check").start()
                 return
         elif self.step == 1:
@@ -127,7 +136,7 @@ class SetupWizard(Shell):
                     codes = set(keyboard.key_to_scan_codes(key))
                     if not codes or all_codes & codes: raise ConfigError("Bitte drei verschiedene gültige Tasten wählen.")
                     all_codes.update(codes)
-            except (ValueError, KeyError) as exc: self.error.setText(str(exc)); return
+            except (ValueError, KeyError) as exc: self.error.setText(t(str(exc))); return
             self.cfg = candidate
         else:
             try:
@@ -140,15 +149,16 @@ class SetupWizard(Shell):
                 save_config(self.path, self.cfg)
                 self.set_autostart(self.autostart.isChecked())
             except (OSError, ValueError):
-                self.error.setText("Einrichten konnte nicht gespeichert werden. Bitte Eingaben prüfen und erneut versuchen."); return
+                self.error.setText(t("Einrichten konnte nicht gespeichert werden. Bitte Eingaben prüfen und erneut versuchen.")); return
             self.accept(); return
         self.step += 1; self.render()
     def key_checked(self, error):
         if not self.isVisible(): return
         self.checking = False; self.next.setEnabled(True)
+        self.interface_language.setEnabled(True)
         self.key.setEnabled(not bool(os.environ.get("OPENROUTER_API_KEY")))
         if error:
-            self.error.setText(error); self.key.setFocus(); return
+            self.error.setText(t(error)); self.key.setFocus(); return
         self.verified_key = api_key(self.cfg)
         self.step = 1; self.render()
 

@@ -2,6 +2,20 @@
 import json
 import pytest
 from apollo_models import price_from_page, token_price, discover_catalog, discover_price
+from apollo_models import RECOMMENDATIONS
+
+def test_recommendations_cover_cost_focused_alternatives_without_openai():
+    assert not any(model.startswith('openai/') for models in RECOMMENDATIONS.values() for model in models)
+    assert 'qwen/qwen3-asr-1.7b' in RECOMMENDATIONS['transcription']
+    assert 'qwen/qwen3.8-flash' in RECOMMENDATIONS['text']
+    assert 'z-ai/glm-5.3-flash' in RECOMMENDATIONS['text']
+
+def test_full_catalog_keeps_recent_and_unrecommended_models():
+    models = ['qwen/qwen3.8-flash', 'brand/new-model', 'openai/custom-text', 'brand/old-model']
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {'data': [{'id': model, 'architecture': {'input_modalities': ['text'], 'output_modalities': ['text']}} for model in models]}
+    assert set(discover_catalog('text', lambda *args, **kwargs: Response())) == set(models)
 
 def page(prices):
     payload = json.dumps({"display_pricing": prices}, separators=(',', ':'))

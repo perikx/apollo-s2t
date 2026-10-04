@@ -243,3 +243,27 @@ upgrade; the old single-language preference is carried over where applicable. Le
 custom vocabulary remains only in the backup and is not sent as unsupported API parameters.
 An existing virtual environment may still contain the unused websocket package; Apollo
 no longer imports or installs it. It can be removed manually or by recreating `.venv`.
+
+## Personal vocabulary
+
+Settings → Personal vocabulary stores up to 100 explicit phrases in
+`openrouter_stt.vocabulary`, one phrase per line (1–100 characters each).
+Use the exact spelling, such as `PANDU`. This small list needs no database,
+background service or automatic learning. It is empty by default.
+
+For MAI-Transcribe 2, Apollo sends the list with the audio through the documented
+OpenRouter option `provider.options.azure.phraseList.phrases`. This biases speech
+recognition; it does not guarantee the spelling, train a personal model or replace
+words after transcription. Other models, including the MAI-1.5 fallback, currently
+receive no vocabulary options because their exact integration has not been verified.
+See [OpenRouter's MAI-2 integration](https://openrouter.ai/microsoft/mai-transcribe-2).
+
+## Terminal onboarding
+
+First launch without a key and `--setup` open a real terminal. Its normal colors
+remain unchanged. Choose English, German or Simplified Chinese, enter the key
+without echo, then keep the defaults or customize keys, language and compatible
+models. Model discovery and key validation make read-only requests; they send no
+audio or text to a model. `/cancel` or Ctrl+C exits without saving. Invalid key or
+key choices remain editable. Saving preserves existing profiles and settings.
+The normal floating app runs without a terminal.
