@@ -127,13 +127,14 @@ def test_user_facing_files_do_not_reintroduce_retired_provider(relative):
 
 def test_current_logo_and_install_commands_are_present():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 'src="assets/apollo.png"' in readme
-    assert readme.index('src="assets/apollo.png"') < readme.index("## Install and run")
-    assert readme.index("git clone https://github.com/perikx/apollo-s2t.git") < readme.index("## Use it")
-    assert "cd apollo-s2t\n.\\Apollo.bat" in readme
-    assert "git pull --ff-only" in readme
-    for label in ("License: MIT", "Platform: Windows 10/11", "Python 3.10+", "GitHub stars"):
-        assert f'alt="{label}"' in readme
+    assert 'src="assets/apollo-monochrome.png"' in readme
+    assert readme.index('src="assets/apollo-monochrome.png"') < readme.index("Download for Windows")
+    assert "https://github.com/perikx/apollo-s2t/releases/latest" in readme
+    assert "docs/configuration.md" in readme and "docs/development.md" in readme
+    assert "img.shields.io" not in readme
+    assert len(readme.split()) < 170
+    artwork = (ROOT / "assets/apollo-monochrome.png").read_bytes()
+    assert hashlib.sha256(artwork).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"
     # Keep the user-supplied original artwork intact.
     logo = (ROOT / "assets/apollo.png").read_bytes()
     assert hashlib.sha256(logo).hexdigest() == "75d883fd9181c404c1323430c12d09d26fb4b976da0577bc66828211da6becc7"
