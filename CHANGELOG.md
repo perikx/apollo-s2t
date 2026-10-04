@@ -3,6 +3,15 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+- Monochrome artwork, Figtree typography, simpler headers and tray controls.
+- English, German and Simplified Chinese interface and terminal setup.
+- Animated terminal onboarding with hidden key entry and editable validation errors.
+- Nested scrolling stays inside its list; scrollbars are hidden and saving preserves position.
+- Current model suggestions above the full compatible catalog, without duplicate entries.
+- Optional personal vocabulary hints for MAI-Transcribe 2, excluded from unsupported fallbacks.
+
 ## [0.4.1] - 2026-10-03
 
 ### Changed

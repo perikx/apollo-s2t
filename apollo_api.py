@@ -6,7 +6,7 @@ import math
 import random
 import time
 import requests
-from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL
+from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL, validate_vocabulary
 
 # A single processing worker uses this pool for both requests, reusing TLS connections.
 _http = requests.Session()
@@ -137,6 +137,15 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     }
     if cfg.get("language"):
         body["language"] = cfg["language"]
+    vocabulary = validate_vocabulary(cfg.get("vocabulary", []))
+    def hints(request):
+        # Only the documented MAI 2 Azure integration is enabled. Keep unsupported
+        # models usable; never turn the list into transcript replacements.
+        request.pop("provider", None)
+        if vocabulary and request["model"] == "microsoft/mai-transcribe-2":
+            request["provider"] = {"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
+        return request
+    hints(body)
     deadline = time.monotonic() + STT_RETRY_WINDOW_SECONDS
     for attempt in range(1, STT_MAX_ATTEMPTS + 1):
         try:
@@ -165,7 +174,7 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
             if fallback_model:
                 # Reuse the exact recording/options, without changing the configured
                 # primary or mutating the body associated with the previous request.
-                body = dict(body, model=fallback_model)
+                body = hints(dict(body, model=fallback_model))
                 if on_fallback is not None:
                     on_fallback(fallback_model)
     text = data.get("text")

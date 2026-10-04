@@ -51,7 +51,7 @@ def check_saved_setup(path, legacy):
 def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, legacy):
     path, startup = prepare_setup(monkeypatch, tmp_path, legacy)
     prompts = []
-    answers = iter(["n", "n"])
+    answers = iter(["en", "n", "n", "y"])
 
     def get_key(prompt):
         prompts.append(prompt)
@@ -61,7 +61,10 @@ def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, leg
         prompts.append(prompt)
         return next(answers)
 
-    monkeypatch.setattr(apollo.getpass, "getpass", get_key)
+    import apollo_terminal
+    import apollo_setup
+    monkeypatch.setattr(apollo_terminal.getpass, "getpass", get_key)
+    monkeypatch.setattr(apollo_setup, "check_key", lambda key: "")
     monkeypatch.setattr("builtins.input", answer)
     apollo.run_setup()
     output = capsys.readouterr().out + "\n".join(prompts)
@@ -137,4 +140,4 @@ def test_current_logo_and_install_commands_are_present():
     assert hashlib.sha256(artwork).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"
     # Keep the user-supplied original artwork intact.
     logo = (ROOT / "assets/apollo.png").read_bytes()
-    assert hashlib.sha256(logo).hexdigest() == "75d883fd9181c404c1323430c12d09d26fb4b976da0577bc66828211da6becc7"
+    assert hashlib.sha256(logo).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"

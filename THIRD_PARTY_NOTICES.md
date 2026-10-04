@@ -1,5 +1,10 @@
 # Third-party notices
 
+Apollo bundles the unmodified Figtree variable font, Copyright 2022 The Figtree
+Project Authors, under the SIL Open Font License 1.1. The copyright and full
+license travel with the font in [assets/fonts/OFL.txt](assets/fonts/OFL.txt).
+Source: https://github.com/google/fonts/tree/main/ofl/figtree
+
 Apollo's own source is MIT licensed. The application uses unmodified Qt 6,
 PySide6 Essentials and Shiboken6 from the Qt for Python Community Edition,
 Copyright The Qt Company Ltd. and other contributors, under LGPL version 3.
