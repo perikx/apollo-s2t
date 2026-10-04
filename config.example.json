@@ -1,5 +1,6 @@
 {
   "config_version": 2,
+  "ui_language": "en",
   "hotkeys": {
     "dictate": "f8",
     "polish": "f9",
@@ -12,7 +13,8 @@
     "fallback_model": "microsoft/mai-transcribe-1.5",
     "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
     "language": "",
-    "timeout_seconds": 60
+    "timeout_seconds": 60,
+    "vocabulary": []
   },
   "smoothing": {
     "api_key": "",

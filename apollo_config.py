@@ -12,6 +12,7 @@ DEFAULT_SMOOTHING_MODEL = "google/gemini-3.5-flash-lite"
 
 DEFAULTS = {
     "config_version": CONFIG_VERSION,
+    "ui_language": "en",
     "hotkeys": {"dictate": "f8", "polish": "f9", "prompt": "f10"},
     "hotkey_mode": "toggle",
     "autostart_delay_seconds": 20,
@@ -19,7 +20,7 @@ DEFAULTS = {
         "model": DEFAULT_STT_MODEL,
         "fallback_model": "microsoft/mai-transcribe-1.5",
         "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
-        "language": "", "timeout_seconds": 60,
+        "language": "", "timeout_seconds": 60, "vocabulary": [],
     },
     "smoothing": {
         "api_key": "", "model": DEFAULT_SMOOTHING_MODEL,
@@ -113,8 +114,24 @@ def _number(value, label, low, high, integer=False):
         raise ConfigError(f"{label} must be {'an integer' if integer else 'a number'} between {low} and {high}.")
 
 
+def validate_vocabulary(words):
+    """Small explicit spelling list; no transcripts or automatic learning."""
+    if not isinstance(words, list) or len(words) > 100:
+        raise ConfigError("Use at most 100 vocabulary entries, one per line.")
+    result = []
+    for word in words:
+        if not isinstance(word, str) or not 1 <= len(word.strip()) <= 100 or any(ord(c) < 32 for c in word):
+            raise ConfigError("Vocabulary entries must contain 1–100 characters without control characters.")
+        word = word.strip()
+        if word not in result: result.append(word)
+    return result
+
+
 def validate_config(cfg):
+    if cfg["ui_language"] not in ("en", "de", "zh"):
+        raise ConfigError("ui_language must be en, de or zh.")
     stt = cfg["openrouter_stt"]
+    stt["vocabulary"] = validate_vocabulary(stt.get("vocabulary", []))
     fallback = stt.get("fallback_model")
     if fallback is not None and (not isinstance(fallback, str) or not fallback.strip()):
         raise ConfigError("Bitte ein Fallback-Modell wählen oder den Fallback deaktivieren.")

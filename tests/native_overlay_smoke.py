@@ -17,13 +17,20 @@ import apollo_overlay
 import apollo_setup
 from PySide6.QtCore import Qt, QPoint, QPointF
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtWidgets import QScrollArea, QWidget, QAbstractScrollArea
 from PySide6.QtTest import QTest
 from apollo_config import default_config
+from apollo_i18n import t, set_language
+from PySide6.QtGui import QFontInfo, QFontDatabase
+from PySide6.QtWidgets import QLabel
+from apollo_design import Logo
+qt_app()
+assert "Figtree" in QFontDatabase.families()
+assert QFontInfo(qt_app().font()).family() == "Figtree"
 
 output = Path(sys.argv[1]).resolve(); output.mkdir(parents=True, exist_ok=True)
 temporary = tempfile.TemporaryDirectory(); apollo.BASE_DIR = temporary.name
-app = apollo.App({"beep": False, "hotkeys": {"dictate": "n", "polish": "m", "prompt": "p"}})
+app = apollo.App({"ui_language": "de", "beep": False, "hotkeys": {"dictate": "n", "polish": "m", "prompt": "p"}})
 apollo.log.setLevel(logging.INFO)
 backup = app.recovery.create(16000, 1, "polish", hotkey="m")
 backup.append(b"\x00\x00"*16000); backup.finish()
@@ -50,6 +57,8 @@ def click(action):
     qt_app().processEvents()
 
 click("logo"); assert ui.expanded
+QTest.qWait(160)
+assert ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped
 assert ui.orb.size().width() == 200 and ui.orb.size().height() == 168
 screenshot("overlay.png", ui.orb)
 click("recovery"); assert ui.page == "recovery"
@@ -68,6 +77,17 @@ assert ui.dialog.isVisible() and "Wirklich wichtig" in ui.preview_text.toPlainTe
 backup.update(state="ready", error=""); ui.refresh_recovery()
 screenshot("recovery.png", ui.dialog)
 click("settings"); assert ui.page == "settings"
+assert not ui.dialog.findChildren(Logo)
+assert any(item.text() == "apollo" for item in ui.dialog.findChildren(QLabel))
+ui.interface_language.choose()
+assert all(ui.interface_language.items.item(i).data(Qt.ItemDataRole.UserRole) != ui.interface_language.value for i in range(ui.interface_language.items.count()))
+assert ui.interface_language.items.count() == 2
+ui.interface_language.choose()
+ui.vocabulary.setPlainText("PANDU\nSUPERBASE"); ui.save_settings()
+assert app.cfg["openrouter_stt"]["vocabulary"] == ["PANDU", "SUPERBASE"]
+ui.vocabulary.setPlainText("x"*101); ui.save_settings()
+assert ui.dialog.isVisible() and app.cfg["openrouter_stt"]["vocabulary"] == ["PANDU", "SUPERBASE"]
+ui.vocabulary.setPlainText("PANDU\nSUPERBASE")
 assert not ui.dialog.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
 assert ui.dialog.windowType() == Qt.WindowType.Window
 assert ui.dialog.windowTitle().startswith("apollo s2t")
@@ -91,6 +111,25 @@ bar.setValue(0); ui.nav_buttons["settings"].setFocus()
 event = QWheelEvent(QPointF(8, 8), QPointF(ui.minutes.mapToGlobal(QPoint(8, 8))), QPoint(), QPoint(0, -120), Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
 qt_app().sendEvent(ui.minutes, event)
 assert bar.value() > 0 and area.horizontalScrollBar().maximum() == 0
+# Nested selectors consume wheel input at both ends, including short lists,
+# without moving the surrounding page or requiring keyboard focus.
+def wheel(widget, delta):
+    point = QPoint(8, 8)
+    event = QWheelEvent(QPointF(point), QPointF(widget.mapToGlobal(point)), QPoint(), QPoint(0, delta), Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    event.ignore(); qt_app().sendEvent(widget, event)
+    assert event.isAccepted()
+
+for choice in (ui.key_mode, ui.profile, ui.language):
+    choice.choose(); qt_app().processEvents()
+    ui.nav_buttons["settings"].setFocus()
+    outer_position = bar.maximum()//2; bar.setValue(outer_position)
+    nested = choice.items.verticalScrollBar()
+    nested.setValue(nested.maximum()); wheel(choice.items.viewport(), -120)
+    assert bar.value() == outer_position and nested.value() == nested.maximum()
+    nested.setValue(0); wheel(choice.items.viewport(), 120)
+    assert bar.value() == outer_position and nested.value() == 0
+    assert nested.sizeHint().width() == 0
+    choice.choose()
 ui.dialog.resize(680, 560); qt_app().processEvents()
 # Profile/behavior choices are embedded too.
 ui.key_mode.choose(); assert ui.key_mode.items.isVisible() and ui.key_mode.items.window() is ui.dialog
@@ -102,7 +141,12 @@ ui.minutes.setText("10")
 QTest.mouseClick(ui.key_fields["dictate"], Qt.MouseButton.LeftButton)
 QTest.keyClick(ui.key_fields["dictate"], Qt.Key.Key_K)
 assert ui.key_fields["dictate"].value == "k"
+settings_area = ui.form_scroll
+settings_area.verticalScrollBar().setValue(settings_area.verticalScrollBar().maximum())
+position = settings_area.verticalScrollBar().value()
 ui.save_settings(); assert app.cfg["hotkeys"]["dictate"] == "k" and app.cfg["recovery_cache"]["minutes"] == 10
+qt_app().processEvents()
+assert ui.form_scroll is settings_area and ui.form_scroll.verticalScrollBar().value() == min(position, settings_area.verticalScrollBar().maximum())
 area.verticalScrollBar().setValue(0)
 screenshot("settings.png", ui.dialog)
 click("models"); assert ui.page == "models"
@@ -119,7 +163,21 @@ windows = set(qt_app().topLevelWidgets())
 QTest.mouseClick(ui.model_fields["fallback"].button, Qt.MouseButton.LeftButton); qt_app().processEvents()
 picker = ui.model_fields["fallback"].picker
 assert not picker.isWindow() and picker.window() is ui.dialog and set(qt_app().topLevelWidgets()) == windows
-assert picker.items.count() == 4
+selectable = [picker.items.item(i) for i in range(picker.items.count()) if picker.items.item(i).flags() & Qt.ItemFlag.ItemIsSelectable]
+assert [item.data(Qt.ItemDataRole.UserRole) for item in selectable] == [None, "microsoft/mai-transcribe-2", "microsoft/mai-transcribe-1.5", "openai/whisper-1"]
+assert len(set(item.data(Qt.ItemDataRole.UserRole) for item in selectable)) == len(selectable)
+assert [picker.items.item(i).text() for i in range(picker.items.count()) if picker.items.item(i).data(Qt.ItemDataRole.UserRole+2)] == ["Empfohlen für Apollo", "Weitere Modelle"]
+qt_app().processEvents()
+area = ui.content.findChild(QScrollArea); outer = area.verticalScrollBar()
+nested = picker.items.verticalScrollBar(); assert nested.maximum() > 0
+outer.setValue(outer.maximum()//2); position = outer.value()
+nested.setValue(nested.maximum()); wheel(picker.items.viewport(), -120)
+assert outer.value() == position and nested.value() == nested.maximum()
+nested.setValue(0); wheel(picker.items.viewport(), -120)
+assert nested.value() > 0 and outer.value() == position
+nested.setValue(0); wheel(picker.items.viewport(), 120)
+assert outer.value() == position and nested.value() == 0
+screenshot("recommended-models.png", ui.dialog)
 picker.search.setText("Whisper"); assert picker.items.count() == 1
 assert picker.items.item(0).sizeHint().height() == 32
 picker.items.setCurrentRow(0); screenshot("picker.png", ui.dialog)
@@ -128,6 +186,13 @@ assert ui.model_fields["fallback"].value == "openai/whisper-1"
 assert picker.isHidden()
 ui.model_fields["primary"].choose(); ui.model_fields["text"].choose()
 assert ui.model_fields["primary"].picker.isHidden() and ui.model_fields["text"].picker.isVisible()
+text_picker = ui.model_fields["text"].picker
+QTest.keyClick(text_picker.search, Qt.Key.Key_Down)
+assert text_picker.items.currentItem().data(Qt.ItemDataRole.UserRole) == "google/gemini-3.5-flash-lite"
+assert "geladen" not in text_picker.note.text()
+for scrollable in ui.dialog.findChildren(QAbstractScrollArea):
+    assert scrollable.verticalScrollBar().sizeHint().width() == 0
+    assert scrollable.horizontalScrollBar().sizeHint().height() == 0
 ui.model_fields["text"].picker.search.setText("no such model")
 assert ui.model_fields["text"].picker.items.count() == 0
 QTest.keyClick(ui.model_fields["text"].picker.search, Qt.Key.Key_Escape)
@@ -168,8 +233,60 @@ ui.dialog.reject(); qt_app().processEvents(); assert ui.dialog is None
 ui.open_page("settings"); assert int(ui.dialog.winId()) in app.ui_windows
 ui.collapse()
 
+# Interface language is independent of transcription/output language, saves
+# through the real preference path, and leaves original transcript text intact.
+for language, settings_title in (("en", "Settings"), ("zh", "设置"), ("de", "Einstellungen")):
+    ui.open_page("settings")
+    output_language = app.cfg["prompt_profiles"]["output_language"]
+    ui.form_scroll.verticalScrollBar().setValue(ui.form_scroll.verticalScrollBar().maximum()//2)
+    position = ui.form_scroll.verticalScrollBar().value()
+    ui.interface_language.value = language; ui.save_settings()
+    QTest.qWait(30)
+    assert ui.form_scroll.verticalScrollBar().value() == min(position, ui.form_scroll.verticalScrollBar().maximum())
+    assert app.cfg["ui_language"] == language and ui.nav_buttons["settings"].text() == settings_title
+    assert app.cfg["prompt_profiles"]["output_language"] == output_language
+    screenshot(f"settings-{language}.png", ui.dialog)
+    ui.open_page("recovery"); assert "Wirklich wichtig" in ui.preview_text.toPlainText()
+    screenshot(f"recovery-{language}.png", ui.dialog)
+ui.collapse(); QTest.qWait(160)
+ui.orb.hover("logo"); QTest.qWait(130)
+assert ui.orb.hover_animation.state() == ui.orb.hover_animation.State.Stopped
+ui.orb.hover(None); QTest.qWait(130)
+assert ui.orb.hover_animation.state() == ui.orb.hover_animation.State.Stopped
+ui.tick()
+with patch.object(ui.orb, "update") as redraw:
+    ui.tick(); assert not redraw.called  # unchanged idle state never repaints
+# Right-click at the logo opens a small menu; Hide persists and tray Show restores.
+event = types.SimpleNamespace(pos=lambda: ui.orb.CENTER.toPoint(), globalPos=lambda: ui.orb.mapToGlobal(ui.orb.CENTER.toPoint()), accept=lambda: None)
+ui.orb.contextMenuEvent(event); qt_app().processEvents()
+assert ui.orb.context_menu.isVisible() and ui.orb.context_menu.actions()[0].text() == "Im Tray ausblenden"
+ui.orb.context_menu.actions()[0].trigger(); ui.orb.context_menu.close()
+assert not ui.visible and not app.cfg["overlay"]["visible"] and not ui.orb.isVisible()
+app.open_panel(); ui.tick(); assert ui.visible and ui.orb.isVisible() and app.cfg["overlay"]["visible"]
+
+# First-run defaults to English. Switching language preserves editable key
+# entries and does not write configuration or perform network calls.
+language_path = Path(temporary.name)/"language-wizard.json"
+language_wizard = apollo_setup.SetupWizard(default_config(), language_path, lambda _: None)
+language_wizard.show(); assert language_wizard.heading.text() == "Welcome to apollo s2t"
+language_wizard.key.setText("Bereinigen")  # a catalog word must never mutate a key
+for language, title in (("zh", "欢迎使用 apollo s2t"), ("de", "Willkommen bei apollo s2t"), ("en", "Welcome to apollo s2t")):
+    language_wizard.change_language(language)
+    assert language_wizard.heading.text() == title and language_wizard.key.text() == "Bereinigen"
+    screenshot(f"setup-{language}.png", language_wizard)
+language_wizard.key.clear(); language_wizard.advance()
+assert language_wizard.step == 0 and language_wizard.error.text() == "Enter an OpenRouter API key."
+language_wizard.step = 1; language_wizard.render(); language_wizard.keys["polish"].value = "m"
+language_wizard.change_language("zh"); assert language_wizard.keys["polish"].value == "m"
+language_wizard.step = 2; language_wizard.render(); language_wizard.fields["fallback"].value = None
+language_wizard.autostart.setChecked(True); language_wizard.change_language("en")
+assert language_wizard.fields["fallback"].value is None and language_wizard.autostart.isChecked()
+language_wizard.reject(); assert not language_path.exists()
+set_language("de")
+
 startup = []; config_path = Path(temporary.name)/"wizard.json"
-wizard = apollo_setup.SetupWizard(default_config(), config_path, startup.append)
+wizard_cfg = default_config(); wizard_cfg["ui_language"] = "de"
+wizard = apollo_setup.SetupWizard(wizard_cfg, config_path, startup.append)
 wizard.show(); qt_app().processEvents()
 wizard.advance(); assert wizard.step == 0 and wizard.isVisible() and "API-Schlüssel" in wizard.error.text()
 screenshot("setup.png", wizard)

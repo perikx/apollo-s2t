@@ -639,7 +639,7 @@ class App:
         with self._lock:
             cfg = deepcopy(self.cfg)
             for section, values in changes.items():
-                if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing", "hotkeys", "hotkey_mode"):
+                if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing", "hotkeys", "hotkey_mode", "ui_language"):
                     raise ConfigError("Unsupported preference")
                 if isinstance(values, dict):
                     cfg[section].update(values)
@@ -662,6 +662,8 @@ class App:
                 for remove in previous:
                     remove()
             self.cfg = cfg
+            from apollo_i18n import set_language
+            set_language(cfg["ui_language"])
         self.refresh_recovery_menu()
 
     def available_profiles(self):
@@ -1109,44 +1111,14 @@ def make_tray_image():
 
 
 def run_tray(on_quit, app):
-    items = [pystray.MenuItem(f"{APP_NAME} {APP_VERSION}", None, enabled=False)]
-    for mode, label in (("dictate", "Dictate"), ("polish", "Polish"), ("prompt", "Build prompt")):
-        items.append(pystray.MenuItem(lambda item, m=mode, text=label: f'{app.cfg["hotkeys"][m].upper()}: {text}', None, enabled=False))
-    profiles = list_profiles(app.cfg, app.base_dir)
-    if profiles:
-        def select(name):
-            return lambda icon, item: app.set_profile(name)
-        items.append(pystray.MenuItem(lambda item: f'{app.cfg["hotkeys"]["prompt"].upper()} profile', pystray.Menu(*[
-            pystray.MenuItem(name, select(name), radio=True,
-                             checked=lambda item, n=name: app.cfg["prompt_profiles"]["active"] == n)
-            for name in profiles])))
-    items.append(pystray.MenuItem("Show apollo s2t", lambda icon, item: app.open_panel(), default=True))
-    items.append(pystray.MenuItem("Settings", lambda icon, item: app.open_panel("settings")))
-    items.append(pystray.MenuItem("Models", lambda icon, item: app.open_panel("models")))
-    items.append(pystray.MenuItem("Open log", lambda icon, item: os.startfile(LOG_PATH)))
-    def recovery_menu():
-        entries = app.recovery_items()
-        if not entries:
-            yield pystray.MenuItem("No saved dictations", None, enabled=False)
-        for entry in entries:
-            meta = entry.metadata
-            created = datetime.fromisoformat(meta["created_at"]).astimezone().strftime("%d %b %H:%M:%S")
-            has_text = entry.path.with_suffix(".txt").is_file() or entry.path.with_suffix(".transcript.txt").is_file()
-            action = "Copy text" if has_text else "Retry audio"
-            label = f'{created} | {(meta.get("hotkey") or "Unknown key").upper()} · {meta["mode"]} | {action}'
-            def recover(icon, item, *, recording_id=entry.id):
-                app.recover(recording_id)
-            yield pystray.MenuItem(label, recover)
-    items.append(pystray.MenuItem("Recover saved dictation", pystray.Menu(recovery_menu)))
-    items.append(pystray.MenuItem("Recovery window", lambda icon, item: app.open_panel("recovery")))
-    if HAVE_WINREG:
-        items.append(pystray.MenuItem("Start at login", lambda icon, item:
-                                     disable_autostart() if is_autostart_enabled() else enable_autostart(),
-                                     checked=lambda item: is_autostart_enabled()))
-    items.append(pystray.MenuItem("Quit", lambda icon, item: on_quit(icon)))
+    from apollo_i18n import t
+    # The floating UI owns settings, model choices and recovery. The tray is
+    # only the way back when the floating logo has been hidden.
+    items = [pystray.MenuItem(lambda item: t("Show apollo s2t"),
+                             lambda icon, item: app.open_panel(), default=True),
+             pystray.MenuItem(lambda item: t("Quit"), lambda icon, item: on_quit(icon))]
     app._tray = pystray.Icon("apollo", make_tray_image(), APP_NAME, menu=pystray.Menu(*items))
-    def ready(icon):
-        icon.visible = True
+    def ready(icon): icon.visible = True
     app._tray.run(setup=ready)
 
 
@@ -1225,58 +1197,25 @@ def run_setup_gui():
     return run_windowed_setup(cfg, CONFIG_PATH, autostart, initial_error=error)
 
 
+def run_terminal_setup_app():
+    from apollo_terminal import console, run_terminal_setup
+    try:
+        cfg = load_config() if os.path.exists(CONFIG_PATH) else default_config()
+    except ConfigError:
+        cfg = default_config()
+    with console():
+        return run_terminal_setup(cfg, CONFIG_PATH, lambda enabled: (enable_autostart if enabled else disable_autostart)())
+
+
 def run_setup():
-    cfg = load_config() if os.path.exists(CONFIG_PATH) else default_config()
-    print("apollo s2t | Setup\nOne OpenRouter key handles dictation and rewriting.")
-    print("API usage is paid from your OpenRouter balance: https://openrouter.ai/keys")
-    if os.environ.get("OPENROUTER_API_KEY"):
-        print("Using OPENROUTER_API_KEY from your environment; it will not be saved.")
-    else:
-        prompt = "OpenRouter key (Enter keeps the saved key): " if api_key(cfg) else "OpenRouter key: "
-        while True:
-            value = getpass.getpass(prompt).strip()
-            if value:
-                cfg["smoothing"]["api_key"] = value
-            if api_key(cfg): break
-            print("Please enter an OpenRouter key. You can try again.")
-    if not api_key(cfg):
-        raise ConfigError("A valid API key is required. No new configuration was saved.")
-    print(f'Speech: {cfg["openrouter_stt"]["model"]}\nRewrite: {cfg["smoothing"]["model"]}')
-    print(" · ".join(f"{key.upper()}: {mode}" for mode, key in cfg["hotkeys"].items()))
-    if input("Customize language, hotkeys or insertion? [y/N]: ").strip().lower() in ("y", "yes"):
-        current = cfg["openrouter_stt"]["language"] or "auto"
-        language = input(f"Speech language [Enter keeps {current}; auto/de/en/...]: ").strip()
-        if language:
-            cfg["openrouter_stt"]["language"] = language
-        for mode in ("dictate", "polish", "prompt"):
-            value = input(f'{mode} key [{cfg["hotkeys"][mode]}]: ').strip()
-            if value:
-                cfg["hotkeys"][mode] = value
-        value = input(f'Key behavior [{cfg["hotkey_mode"]}; toggle/hold]: ').strip()
-        if value:
-            cfg["hotkey_mode"] = value
-        value = input(f'Insertion [{cfg["insertion"]["mode"]}; instant/hybrid/armed]: ').strip()
-        if value:
-            cfg["insertion"]["mode"] = value
-    cfg, _ = normalize_config(cfg)
-    save_config(CONFIG_PATH, cfg)
-    print("Saved config.json. Custom profiles and other settings were preserved.")
-    if input("Start apollo s2t at Windows login? [Y/n]: ").strip().lower() not in ("n", "no"):
-        enable_autostart()
-    else:
-        disable_autostart()
-    print("Run Apollo.bat. Quit a running copy from its tray menu first to apply changes.")
+    return run_terminal_setup_app()
 
 
 if __name__ == "__main__":
     try:
         setup_logging()
         if "--setup" in sys.argv:
-            if sys.stdin is None:
-                if not run_setup_gui():
-                    raise SystemExit(1)
-            else:
-                run_setup()
+            if not run_terminal_setup_app(): raise SystemExit(0)
         elif "--check" in sys.argv:
             cfg = load_config()
             if not api_key(cfg):
@@ -1286,7 +1225,7 @@ if __name__ == "__main__":
             if getattr(sys, "frozen", False):
                 try: needs_setup = not api_key(load_config())
                 except ConfigError: needs_setup = True
-                if needs_setup and not run_setup_gui(): raise SystemExit(0)
+                if needs_setup and not run_terminal_setup_app(): raise SystemExit(0)
             main()
     except (ConfigError, OSError) as exc:
         log.error("%s", exc)

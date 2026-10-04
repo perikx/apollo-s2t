@@ -1,51 +1,53 @@
 """Shared Qt surfaces, vector icons and DPI-aware typography."""
 from pathlib import Path
 import sys
+from apollo_i18n import t
 
 from PySide6.QtCore import Qt, QRectF, QPointF, QSize
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap, QPalette, QBrush
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPalette, QBrush
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
                               QPushButton, QVBoxLayout, QWidget)
 
-GOLD = "#f5b546"
-TEXT = "#f5f3ef"
-MUTED = "#aaa7a2"
+ACCENT = "#232323"
+TEXT = "#232323"
+MUTED = "#696966"
 STYLE = """
-QWidget { color: #f5f3ef; font-family: 'Segoe UI'; font-size: 14px; }
-QFrame#surface { background: #202020; border: 1px solid #42403b; border-radius: 24px; }
-QFrame#card { background: #2a2a29; border: 1px solid #383734; border-radius: 16px; }
+QWidget { color: #232323; font-family: 'Figtree'; font-size: 14px; }
+QFrame#surface { background: #eeedeb; border: 1px solid #cecdca; border-radius: 24px; }
+QFrame#card { background: #f8f8f6; border: 1px solid #d7d6d3; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
 QLabel#title { font-size: 21px; font-weight: 600; }
 QLabel#section { font-size: 14px; font-weight: 600; }
-QLabel#muted { color: #aaa7a2; font-size: 12px; }
-QLabel#error { color: #ffb5a6; font-size: 13px; }
-QPushButton { background: #333332; border: 1px solid #494741; border-radius: 12px;
+QLabel#muted { color: #696966; font-size: 12px; }
+QLabel#error { color: #a72e29; font-size: 13px; }
+QPushButton { background: #232323; color: #fafafa; border: 1px solid #232323; border-radius: 12px;
               padding: 7px 10px; font-size: 14px; text-align: left; }
-QPushButton:hover { background: #3e3d39; border-color: #71654c; }
-QPushButton:pressed { background: #474238; }
-QPushButton:focus { border-color: #f5b546; }
-QPushButton:disabled { color: #74716b; border-color: #373633; }
-QPushButton#primary { background: #f5b546; color: #231b0c; border: none; font-weight: 600; text-align: center; }
-QPushButton#primary:hover { background: #ffc96e; }
-QPushButton#quiet { background: transparent; border: none; color: #aaa7a2; }
-QPushButton#nav { background: transparent; border: none; color: #aaa7a2; padding: 8px; }
-QPushButton#nav:checked { background: #39352d; color: #f5c56e; }
-QLineEdit, QTextEdit { background: #292928; border: 1px solid #494741; border-radius: 12px;
-                       padding: 8px; selection-background-color: #725725; }
-QLineEdit:focus, QTextEdit:focus { border-color: #f5b546; }
+QPushButton:hover { background: #3c3c3c; border-color: #3c3c3c; }
+QPushButton:pressed { background: #111111; }
+QPushButton:focus { border-color: #81817e; }
+QPushButton:disabled { background: #d4d4d1; color: #777774; border-color: #d4d4d1; }
+QPushButton#primary { font-weight: 600; text-align: center; }
+QPushButton#quiet { background: transparent; border: none; color: #696966; }
+QPushButton#nav { padding: 8px; }
+QPushButton#nav:checked { background: #50504e; border-color: #50504e; }
+QLineEdit, QTextEdit, QPlainTextEdit { background: #fafafa; color: #232323; border: 1px solid #cfcecb; border-radius: 12px;
+                                    padding: 8px; selection-background-color: #232323; selection-color: #fafafa; }
+QLineEdit:focus, QTextEdit:focus { border-color: #232323; }
 QListWidget { background: transparent; border: none; outline: none; padding: 3px; }
-QListWidget::item { background: #2b2b29; border: 1px solid #393835; border-radius: 13px;
-                    margin: 2px 0px; padding: 8px; }
-QListWidget::item:selected { background: #3e3628; border-color: #ae8240; }
-QListWidget::item:hover { background: #353431; }
+QListWidget::item { background: #f8f8f6; border: 1px solid #d7d6d3; border-radius: 13px; margin: 2px 0px; padding: 8px; }
+QListWidget::item:selected { background: #dededb; border-color: #868682; color: #232323; }
+QListWidget::item:hover { background: #e6e6e3; }
 QScrollArea { background: transparent; border: none; }
-QScrollBar:vertical { background: transparent; width: 8px; margin: 6px 0px; }
-QScrollBar::handle:vertical { background: #5a5751; min-height: 32px; border-radius: 4px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QScrollBar:vertical { width: 0px; }
+QScrollBar:horizontal { height: 0px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
 QCheckBox { spacing: 10px; }
-QCheckBox::indicator { width: 22px; height: 22px; border: 1px solid #777065; border-radius: 6px; background: #292928; }
-QCheckBox::indicator:checked { background: #f5b546; border-color: #f5b546; }
-QToolTip { background: #2b2b29; color: #f5f3ef; border: 1px solid #555049; padding: 8px; }
+QCheckBox::indicator { width: 22px; height: 22px; border: 1px solid #868682; border-radius: 6px; background: #fafafa; }
+QCheckBox::indicator:checked { background: #232323; border-color: #232323; }
+QToolTip { background: #232323; color: #fafafa; border: 1px solid #50504e; padding: 8px; }
+QMenu { background: #eeedeb; color: #232323; border: 1px solid #cecdca; padding: 4px; }
+QMenu::item { padding: 8px 16px; border-radius: 6px; }
+QMenu::item:selected { background: #232323; color: #fafafa; }
 """
 
 
@@ -57,13 +59,15 @@ def qt_app():
         app.setQuitOnLastWindowClosed(False)
         app.setStyle("Fusion")
         palette = QPalette()
-        for role, color in ((QPalette.ColorRole.Window, "#202020"), (QPalette.ColorRole.Base, "#292928"),
+        for role, color in ((QPalette.ColorRole.Window, "#eeedeb"), (QPalette.ColorRole.Base, "#fafafa"),
                             (QPalette.ColorRole.Text, TEXT), (QPalette.ColorRole.WindowText, TEXT),
-                            (QPalette.ColorRole.Button, "#333332"), (QPalette.ColorRole.ButtonText, TEXT),
-                            (QPalette.ColorRole.Highlight, "#725725"), (QPalette.ColorRole.HighlightedText, TEXT)):
+                            (QPalette.ColorRole.Button, ACCENT), (QPalette.ColorRole.ButtonText, "#fafafa"),
+                            (QPalette.ColorRole.Highlight, ACCENT), (QPalette.ColorRole.HighlightedText, "#fafafa")):
             palette.setColor(role, QColor(color))
         app.setPalette(palette)
-        app.setFont(QFont("Segoe UI", 10))
+        font_path = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets/fonts/Figtree.ttf"
+        QFontDatabase.addApplicationFont(str(font_path))
+        app.setFont(QFont("Figtree", 10))
         app.setStyleSheet(STYLE)
     return app
 
@@ -99,9 +103,9 @@ def vector(painter, kind, rect, color=TEXT):
     if kind == "close":
         painter.drawLine(QPointF(6, 6), QPointF(18, 18)); painter.drawLine(QPointF(18, 6), QPointF(6, 18))
     elif kind == "recovery":
-        painter.drawArc(QRectF(4, 4, 16, 16), -55*16, 290*16)
-        painter.drawLine(QPointF(3, 3), QPointF(3, 9)); painter.drawLine(QPointF(3, 9), QPointF(9, 9))
-        painter.drawLine(QPointF(12, 7), QPointF(12, 12)); painter.drawLine(QPointF(12, 12), QPointF(16, 14))
+        painter.drawArc(QRectF(4, 4, 16, 16), -90*16, 270*16)
+        painter.drawLine(QPointF(1, 7), QPointF(4, 12)); painter.drawLine(QPointF(4, 12), QPointF(8, 9))
+        painter.drawLine(QPointF(12, 7), QPointF(12, 12)); painter.drawLine(QPointF(12, 12), QPointF(15, 14))
     elif kind == "settings":
         for y, x in ((6, 9), (12, 16), (18, 7)):
             painter.drawLine(QPointF(3, y), QPointF(21, y))
@@ -150,14 +154,14 @@ class Logo(QWidget):
 
 
 def label(text, name=None, wrap=False):
-    result = QLabel(text)
+    result = QLabel(t(text))
     if name: result.setObjectName(name)
     result.setWordWrap(wrap)
     return result
 
 
 def button(text, callback, primary=False, quiet=False):
-    result = QPushButton(text); result.setCursor(Qt.CursorShape.PointingHandCursor)
+    result = QPushButton(t(text)); result.setCursor(Qt.CursorShape.PointingHandCursor)
     result.setAutoDefault(False)
     result.setMinimumHeight(34)
     if primary: result.setObjectName("primary")
@@ -167,10 +171,10 @@ def button(text, callback, primary=False, quiet=False):
 
 
 class Shell(QDialog):
-    """Frameless rounded popup with its own draggable title bar and Apollo icon."""
+    """Frameless rounded popup with a plain draggable title bar."""
     def __init__(self, title, pixmap, width=680, height=540, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("apollo s2t · " + title); self.setWindowIcon(QIcon(pixmap))
+        self.setWindowTitle("apollo s2t · " + t(title)); self.setWindowIcon(QIcon(pixmap))
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.resize(width, height); self.setMinimumSize(min(width, 520), min(height, 400))
@@ -178,9 +182,9 @@ class Shell(QDialog):
         self.surface = QFrame(); self.surface.setObjectName("surface"); outer.addWidget(self.surface)
         self.layout = QVBoxLayout(self.surface); self.layout.setContentsMargins(16, 12, 16, 16); self.layout.setSpacing(12)
         header = QWidget(); header.setFixedHeight(34); row = QHBoxLayout(header); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
-        row.addWidget(Logo(pixmap)); row.addWidget(label("apollo s2t", "section")); row.addStretch()
+        row.addWidget(label("apollo", "section")); row.addStretch()
         close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
-        close.setObjectName("quiet"); close.setAccessibleName("Fenster schließen"); close.clicked.connect(self.reject); row.addWidget(close)
+        close.setObjectName("quiet"); close.setAccessibleName(t("Fenster schließen")); close.clicked.connect(self.reject); row.addWidget(close)
         self.layout.addWidget(header)
         header.mousePressEvent = self.start_move
         self._move_origin = None
