@@ -62,9 +62,9 @@ def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, leg
         return next(answers)
 
     import apollo_terminal
-    import apollo_setup
+    import apollo_api
     monkeypatch.setattr(apollo_terminal.getpass, "getpass", get_key)
-    monkeypatch.setattr(apollo_setup, "check_key", lambda key: "")
+    monkeypatch.setattr(apollo_api, "check_key", lambda key: "")
     monkeypatch.setattr("builtins.input", answer)
     apollo.run_setup()
     output = capsys.readouterr().out + "\n".join(prompts)

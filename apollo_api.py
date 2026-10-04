@@ -15,6 +15,22 @@ STT_RETRY_WINDOW_SECONDS = 30
 STT_RATE_LIMIT_FALLBACKS = {"microsoft/mai-transcribe-2": "microsoft/mai-transcribe-1.5"}
 
 
+def check_key(key):
+    """Read-only authentication check; no model inference, audio or billing."""
+    try:
+        response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
+        try:
+            if response.status_code in (401, 403):
+                return "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
+            return ""
+        finally: response.close()
+    except (requests.RequestException, ValueError):
+        return "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
+
+
 class ResponseError(ValueError):
     """Malformed or incomplete output; callers must not paste it."""
 

@@ -267,7 +267,7 @@ class Terminal:
 
 def run_terminal_setup(cfg, path, set_autostart, *, terminal=None, check=None, discover=None):
     """Only save after validation and explicit completion; cancellation keeps all files."""
-    from apollo_setup import check_key
+    from apollo_api import check_key
     from apollo_models import discover_catalog, discover_price, RECOMMENDATIONS
     import keyboard
     cfg = deepcopy(cfg); ui = terminal or Terminal(cfg["ui_language"])

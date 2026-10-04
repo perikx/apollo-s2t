@@ -3,29 +3,13 @@ from copy import deepcopy
 import os
 from pathlib import Path
 import threading
-import requests
+from apollo_api import check_key
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QLineEdit, QHBoxLayout, QWidget, QVBoxLayout, QCheckBox, QScrollArea
 from apollo_config import api_key, normalize_config, save_config, ConfigError
 from apollo_design import Shell, qt_app, logo_path, logo_pixmap, label, button
 from apollo_widgets import KeyCapture, Choice, ModelCatalog, ModelField, MODES, WheelRouter
 from apollo_i18n import t, set_language, LANGUAGES
-
-
-def check_key(key):
-    """Read-only authentication check; no model inference, audio or billing."""
-    try:
-        response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
-        try:
-            if response.status_code in (401, 403):
-                return "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
-            response.raise_for_status()
-            data = response.json()
-            if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
-            return ""
-        finally: response.close()
-    except (requests.RequestException, ValueError):
-        return "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
 
 
 class SetupWizard(Shell):
