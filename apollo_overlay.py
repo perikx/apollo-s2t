@@ -189,7 +189,14 @@ class FloatingUI:
         self.visible = False; self.expanded = False; self.orb.menu_animation.stop(); self.orb.menu_progress = 0.
         self.orb.hide(); self.close_dialog(); self.persist_position()
     def show(self):
-        self.visible = True; self.place(); self.orb.show(); self.persist_position()
+        self.visible = True; self.place(); self.orb.showNormal(); self.orb.raise_(); self.persist_position()
+    def reveal(self):
+        # An explicit tray action must visibly bring Apollo back, even after a
+        # monitor change, minimization or losing the tiny logo at a screen edge.
+        rect = self.root.primaryScreen().availableGeometry()
+        self.x, self.y = rect.right()-100, rect.center().y()
+        self.expanded = True
+        self.show(); self.orb.animate_menu(); self.orb.update()
     def collapse(self):
         self.expanded = False; self.orb.animate_menu(); self.close_dialog(); self.place(); self.orb.update()
     def tick(self):
@@ -207,8 +214,8 @@ class FloatingUI:
                 self.orb.update()
                 if self.page == "recovery": self.refresh_recovery()
             elif kind == "open":
-                self.show()
-                if value: self.open_page(value)
+                if value: self.show(); self.open_page(value)
+                else: self.reveal()
             elif kind == "refresh" and self.page == "recovery": self.refresh_recovery()
         target = list(getattr(self.app.recorder, "visual_levels", ())) if self.app.recording else []
         target = ([0.]*27+target)[-27:]

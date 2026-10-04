@@ -20,8 +20,13 @@ for name in ("keyboard", "sounddevice", "pyperclip", "mouse"):
     sys.modules[name] = types.ModuleType(name)
 import apollo
 from apollo_i18n import set_language
+from apollo_overlay import FloatingUI
+from PySide6.QtTest import QTest
+from PySide6.QtCore import Qt
 apollo.BASE_DIR = sys.argv[1]
 app = apollo.App({"beep": False})
+ui = FloatingUI(app, app.close)
+ui.hide()
 errors = []
 user = ctypes.windll.user32
 user.GetMenuItemCount.argtypes = (w.HMENU,)
@@ -57,6 +62,20 @@ try:
     callbacks[user.GetMenuItemID(menu, 0)-1](app._tray)
     assert app.ui_events.get_nowait() == ("open", None)
     assert app.ui_events.empty()
+    # Exercise the native callback through the real Qt consumer, rather than
+    # accepting a queued event as proof that the user can see Apollo again.
+    ui.orb.showMinimized()
+    ui.x, ui.y = -10000, -10000
+    callbacks[user.GetMenuItemID(menu, 0)-1](app._tray)
+    QTest.qWait(200)
+    assert ui.visible and ui.expanded and ui.orb.isVisible()
+    assert not ui.orb.windowState() & Qt.WindowState.WindowMinimized
+    assert user.IsWindowVisible(int(ui.orb.winId()))
+    assert ui.root.primaryScreen().availableGeometry().contains(ui.orb.geometry().center())
+    ui.hide()
+    callbacks[user.GetMenuItemID(menu, 0)-1](app._tray)
+    QTest.qWait(200)
+    assert ui.visible and ui.expanded and ui.orb.isVisible()
     menu, callbacks = app._tray._menu_handle  # dispatch refreshes the native menu
     callbacks[user.GetMenuItemID(menu, 1)-1](app._tray)
     thread.join(timeout=10)
