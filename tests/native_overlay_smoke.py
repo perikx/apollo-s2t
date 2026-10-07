@@ -250,7 +250,8 @@ for language, settings_title in (("en", "Settings"), ("zh", "设置"), ("de", "E
     screenshot(f"settings-{language}.png", ui.dialog)
     ui.open_page("recovery"); assert "Wirklich wichtig" in ui.preview_text.toPlainText()
     screenshot(f"recovery-{language}.png", ui.dialog)
-ui.collapse(); for _ in range(100):
+ui.collapse()
+for _ in range(100):
     if ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped: break
     QTest.qWait(20)
 ui.orb.hover("logo"); QTest.qWait(130)
