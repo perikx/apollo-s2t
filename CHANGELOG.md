@@ -3,8 +3,9 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## [0.4.2] - 2026-10-07
 
+- Tray Show restores minimized or hidden controls to a visible position and opens the menu.
 - Monochrome artwork, Figtree typography, simpler headers and tray controls.
 - English, German and Simplified Chinese interface and terminal setup.
 - Animated terminal onboarding with hidden key entry and editable validation errors.
