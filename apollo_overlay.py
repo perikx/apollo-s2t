@@ -6,13 +6,13 @@ import math
 import queue
 import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
-                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QPlainTextEdit, QToolTip, QSizePolicy, QMenu)
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
-from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT, TEXT,
+from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT,
                            label, button, vector, icon, paint_logo)
-from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window, WheelRouter
+from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 
 
 class DebugLog(logging.Handler):
@@ -141,7 +141,7 @@ class Orbit(QWidget):
             if self.ui.app._busy_recordings:
                 p.setPen(QPen(QColor(ACCENT), 2)); p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawArc(rect.adjusted(-3, -3, 3, 3), -self.ui.tick_count*7*16, 110*16)
-            elif self.ui.status != "Bereit":
+            elif self.ui.status != "Ready":
                 p.setPen(QPen(QColor("#eeedeb"), 1)); p.setBrush(QColor(ACCENT)); p.drawEllipse(rect.adjusted(33, 0, 0, -33))
         if self.ui.expanded or self.menu_progress > 0:
             p.setOpacity(self.menu_progress)
@@ -153,13 +153,13 @@ class Orbit(QWidget):
         p.end()
 
 class FloatingUI:
-    def __init__(self, app, on_quit, logo=None):
+    def __init__(self, app, on_quit):
         self.app, self.on_quit = app, on_quit
         set_language(app.cfg["ui_language"])
         self.root = qt_app(); self.pixmap = logo_pixmap(logo_path(app.base_dir))
         self.catalog = ModelCatalog(); self.events = app.ui_events
         self.expanded = False; self.visible = app.cfg["overlay"]["visible"]
-        self.dialog = None; self.page = None; self.status = "Bereit"; self.tick_count = 0
+        self.dialog = None; self.page = None; self.status = "Ready"; self.tick_count = 0
         self.debug_log = DebugLog(); logging.getLogger("apollo").addHandler(self.debug_log)
         self.debug_lines = deque(maxlen=300); self.debug_revision = 0
         self.last_samples = 0; self.sample_at = time.monotonic()
@@ -171,7 +171,16 @@ class FloatingUI:
         if self.y is None: self.y = screen.center().y()
         self.place()
         if self.visible: self.orb.show()
-        self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.timer.start(33)
+        # The tray is the way back when the floating logo is hidden.
+        self.tray = QSystemTrayIcon(QIcon(str(logo_path(app.base_dir).with_name("apollo.ico"))), self.root)
+        self.tray.setToolTip("apollo s2t")
+        self.tray_menu = QMenu(); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
+        show.triggered.connect(lambda: app.open_panel()); quit_.triggered.connect(lambda: on_quit())
+        self.tray_menu.aboutToShow.connect(lambda: (show.setText(t("Show apollo s2t")), quit_.setText(t("Quit"))))
+        self.tray.setContextMenu(self.tray_menu)
+        self.tray.activated.connect(lambda reason: reason == QSystemTrayIcon.ActivationReason.Trigger and app.open_panel())
+        self.tray.show()
+        self.timer = QTimer(); self.timer.timeout.connect(self.tick); self.timer.start(100)
         self.prune_at = time.monotonic()+15
     def bounds(self):
         screen = self.root.screenAt(QPoint(round(self.x), round(self.y))) or self.root.primaryScreen()
@@ -201,7 +210,7 @@ class FloatingUI:
         self.expanded = False; self.orb.animate_menu(); self.close_dialog(); self.place(); self.orb.update()
     def tick(self):
         if self.app._closing.is_set():
-            self.detach_debug(); self.timer.stop(); self.orb.close(); self.close_dialog(); self.root.quit(); return
+            self.detach_debug(); self.timer.stop(); self.tray.hide(); self.orb.close(); self.close_dialog(); self.root.quit(); return
         while True:
             try: line = self.debug_log.pending.get_nowait()
             except queue.Empty: break
@@ -217,13 +226,16 @@ class FloatingUI:
                 if value: self.show(); self.open_page(value)
                 else: self.reveal()
             elif kind == "refresh" and self.page == "recovery": self.refresh_recovery()
-        target = list(getattr(self.app.recorder, "visual_levels", ())) if self.app.recording else []
+        target = list(self.app.recorder.visual_levels()) if self.app.recording else []
         target = ([0.]*27+target)[-27:]
         for i, level in enumerate(target):
             old = self.orb.wave[i]; self.orb.wave[i] = old+(level-old)*(.7 if level > old else .28)
         if getattr(self, "was_recording", False) != self.app.recording:
             self.was_recording = self.app.recording; self.place(); self.orb.update()
-        if self.app.recording or self.app._busy_recordings: self.orb.update()
+        busy = self.app.recording or self.app._busy_recordings
+        if busy: self.orb.update()
+        want = 33 if busy else 100  # animate fast only while recording or processing
+        if self.timer.interval() != want: self.timer.setInterval(want)
         self.tick_count += 1
         samples = self.app.recorder.sample_count
         if samples != self.last_samples or not self.app.recording:
@@ -276,7 +288,7 @@ class FloatingUI:
     def form(self):
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
         self.form_scroll = scroll
-        scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus); scroll.wheel_router = WheelRouter(scroll)
+        scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 8, 0); layout.setSpacing(8)
         scroll.setWidget(body); self.content_layout.addWidget(scroll, 1)
         return layout
@@ -291,16 +303,16 @@ class FloatingUI:
     def settings_page(self):
         cfg = self.app.cfg; layout = self.form(); self.key_fields = {}
         interface = self.card(layout, "Sprache der Oberfläche")
-        self.interface_language = Choice(LANGUAGES, cfg["ui_language"], self.pixmap, self.app); interface.addWidget(self.interface_language)
+        self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
         keys = self.card(layout, "Aufnahmetasten")
         for mode, text in MODES.items():
             row = QHBoxLayout(); row.addWidget(label(text)); row.addStretch()
             field = KeyCapture(cfg["hotkeys"][mode]); row.addWidget(field); keys.addLayout(row); self.key_fields[mode] = field
         for field in self.key_fields.values(): field.setToolTip(t("Taste anklicken und die neue Taste drücken"))
-        self.key_mode = Choice({"toggle": "Antippen zum Starten / Stoppen", "hold": "Gedrückt halten"}, cfg["hotkey_mode"], self.pixmap, self.app); keys.addWidget(self.key_mode)
+        self.key_mode = Choice({"toggle": "Antippen zum Starten / Stoppen", "hold": "Gedrückt halten"}, cfg["hotkey_mode"]); keys.addWidget(self.key_mode)
         profiles = self.card(layout, "Prompt-Profil")
-        self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], self.pixmap, self.app, translate=False); profiles.addWidget(self.profile)
-        self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"], self.pixmap, self.app); profiles.addWidget(self.language)
+        self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], translate=False); profiles.addWidget(self.profile)
+        self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"]); profiles.addWidget(self.language)
         cache = self.card(layout, "Recovery-Cache")
         self.minutes = QLineEdit(str(cfg["recovery_cache"]["minutes"])); self.minutes.setAccessibleName(t("Recovery-Dauer in Minuten"))
         cache.addWidget(self.minutes); cache.addWidget(label("5–60 min", "muted"))
@@ -341,7 +353,7 @@ class FloatingUI:
             ("primary", "Haupttranskription", "transcription", cfg["openrouter_stt"]["model"], False),
             ("fallback", "Fallback bei Rate Limit (429)", "transcription", cfg["openrouter_stt"].get("fallback_model"), True),
             ("text", "Bereinigen & Prompt", "text", cfg["smoothing"]["model"], False)):
-            card = self.card(layout, title); field = ModelField(title, kind, value, self.catalog, self.pixmap, self.app, allow_none)
+            card = self.card(layout, title); field = ModelField(title, kind, value, self.catalog, allow_none)
             card.addWidget(field); self.model_fields[key] = field
         layout.addWidget(button("Katalog erneut laden", lambda: self.catalog.start(reload=True), quiet=True))
         layout.addStretch(); self.footer("", self.save_models); self.catalog.start()
@@ -364,8 +376,7 @@ class FloatingUI:
         self.preview_text.setPlaceholderText(t("Noch keine Aufnahme im Cache.")); self.content_layout.addWidget(self.preview_text, 1)
         controls = QWidget(); row = QHBoxLayout(controls); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         for text, action, primary in (("Wiederherstellen", self.recover_selected, True), ("Kopieren", self.copy_selected, False), ("Löschen", self.delete_selected, False)): row.addWidget(button(text, action, primary))
-        self.content_layout.addWidget(controls); self.recovery_status = label(self.status, "muted", True); self.content_layout.addWidget(self.recovery_status)
-        self.recovery_status.hide()  # live status is already shown next to the debug log
+        self.content_layout.addWidget(controls)
         self.content_layout.addWidget(label("Live-Debug", "section"))
         self.debug_state = label("", "muted", True); self.content_layout.addWidget(self.debug_state)
         self.debug_text = QPlainTextEdit(); self.debug_text.setReadOnly(True); self.debug_text.setMaximumBlockCount(300)
@@ -388,10 +399,10 @@ class FloatingUI:
             state = f'{t("Aufnahme")} · {key} · {t(MODES.get(mode, mode))} · {seconds//60}:{seconds%60:02d}\n{t(mic)} · {t(cache)}'
         elif app._busy_recordings:
             state = f'{t("Verarbeitung")} · {len(app._busy_recordings)} {t("Aufnahme(n)")}'
-            if self.status != "Bereit": state += " · " + t(self.status)
+            if self.status != "Ready": state += " · " + t(self.status)
         else:
-            state = t("Bereit") + " · " + " / ".join(v.upper() for k,v in app.cfg["hotkeys"].items() if k in MODES)
-            if self.status != "Bereit": state += "\n" + t(self.status)
+            state = t("Ready") + " · " + " / ".join(v.upper() for k,v in app.cfg["hotkeys"].items() if k in MODES)
+            if self.status != "Ready": state += "\n" + t(self.status)
         self.debug_state.setText(t(state))
         if self.rendered_debug != self.debug_revision:
             bar = self.debug_text.verticalScrollBar(); tail = bar.value() >= bar.maximum()-2; position = bar.value()
@@ -413,7 +424,7 @@ class FloatingUI:
             self.recovery_list.addItem(QListWidgetItem(text))
             if entry.id == old: selected = i
         if self.entries: self.recovery_list.setCurrentRow(selected)
-        self.recovery_list.blockSignals(False); self.recovery_status.setText(t(self.status)); self.preview()
+        self.recovery_list.blockSignals(False); self.preview()
     def preview(self, *_):
         entry = self.selected()
         try:

@@ -11,7 +11,7 @@ from apollo_terminal import Terminal, run_terminal_setup
 def terminal(answers, secrets=()):
     answers, secrets = iter(answers), iter(secrets)
     output = []
-    return Terminal(read=lambda _: next(answers), secret=lambda _: next(secrets), write=output.append, effects=False), output
+    return Terminal(read=lambda _: next(answers), secret=lambda _: next(secrets), write=output.append), output
 
 
 @pytest.mark.parametrize("language", ["en", "de", "zh"])
@@ -50,6 +50,24 @@ def test_invalid_keys_can_be_corrected_without_leaving_setup(tmp_path, monkeypat
     assert cfg["hotkey_mode"] == "hold" and cfg["openrouter_stt"]["language"] == "de"
 
 
+def test_model_step_lists_ranked_top_three_and_keeps_current(tmp_path, monkeypatch):
+    import keyboard
+    monkeypatch.setattr(keyboard, "key_to_scan_codes", lambda key: (sum(map(ord,key)),), raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    cfg = default_config(); cfg["openrouter_stt"].update(model="x/current", fallback_model=None)
+    def row(price=None): return {"name": "n", "price": price}
+    stt = {m: row(("audio", 1.67)) for m in ("openai/whisper-1", "microsoft/mai-transcribe-2", "elevenlabs/scribe-v2", "google/gemini-3.5-transcribe", "microsoft/mai-transcribe-1.5", "x/current", "x/unrated")}
+    discover = lambda kind: stt if kind == "transcription" else {cfg["smoothing"]["model"]: row()}
+    ui, output = terminal(["en", "y", "", "", "", "", "", "", "none", "", "n", "y"], ["key"])
+    path = tmp_path / "config.json"
+    assert run_terminal_setup(cfg, path, lambda _: None, terminal=ui, check=lambda _: "", discover=discover)
+    lines = [line.strip() for line in output]
+    best = "1  microsoft/mai-transcribe-2 · $1.67 / 1000 min · Best · Most accurate and fastest; can be rate limited"
+    assert lines.count(best) == 2 and lines.count("4  x/current · $1.67 / 1000 min") == 1  # only the primary list has a current model
+    assert not any("mai-transcribe-1.5" in line or "x/unrated" in line or "whisper-1" in line for line in lines)
+    assert json.loads(path.read_text())["openrouter_stt"]["model"] == "x/current"
+
+
 def test_vocabulary_biases_recognition_without_replacing_output(monkeypatch):
     post = Mock(return_value={"text": "Pando"}); monkeypatch.setattr(api, "_post", post)
     cfg = {"vocabulary": [" PANDU ", "PANDU", "SUPERBASE"]}; before = deepcopy(cfg)
@@ -61,7 +79,8 @@ def test_vocabulary_biases_recognition_without_replacing_output(monkeypatch):
 def test_fallback_removes_model_specific_hints_but_preserves_audio(monkeypatch):
     response = requests.Response(); response.status_code = 429
     post = Mock(side_effect=[requests.HTTPError(response=response), {"text": "PANDU"}]); monkeypatch.setattr(api, "_post", post)
-    assert api.transcribe_openrouter(b"wave", {"vocabulary": ["PANDU"], "language": "de"}, "key", wait=lambda _: False) == "PANDU"
+    cfg = {"vocabulary": ["PANDU"], "language": "de", "fallback_model": "elevenlabs/scribe-v2"}
+    assert api.transcribe_openrouter(b"wave", cfg, "key", wait=lambda _: False) == "PANDU"
     first, second = [call.args[2] for call in post.call_args_list]
     assert "provider" in first and "provider" not in second
     assert first["input_audio"] == second["input_audio"] and second["language"] == "de"

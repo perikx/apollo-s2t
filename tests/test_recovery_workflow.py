@@ -1,13 +1,12 @@
 """Durable capture through API failure, restart, shutdown and clipboard failure."""
+from array import array
 from copy import deepcopy
 import io
 import logging
 import threading
 import time
-from types import SimpleNamespace
 import wave
 
-import numpy as np
 import pytest
 import requests
 
@@ -16,7 +15,18 @@ from apollo_recovery import RecoveryError
 
 
 def capture(app, mode="dictate"):
-    return mode, "original-window", deepcopy(app.cfg), apollo.PROMPTS.get(mode, "")
+    return mode, deepcopy(app.cfg), apollo.PROMPTS.get(mode, "")
+
+
+def process(app, pcm, mode="dictate"):
+    backup = app.recovery.create(16000, 1, mode)
+    backup.append(pcm)
+    backup.finish()
+    app._process(capture(app, mode), pcm, time.monotonic(), backup)
+
+
+def pcm_of(value, frames):
+    return (array("h", [value]) * frames).tobytes()
 
 
 def input_stream(monkeypatch):
@@ -30,7 +40,7 @@ def input_stream(monkeypatch):
             self.active = False
         def close(self):
             self.active = False
-    monkeypatch.setattr(apollo.sd, "InputStream", Stream, raising=False)
+    monkeypatch.setattr(apollo.sd, "RawInputStream", Stream, raising=False)
 
 
 def read_pcm(path):
@@ -40,7 +50,7 @@ def read_pcm(path):
 
 def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, desktop, caplog):
     input_stream(monkeypatch)
-    audio = np.full((16000 * 180, 1), 321, dtype=np.int16)
+    audio = pcm_of(321, 16000 * 180)
     posts = []
     import apollo_api
     def rejected(*args, **kwargs):
@@ -53,22 +63,22 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         return response
     monkeypatch.setattr(apollo_api._http, "post", rejected)
     app.on_press("dictate")
-    app.recorder._callback(audio, len(audio), None, None)
+    app.recorder._callback(audio, len(audio) // 2, None, None)
     with caplog.at_level(logging.INFO, logger="apollo"):
         app.on_release("dictate")
-        app._jobs.join()
+        app._join_jobs()
     assert len(posts) == 3
     assert [body["model"] for body in posts] == ["microsoft/mai-transcribe-2",
-                                               "microsoft/mai-transcribe-1.5", "microsoft/mai-transcribe-1.5"]
+                                               "elevenlabs/scribe-v2", "elevenlabs/scribe-v2"]
     entry = app.recovery_items()[0]
-    assert read_pcm(entry.path) == audio.tobytes()
+    assert read_pcm(entry.path) == audio
     assert entry.metadata["state"] == "failed"
     assert "HTTP 429" in entry.metadata["error"] and "upstream provider" in entry.metadata["error"]
     assert "private transcript" not in entry.path.with_suffix(".json").read_text()
     assert "private transcript" not in caplog.text
     assert desktop.sent == []
     app.close()
-    app._worker.join(3)
+    app._join_jobs(3)
     restarted = apollo.App(app.cfg)
     sent_audio = []
     def succeed(wav, *args, **kwargs):
@@ -77,11 +87,11 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         return "recovered three minute dictation"
     monkeypatch.setattr(apollo, "transcribe_openrouter", succeed)
     try:
-        assert restarted._worker is None  # Startup never resends private audio.
+        assert not restarted._threads  # Startup never resends private audio.
         assert "HTTP 429" in restarted.recovery_items()[0].metadata["error"]
         restarted.recover(entry.id)
-        restarted._jobs.join()
-        assert sent_audio == [audio.tobytes()]
+        restarted._join_jobs()
+        assert sent_audio == [audio]
         assert desktop.clip.text == "recovered three minute dictation"
         assert desktop.sent == []  # Explicit recovery copies, never auto-pastes.
         assert entry.read_transcript() == desktop.clip.text
@@ -90,7 +100,7 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         assert "test-key" not in entry.path.with_suffix(".json").read_text()
     finally:
         restarted.close()
-        restarted._worker.join(3)
+        restarted._join_jobs(3)
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout(), apollo.ResponseError("bad response")])
@@ -98,10 +108,10 @@ def test_failed_processing_keeps_exact_audio(app, monkeypatch, failure):
     def fail(*args, **kwargs):
         raise failure
     monkeypatch.setattr(apollo, "transcribe_openrouter", fail)
-    pcm = np.arange(8000, dtype=np.int16).reshape(-1, 1)
-    app._process(capture(app), pcm, time.monotonic())
+    pcm = array("h", range(8000)).tobytes()
+    process(app, pcm)
     entry = app.recovery_items()[0]
-    assert read_pcm(entry.path) == pcm.tobytes()
+    assert read_pcm(entry.path) == pcm
     assert entry.metadata["state"] == "failed"
     assert entry.metadata["error"]  # Safe cause is available inside recovery after restart.
 
@@ -112,13 +122,13 @@ def test_clipboard_failure_keeps_text_and_recovery_does_not_pay_again(app, monke
     def fail(*args):
         raise OSError("clipboard locked")
     monkeypatch.setattr(app, "insert_text", fail)
-    app._process(capture(app, "polish"), np.zeros((8000, 1), dtype=np.int16), time.monotonic())
+    process(app, bytes(16000), "polish")
     entry = app.recovery_items()[0]
     assert entry.read_transcript() == "edited result"
     assert entry.path.with_suffix(".transcript.txt").read_text() == "raw result"
     monkeypatch.setattr(apollo, "transcribe_openrouter", fail)
     app.recover(entry.id)
-    app._jobs.join()
+    app._join_jobs()
     assert desktop.clip.text == "edited result"
     assert desktop.sent == []
 
@@ -133,15 +143,15 @@ def test_audio_checkpoint_exists_while_still_recording(app, monkeypatch):
         original(data)
         saved.set()
     monkeypatch.setattr(backup, "append", append)
-    audio = np.ones((16000, 1), dtype=np.int16)
-    app.recorder._callback(audio, len(audio), None, None)
+    audio = pcm_of(1, 16000)
+    app.recorder._callback(audio, 16000, None, None)
     assert saved.wait(3)
     assert app.recording
-    assert read_pcm(backup.path) == audio.tobytes()
+    assert read_pcm(backup.path) == audio
     app.close()
-    assert read_pcm(backup.path) == audio.tobytes()
+    assert read_pcm(backup.path) == audio
     assert backup.metadata["state"] == "interrupted"
-    assert "Programm während der Aufnahme geschlossen" in backup.metadata["error"]
+    assert "Apollo closed during recording" in backup.metadata["error"]
 
 
 def test_quit_keeps_active_and_queued_audio_without_late_paste(app, monkeypatch, desktop):
@@ -152,11 +162,10 @@ def test_quit_keeps_active_and_queued_audio_without_late_paste(app, monkeypatch,
         assert release.wait(5)
         return "late result"
     monkeypatch.setattr(apollo, "transcribe_openrouter", stt)
-    pcm = np.ones((8000, 1), dtype=np.int16)
     try:
         for index in range(3):
             app.on_press("dictate")
-            app.recorder._callback(pcm * (index + 1), len(pcm), None, None)
+            app.recorder._callback(pcm_of(index + 1, 8000), 8000, None, None)
             if index < 2:
                 app.on_release("dictate")
             if index == 0:
@@ -164,10 +173,10 @@ def test_quit_keeps_active_and_queued_audio_without_late_paste(app, monkeypatch,
         app.close()
     finally:
         release.set()
-        app._worker.join(5)
+        app._join_jobs(5)
     assert len(app.recovery_items()) == 3
     assert sorted(read_pcm(entry.path)[0] for entry in app.recovery_items()) == [1, 2, 3]
-    assert app._jobs.unfinished_tasks == 0
+    assert not app._threads
     assert desktop.sent == []
 
 
@@ -203,17 +212,15 @@ def test_recovery_storage_failure_prevents_microphone_start(app, monkeypatch):
     assert not app.recording and not starts
 
 
-def test_worker_completion_refreshes_native_recovery_menu(app, monkeypatch):
-    updates = []
-    app._tray = SimpleNamespace(update_menu=lambda: updates.append(True), notify=lambda *args: None)
+def test_worker_completion_lists_saved_recording(app, monkeypatch):
     input_stream(monkeypatch)
     monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "saved")
     app.on_press("dictate")
-    app.recorder._callback(np.ones((8000, 1), dtype=np.int16), 8000, None, None)
+    app.recorder._callback(pcm_of(1, 8000), 8000, None, None)
     assert app.recovery_items() == []
     app.on_release("dictate")
-    app._jobs.join()
-    assert updates and len(app.recovery_items()) == 1
+    app._join_jobs()
+    assert len(app.recovery_items()) == 1
 
 
 def test_duplicate_recovery_is_not_sent_twice(app, monkeypatch):
@@ -234,7 +241,7 @@ def test_duplicate_recovery_is_not_sent_twice(app, monkeypatch):
         app.recover(entry.id)
     finally:
         release.set()
-        app._jobs.join()
+        app._join_jobs()
     assert calls == [True]
 
 
@@ -250,20 +257,18 @@ def test_stale_capture_failure_does_not_stop_new_capture_or_notify(app, monkeypa
     assert app.recording and notices == []
 
 
-def test_checkpoint_failure_repairs_full_audio_before_transcription(app, monkeypatch):
+def test_checkpoint_failure_repairs_full_audio_while_transcribing(app, monkeypatch):
     input_stream(monkeypatch)
-    pcm = np.ones((8000, 1), dtype=np.int16)
+    pcm = pcm_of(1, 8000)
     app.on_press("dictate")
     entry = app._backup
-    app.recorder._callback(pcm, len(pcm), None, None)
+    app.recorder._callback(pcm, 8000, None, None)
     app.recorder.backup_failed = True
-    def stt(*args, **kwargs):
-        assert read_pcm(entry.path) == pcm.tobytes()
-        return "repaired"
-    monkeypatch.setattr(apollo, "transcribe_openrouter", stt)
+    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "repaired")
     app.on_release("dictate")
-    app._jobs.join()
-    assert entry.read_transcript() == "repaired"
+    app._join_jobs()  # a job ends only after its audio is on disk
+    assert read_pcm(entry.path) == pcm
+    assert entry.read_transcript() == "repaired" and entry.metadata["state"] == "ready"
 
 
 def test_failed_final_disk_repair_reports_incomplete_and_releases_slot(app, monkeypatch):
@@ -272,14 +277,16 @@ def test_failed_final_disk_repair_reports_incomplete_and_releases_slot(app, monk
     monkeypatch.setattr(app, "notify", notices.append)
     app.on_press("dictate")
     entry = app._backup
-    app.recorder._callback(np.ones((8000, 1), dtype=np.int16), 8000, None, None)
+    app.recorder._callback(pcm_of(1, 8000), 8000, None, None)
     def fail(*args):
         raise OSError("disk full")
     monkeypatch.setattr(entry, "replace_audio", fail)
+    monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "from memory")
     app.recorder.backup_failed = True
     app._capture_failed(app._capture)
-    assert not app.recording and app._jobs.empty()
-    assert "incomplete" in notices[-1]
+    app._join_jobs()  # the text still arrives from the audio in memory
+    assert not app.recording and not app._threads
+    assert any("incomplete" in notice for notice in notices)
     assert app._slots.acquire(blocking=False)
     app._slots.release()
 
@@ -290,10 +297,9 @@ def test_five_minute_limit_preserves_all_samples_and_notifies(app, monkeypatch, 
     monkeypatch.setattr(app, "notify", notices.append)
     monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "full recording")
     app.on_press("dictate")
-    pcm = np.ones((16000 * 301, 1), dtype=np.int16)
-    app.recorder._callback(pcm, len(pcm), None, None)
+    app.recorder._callback(pcm_of(1, 16000 * 301), 16000 * 301, None, None)
     desktop.timers[-1].fire()
-    app._jobs.join()
+    app._join_jobs()
     assert not app.recording
     assert len(read_pcm(app.recovery_items()[0].path)) == 16000 * 300 * 2
     assert any("time limit reached" in notice for notice in notices)

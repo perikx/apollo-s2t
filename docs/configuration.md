@@ -1,20 +1,24 @@
 # Configuration
 
-`config.json` is created by setup. **Settings** opens the modern in-app controls,
-including recording-key capture, behavior, prompt profile and recovery retention.
-**Models** offers searchable primary, fallback and rewrite choices with USD pricing.
+`config.json` is created by setup. **Settings** opens the in-app controls:
+recording keys, behavior, prompt profile, vocabulary and recovery retention.
+**Models** offers a ranked list of primary, fallback and rewrite models with USD pricing.
 Changes save atomically and apply to the next recording; key rebinding is blocked
 while recording. If you edit the JSON file directly, quit and restart Apollo.
-`setup.bat` preserves existing settings; the executable has a full first-run wizard.
+`setup.bat` preserves existing settings; the executable opens the same terminal setup on first run.
 [`config.example.json`](../config.example.json) shows every shipped default.
+Apollo keeps only settings that you may want to change. Values that never change
+(audio format, URLs, timeouts, token limit) are constants in the code. Old files
+may still contain them. Apollo ignores such keys and removes them at the next save.
 
 ## Models and one API key
 
 The default speech model is `microsoft/mai-transcribe-2`; the rewrite model is
 `google/gemini-3.5-flash-lite`. Change `openrouter_stt.model` and `smoothing.model`
 to pin other compatible OpenRouter models. `openrouter_stt.fallback_model` selects
-a separate fallback for explicit 429 rejections; use `null` to disable it. The two
-model IDs must differ. Existing custom primaries without a fallback are preserved. Transcription uses the dedicated
+the fallback model. The default is `elevenlabs/scribe-v2`, which comes from another vendor than
+MAI, so one vendor outage does not stop dictation. Use `null` to disable the fallback.
+The two model IDs must differ. A custom primary without a fallback keeps no fallback. Transcription uses the dedicated
 `/audio/transcriptions` endpoint, not the chat endpoint. A chat/audio-capable model
 is not necessarily compatible with this transcription API.
 
@@ -41,11 +45,9 @@ Check current provider availability and pricing before changing models.
 mixing. Set `"de"` or `"en"` to force a single language. `auto`/`multi` normalize to empty.
 Do not force German when you want entire English passages transcribed as English.
 
-F9/F10 use `smoothing.reasoning_effort: "minimal"`, `temperature: 0.2`,
-`max_tokens: 8192`, and latency-first provider routing. For another model that does not
-support reasoning options, set `reasoning_effort` to `null` to omit the parameter.
-Reasoning is not included in pasted output. Short prompts avoid adding generic instructions.
-The token limit bounds the response, not the input; incomplete responses fall back to raw text.
+F9 and F10 use fixed rewrite settings: minimal reasoning, temperature 0.2, at most
+4096 output tokens, a 20-second timeout and latency-first provider routing.
+Reasoning is not included in pasted output. An incomplete response falls back to the raw text.
 
 F9 instructs the model to make minimal edits: punctuation, capitalization, sentence/paragraph
 breaks and small, unambiguous grammar corrections. Meaningful repetitions stay, even when
@@ -55,32 +57,21 @@ qualifications and original order. It must not summarize, paraphrase or infer wh
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
 
-STT and rewriting have separate read timeouts (`60` and `20` seconds) and a five-second
-connection timeout. These are network timeouts, not hard end-to-end latency guarantees.
-Only an explicit **HTTP 429 transcription rejection** is automatically retried: at most
-three requests in total. After the primary's first 429, the next request uses the
-configured fallback with identical audio and language. The switch is immediate unless
-the server supplies `Retry-After`. A further 429 allows one retry of the fallback;
-there is no switch back or extra request budget. Disabling fallback retries the same
-primary instead. Each new recording starts with your configured primary again.
-`Retry-After` seconds or HTTP dates are respected even when switching models. Without a
-usable header, same-model retries wait about two or four seconds plus a small random delay. A retry
-starts only within 30 seconds of the first request starting; a longer server-requested
-wait is never shortened to fit this window. Each request still has its own network
-timeout, so total processing can exceed 30 seconds. Quitting interrupts retry waits.
+## Fallback, hedge and circuit breaker
 
-[MAI-Transcribe-1.5](https://openrouter.ai/microsoft/mai-transcribe-1.5) was still listed
-on 2026-10-03. Its normal API price applies when used. Both models can still encounter
-provider/platform limits, so fallback does not replace local audio recovery. Apollo's in-app status and log identify the selected fallback; no Windows balloon
-is shown. Public model discovery sends no API key or audio. Text prices come from
-OpenRouter's Models API; audio prices use the explicit billing units on its public
-model pages because the API's raw numeric price omits that unit. Missing metadata
-shows “Preis nicht verfügbar”. Prices load in the background without blocking recording.
+The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 180 seconds.
+The rewrite timeout is 20 seconds. The connection timeout is 5 seconds.
 
-Timeouts and connection failures are not automatically resent because the server may
-already have processed the request. Authentication, credit, other HTTP failures and
-rewrite requests are also not automatically retried. Saved audio remains available for
-an explicit recovery attempt. Both stages reuse a connection pool.
+On the first request, a 429, timeout, connection error or 5xx error switches to the fallback
+model at once, with the same audio and language. Apollo also hedges: if the primary has not
+answered after 3 seconds (plus 0.1 second per second of audio), Apollo sends the same audio to
+the fallback model. The first transcript wins. A later 429 retries the same model and respects
+`Retry-After`. Apollo makes at most three requests in a row, within 30 seconds of the first.
+
+After a primary failure, the circuit breaker opens for 5 minutes. New recordings try the fallback
+first, then the primary. Authentication, credit and other HTTP errors do not switch models.
+Rewrite requests are not retried. Saved audio stays available for an explicit recovery.
+Apollo logs the fallback switch and shows no balloon. Public model discovery sends no API key or audio.
 
 A 429 can originate at OpenRouter or at an upstream provider, including a provider
 capacity limit. Error messages use structured source hints when available and keep the
@@ -100,23 +91,18 @@ API references: [transcription](https://openrouter.ai/docs/guides/overview/multi
 | `hotkeys.dictate/polish/prompt` | Three distinct single keys, default F8/F9/F10. |
 | `hotkey_mode` | `toggle` taps to start/stop; `hold` records while held. |
 | `audio.device` | `null` uses the system microphone, otherwise a sounddevice name/index. |
-| `audio.samplerate/channels` | Default 16,000 Hz, mono. Input must support the chosen settings. |
-| `min_record_seconds` | Recordings shorter than 0.3 seconds are not processed or sent; their local audio is retained. |
-| `max_record_seconds` | Auto-stop and process after 300 seconds. Audio buffering is capped too. |
-| `max_pending_recordings` | Maximum 3 jobs including the active recording and processing. A full queue rejects a new start with an error tone. |
-| `insertion.mode` | `instant`, `hybrid` or `armed`, described below. |
-| `insertion.target` | `focused` pastes at completion; `origin` attempts the window active at recording start. |
 | `insertion.restore_clipboard` | Restore previous text only while Apollo still owns the clipboard. Default true. |
-| `insertion.restore_delay` | Wait 0.4 seconds before restoring; increase for slow applications. |
-| `insertion.armed_timeout` | Stop waiting for optional click insertion after 30 seconds. |
-| `insertion.click_to_paste` | Opt-in click insertion for a loaded result; default false. |
 | `beep` | Enable start, stop, ready and error tones. |
-| `autostart_delay_seconds` | Wait 20 seconds at login for the audio device and keyboard hooks. |
 
-Completed recordings are processed **in recording order**, using the model, origin window
-and F10 context captured when each recording started. No overlapping API workers can
-reorder results. Additional recordings may queue; this trades parallel throughput for
-predictable insertion. Quit cancels pending work and prevents late result insertion.
+Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
+audio stays in recovery. A recording stops and processes after 300 seconds. At most 3 jobs
+(the active recording plus processing jobs) run at once. A full queue rejects a new start with an error tone.
+Apollo restores the clipboard 1.5 seconds after a paste. At login, Apollo waits 3 seconds for the
+audio device and keyboard hooks.
+
+Each recording runs in its own job, so a second recording does not wait for the first.
+Pastes happen one at a time, in the order the results arrive. Apollo pastes the text first and saves
+the files after. Quit cancels pending work and prevents late result insertion.
 Captured audio stays in the recovery folder, including cancelled work.
 
 ## Saved recordings and recovery
@@ -137,7 +123,7 @@ Each recording uses one shared filename stem:
 | `.txt` | Final text, including the raw-text fallback when rewriting fails. |
 | `.json` | Recording time, format, state, mode and original prompt context; no copied API credentials. |
 
-Use the tray's **Recover saved dictation** menu to select a saved recording. Existing
+Use the floating logo's **Recovery** window to select a saved recording. Existing
 final text, or its raw transcript if no final text exists, is copied without a network
 request. Otherwise, recovery sends the saved audio using **current** API/model settings
 and the original recording mode and prompt context. This can incur normal API charges.
@@ -153,7 +139,7 @@ duration, missing audio, backup problems and the current run's API/retry/fallbac
 Its last 300 diagnostics live in memory only; closing the panel does not discard them.
 Provider bodies, dictated text and API keys are excluded from diagnostic messages.
 
-`recovery_cache` defaults to `minutes: 15`, `max_entries: 10`, `max_mb: 64`.
+`recovery_cache.minutes` defaults to 15 (5 to 60). The cache also keeps at most 10 recordings and 64 MB.
 Completed recordings are removed when expired or above the count/size limit; active
 capture and queued/processing jobs are protected, so limits can be exceeded temporarily.
 Age is measured from the last state update. Cleanup runs at startup, on recording start,
@@ -177,50 +163,42 @@ stacking. Apollo avoids pasting a completed dictation into its own dialogs.
 The Models popup loads the public OpenRouter catalog without credentials or audio.
 Speech choices require `architecture.output_modalities: ["transcription"]`;
 audio-capable chat models alone do not qualify. Cleanup choices require text input
-and text output. Clicking a selector expands a search and compact one-line list
-inside the existing window. Click a row to select; Escape closes just the list.
-Prices show input/output and verified billing units; hover for the full name/ID/price.
-Changed choices
-must exist in the compatible catalog; if loading fails, existing choices are retained.
-Model and profile changes are saved atomically and apply to subsequent recordings.
+and text output. Apollo ranks the models, best first, from a built-in benchmark table.
+Each row shows a tier badge, USD prices and a short reason. A model that is not in the table
+appears only under "Show all". Click a selector to expand a search and a one-line list.
+Text prices come from OpenRouter's Models API. Audio prices come from the public model pages,
+because the API omits the billing unit. A missing price shows a note instead of a number.
+Click a row to select; Escape closes just the list. Changed choices must exist in the compatible
+catalog; if loading fails, existing choices are retained.
+
+Apollo also counts your own results. It writes the success and failure count and the last 50
+latencies of each speech model to `model_stats.json` beside `config.json`. The file holds no
+transcripts or audio. After 5 attempts the picker shows your success rate and median time for the model.
+Delete the file to reset the numbers. Model and profile changes apply to the next recording.
 
 This is recovery protection, not a guarantee against every failure: an unavailable
 microphone cannot supply audio, a full/broken disk cannot save it, and abrupt process
 or power loss can lose the last unflushed samples. The half-second interval is a target,
 not a hard bound during slow disk writes or system stalls. Keep enough free disk space.
 
-## Clipboard modes
+## Clipboard
 
-**Instant:** paste the complete result into the target field. The old clipboard text is
+Apollo pastes the complete result into the focused window. The old clipboard text is
 restored only if it has not changed in the meantime. Other clipboard formats, such as
 images or rich formatting, are not preserved by the text-only clipboard library.
-
-**Hybrid:** if a text field is confidently detected, paste and restore. If clearly not,
-keep the result on the clipboard. If detection is uncertain, attempt a paste and keep
-a recoverable clipboard copy until the load expires. This fallback can restore the
-previous clipboard text on expiry, but never over newer user clipboard content.
-
-**Armed:** staying in the recording's original window pastes immediately and retains
-the result on the clipboard. After switching windows, the result stays on the clipboard
-for native Ctrl+V. With `click_to_paste: true`, a click can insert it instead; clearly
-non-editable targets do not consume the load. Native Ctrl+V is not intercepted and can
-paste more than once; the optional click remains armed until a click, expiry or replacement.
-
-`target: "origin"` operates at the **window** level, not the browser-tab level. If Windows
-rejects refocusing or the origin window closed, text stays on the clipboard instead of
-being pasted into an unrelated window. Field detection is best effort, not an accessibility guarantee.
+If an Apollo window has focus when the result is ready, the text is only copied.
+There is no other insertion mode.
 
 ## F10 profiles
 
-Create `prompts/my-project.md` with the project context and select it in the tray's
-profile menu (labelled with your actual prompt hotkey), or the floating Settings window.
-Selections are saved for the next startup. `prompt_profiles.active` also accepts `my-project`.
+Create `prompts/my-project.md` with the project context and select it in the floating
+Settings window. `prompt_profiles.active` also accepts `my-project`.
 Profile contents are read at recording start, so edits affect the next recording.
 
 `prompt_profiles.output_language: "english"` produces an English prompt. `"match"`
 keeps the dictated language; any other language name forces that language. This affects
 F10 only. F9 keeps the original language. Code identifiers remain unchanged.
-`include_karpathy: false` disables the small coding-specific guidance.
+F10 always adds a short guidance line for coding requests.
 
 In an executable build, custom profiles go next to `apollo.exe` in `prompts/`.
 Once that directory exists it takes precedence over bundled profiles; copy any bundled
@@ -228,21 +206,14 @@ profiles you want to retain into the same directory.
 
 ## Upgrading older configurations
 
-The schema is version 2. On first load, Apollo validates the whole configuration, saves
-`config.json.bak` without overwriting an existing backup, and atomically writes the upgrade.
-Invalid JSON is never overwritten automatically. Keep both files private.
+The schema is version 2. When a file has removed keys or a changed value, Apollo validates the whole
+configuration, saves `config.json.bak` without overwriting an existing backup, and atomically
+writes the cleaned file. Invalid JSON is never overwritten automatically. Keep both files private.
 
-Versionless old installations using MAI-1.5 or the dated Qwen ASR model move
-to MAI-2. The former Gemini 3.1 Flash Lite default moves to Gemini 3.5 Flash Lite.
-Other custom model IDs and unrelated settings survive. Once `config_version: 2` is present,
-model choices are explicit and are not automatically changed again. To keep Qwen,
-set its model ID after upgrading.
-
-Setup only requests an OpenRouter key. Retired speech-engine settings are removed during
-upgrade; the old single-language preference is carried over where applicable. Legacy
-custom vocabulary remains only in the backup and is not sent as unsupported API parameters.
-An existing virtual environment may still contain the unused websocket package; Apollo
-no longer imports or installs it. It can be removed manually or by recreating `.venv`.
+Apollo drops keys that it no longer uses, for example `stt_engine`, `insertion.mode`,
+`smoothing.temperature`, `max_record_seconds` or `autostart_delay_seconds`. The built-in values
+apply instead. Your models, keys, hotkeys and profiles survive. A fallback of
+`microsoft/mai-transcribe-1.5` with the MAI-2 primary changes to `elevenlabs/scribe-v2`.
 
 ## Personal vocabulary
 
@@ -254,7 +225,7 @@ background service or automatic learning. It is empty by default.
 For MAI-Transcribe 2, Apollo sends the list with the audio through the documented
 OpenRouter option `provider.options.azure.phraseList.phrases`. This biases speech
 recognition; it does not guarantee the spelling, train a personal model or replace
-words after transcription. Other models, including the MAI-1.5 fallback, currently
+words after transcription. Other models, including the fallback, currently
 receive no vocabulary options because their exact integration has not been verified.
 See [OpenRouter's MAI-2 integration](https://openrouter.ai/microsoft/mai-transcribe-2).
 

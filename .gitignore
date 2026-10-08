@@ -16,3 +16,4 @@ recovery/
 # PyInstaller (packaging/build-exe.bat) output
 build/
 dist/
+model_stats.json

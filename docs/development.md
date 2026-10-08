@@ -6,13 +6,14 @@ platform-independent. Use Python 3.10+.
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m pytest -q
-python -m compileall -q apollo.py apollo_api.py apollo_config.py apollo_recovery.py selftest.py
+python -m compileall -q apollo*.py selftest.py
 ```
 
 Tests replace the microphone, keyboard, clipboard and timers with isolated doubles.
 They never call a paid provider. FIFO/shutdown tests use real worker threads with explicit
 synchronization. Regression coverage includes hotkey toggle behavior, clipboard ownership,
-stale timers, origin snapshots, bounded capture, rewrite fallback and configuration migration.
+stale timers, bounded capture, parallel jobs, paste-first saving, dropped config keys and the
+fallback, hedge and circuit breaker.
 Recovery regressions use temporary folders to check WAV checkpoints, interrupted writes,
 saved raw/final text, restart recovery and clipboard-only recovery. API doubles cover
 429 recovery, Retry-After seconds/dates, retry limits, cancellation, ambiguous network
@@ -25,14 +26,15 @@ retired-provider references from returning to setup, launchers or user documenta
 
 ## Code map
 
-- `apollo.py`: recording, tray/hotkeys, FIFO processing, prompts and Windows insertion.
-- `apollo_config.py`: one source of defaults, validation, atomic writes and migration.
-- `apollo_api.py`: OpenRouter transcription and rewrite request/response contracts.
+- `apollo.py`: recording, hotkey hook and dispatcher, parallel jobs, prompts, paste and the fixed constants.
+- `apollo_config.py`: one source of defaults, validation, atomic writes and dropping of removed keys.
+- `apollo_api.py`: OpenRouter transcription (fallback, hedge, circuit breaker) and rewrite requests.
 - `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
 - `apollo_overlay.py`: floating control/speech bubble and in-app settings/recovery/debug.
 - `apollo_design.py` / `apollo_widgets.py`: Qt surfaces, vector icons and selectors.
-- `apollo_setup.py`: three-step setup, read-only API-key validation and editable errors.
-- `apollo_models.py`: capability-filtered public catalog and explicitly labeled pricing.
+- `apollo_i18n.py`: English, German and Chinese text catalog.
+- `apollo_terminal.py`: first-run terminal setup (plain `input`, no wizard, no animation).
+- `apollo_models.py`: public catalog, ranked model table, pricing and local `model_stats.json`.
 - `bootstrap.bat`: shared environment creation and dependency refresh.
 - `selftest.py`: offline checks, with explicitly opt-in paid end-to-end diagnostics.
 
@@ -45,7 +47,7 @@ Before a release, run these checks on a Windows PC with an OpenRouter balance:
 2. Dictate German, English and a mixed technical sentence with F8. Verify original
    words, names, numbers and negations. Try F9 and F10 without losing requirements.
 3. Start successive recordings while the first is processing. Verify order and the
-   captured origin window. Check instant, hybrid, armed and a closed origin window.
+   focused window at completion.
 4. Copy unrelated text while a result is being restored. Verify it is not overwritten.
 5. Quit while a request is pending: no late paste. Restart and verify hotkeys and autostart.
 6. Upgrade a copy of a legacy configuration: verify backup, preserved keys/hotkeys/profiles,
@@ -74,7 +76,7 @@ Windows floating controls with synthetic recordings and a fake model catalog. It
 satellite-button navigation, stored key/text preview, incompatible-model rejection,
 waveform rendering, right-edge hiding, silent errors while hidden, tray-style reopening
 and X collapse. It also checks invalid-input correction, editable keys, optional
-fallback, model prices and all three wizard steps. It verifies normal Windows
+fallback, model prices and the tray menu. It verifies normal Windows
 z-order against a second test window, wheel scrolling over unfocused fields,
 inline selectors without additional top-level windows, persistent safe failure
 causes, live microphone/stall/backup state and the bounded 300-message debug view.
@@ -88,8 +90,13 @@ suite also runs this isolated smoke test; it does not record, paste or call prov
 
 `packaging\build-exe.bat` builds a windowed executable with PyInstaller on Windows.
 The bundled model/configuration defaults and profiles use the same Python modules as the
-source app. The windowed executable uses a complete Qt setup wizard because it has no console.
+source app. The windowed executable opens a real terminal for first-run setup.
 QtCore/QtGui/QtWidgets come from PySide6 Essentials on Windows; Tk is excluded.
+The runtime needs only `requests`, `sounddevice`, `keyboard`, `pyperclip` and PySide6.
+Apollo does not use numpy, pystray, Pillow, comtypes or mouse; the spec excludes them.
+The spec also filters the build: it drops unused Qt modules (Quick, Qml, Pdf, Svg, Network,
+OpenGL), all Qt plugins except `qwindows` and `qico`, translations, other CPU builds of
+PortAudio and the extra OpenSSL copies. The spec also removes the ICU DLLs that come from the build PATH.
 The original PNG stays intact. Widgets crop its transparent outer viewport for a
 circle that fills the complete control. Qt handles per-monitor DPI/transparency.
 No executable binary is committed by this change; build output stays under `dist/`.

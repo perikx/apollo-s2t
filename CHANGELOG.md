@@ -3,6 +3,45 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Speech reliability
+- Fallback is `elevenlabs/scribe-v2`, another vendor than the MAI primary.
+- A timeout, connection error, 5xx error or 429 on the first request switches to the fallback.
+- Hedge: after 3 s (plus 0.1 s per second of audio) without an answer, Apollo asks the other model too.
+- Circuit breaker: after a primary failure, new recordings try the fallback first for 5 minutes.
+- The speech timeout scales with the audio length (15 s plus half the length, at most 180 s).
+- Apollo pastes the text first and saves the files after.
+- Each recording runs as its own job. Pastes still run one at a time.
+- PortAudio reloads the device list and retries once when the microphone changes (new headset).
+- The hotkey hook only queues events. A dispatcher thread runs them.
+- Fixed the auto-repeat of a held key, which started and stopped recordings.
+
+### Models
+- The model picker is ranked, with a tier badge and a reason for each model.
+- Apollo stores your own success rate and latency in `model_stats.json` and shows them in the picker.
+- Apollo no longer scrapes prices from model pages.
+
+### Settings and size
+- Keys that never change are now constants: URLs, timeouts, temperature, reasoning effort,
+  audio format, record limits, queue size, prompt folder, `include_karpathy` and cache size limits.
+  Old files keep working. Apollo drops these keys at the next save.
+- The rewrite token limit is 4096 (was 8192). A large limit can trigger OpenRouter 402 errors.
+- Clipboard restore waits 1.5 s (was 0.4 s). Autostart waits 3 s (was 20 s).
+- Removed old migrations (retired speech engine, old model names, old insertion keys). The MAI-1.5 fallback
+  still moves to Scribe v2.
+- Removed the armed, hybrid, origin and click-to-paste insertion modes.
+- One duplicate-key check and one backup writer replace the copies in the app and the terminal setup.
+
+### Interface and build
+- Removed the Qt setup wizard and the terminal animations. Setup uses plain terminal prompts.
+- The tray is a Qt tray icon.
+- Removed numpy, pystray, Pillow, mouse and comtypes. The build drops unused Qt parts.
+  The executable is 26.5 MB (was 75 MB).
+- The audio callback only copies bytes. The UI timer computes levels and slows to 100 ms when idle.
+  Tones use the standard library.
+- The fallback switch is logged, not shown. Retry notices appear only for waits of 1 s or more.
+
 ## [0.4.2] - 2026-10-07
 
 - Tray Show restores minimized or hidden controls to a visible position and opens the menu.

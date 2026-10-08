@@ -13,7 +13,7 @@ class FakeApp:
     def on_press(self, mode):
         self.recording, self.active_mode = True, mode
         self.events.append(("start", mode))
-    def on_release(self, mode):
+    def on_release(self, mode, **kw):
         self.recording, self.active_mode = False, None
         self.events.append(("stop", mode))
 

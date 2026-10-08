@@ -73,24 +73,13 @@ def qt_app():
 
 
 def logo_path(base_dir=None):
-    candidates = [Path(base_dir or ".") / "assets/apollo.png",
-                  Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets/apollo.png"]
+    candidates = [Path(base_dir or ".") / "assets/apollo-app.png",
+                  Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets/apollo-app.png"]
     return next((p for p in candidates if p.exists()), candidates[-1])
 
 
 def logo_pixmap(path):
-    """Use the opaque artwork's viewport; exclude stray transparent border pixels."""
-    from PIL import Image
-    import numpy as np
-    with Image.open(path) as image:
-        rgba = image.convert("RGBA")
-        alpha = np.array(rgba.getchannel("A"))
-        rows = np.flatnonzero((alpha > 230).sum(axis=1) > image.width * .25)
-        cols = np.flatnonzero((alpha > 230).sum(axis=0) > image.height * .25)
-    pixmap = QPixmap(str(path))
-    if len(rows) and len(cols):
-        pixmap = pixmap.copy(int(cols[0]), int(rows[0]), int(cols[-1]-cols[0]+1), int(rows[-1]-rows[0]+1))
-    return pixmap
+    return QPixmap(str(path))
 
 
 def vector(painter, kind, rect, color=TEXT):
@@ -143,14 +132,6 @@ def paint_logo(painter, pixmap, rect):
     painter.save(); painter.translate(rect.topLeft())
     painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QBrush(_LOGO_TEXTURES[key]))
     painter.drawEllipse(QRectF(0, 0, rect.width(), rect.height())); painter.restore()
-
-
-class Logo(QWidget):
-    def __init__(self, pixmap, size=28):
-        super().__init__(); self.pixmap = pixmap; self.setFixedSize(size, size)
-    def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing); p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        paint_logo(p, self.pixmap, QRectF(self.rect())); p.end()
 
 
 def label(text, name=None, wrap=False):

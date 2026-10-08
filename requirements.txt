@@ -1,10 +1,5 @@
-numpy>=1.26,<3
 requests>=2.31,<3
-sounddevice>=0.4.6,<1; sys_platform == "win32"
-keyboard>=0.13.5,<1; sys_platform == "win32"
-pyperclip>=1.8.2,<2; sys_platform == "win32"
-pystray>=0.19,<1; sys_platform == "win32"
-Pillow>=10,<13; sys_platform == "win32"
-mouse>=0.7,<1; sys_platform == "win32"
-comtypes>=1.2,<2; sys_platform == "win32"
-PySide6-Essentials>=6.8,<7; sys_platform == "win32"
+sounddevice>=0.4.6,<1
+keyboard>=0.13.5,<1
+pyperclip>=1.8.2,<2
+PySide6-Essentials>=6.8,<7

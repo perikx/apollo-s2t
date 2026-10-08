@@ -1,18 +1,34 @@
-"""OpenRouter STT and rewriting; only explicit STT rate rejections are retried."""
+"""OpenRouter STT and rewriting. STT retries 429, falls back to another model and hedges slow requests."""
 import base64
-from datetime import timezone
-from email.utils import parsedate_to_datetime
+import io
 import math
+import queue
 import random
+import threading
 import time
+import wave
 import requests
-from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL, validate_vocabulary
+from apollo_config import DEFAULT_STT_MODEL, validate_vocabulary
 
 # A single processing worker uses this pool for both requests, reusing TLS connections.
 _http = requests.Session()
+STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
+REWRITE_URL = "https://openrouter.ai/api/v1/chat/completions"
+REWRITE_TIMEOUT_SECONDS = 20
+REWRITE_MAX_TOKENS = 4096  # enough for any dictation; a large value can trigger 402 credit-limit errors
 STT_MAX_ATTEMPTS = 3
 STT_RETRY_WINDOW_SECONDS = 30
-STT_RATE_LIMIT_FALLBACKS = {"microsoft/mai-transcribe-2": "microsoft/mai-transcribe-1.5"}
+HEDGE_SECONDS = 3.0  # plus 0.1 s per second of audio
+BREAKER_SECONDS = 300
+_primary_down_until = 0.0  # time.monotonic() until which new recordings try the fallback first
+
+
+def warm():
+    """Open the TLS connection early; errors do not matter."""
+    try:
+        _http.head("https://openrouter.ai/api/v1/models", timeout=(3, 3)).close()
+    except Exception:
+        pass
 
 
 def check_key(key):
@@ -40,51 +56,32 @@ class RetryCancelled(ResponseError):
 
 
 def _retry_after(response):
-    """Return a safe numeric delay, never an untrusted header string."""
-    value = response.headers.get("Retry-After")
-    if not isinstance(value, str) or not value.strip():
+    """Numeric seconds only; inf if absurdly large, None if missing or not a plain number."""
+    value = (response.headers.get("Retry-After") or "").strip()
+    if not (value.isascii() and value.isdigit()):
         return None
-    value = value.strip()
-    if value.isascii() and value.isdigit():
-        # Arbitrarily large valid delays must suppress retries, not overflow.
-        return float(value) if len(value) < 12 else math.inf
-    try:
-        deadline = parsedate_to_datetime(value)
-        if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=timezone.utc)
-        delay = deadline.timestamp() - time.time()
-        # A wrong local wall clock must not make an HTTP-date retry early.
-        server_date = response.headers.get("Date")
-        if isinstance(server_date, str):
-            try:
-                server_time = parsedate_to_datetime(server_date)
-                if server_time.tzinfo is None:
-                    server_time = server_time.replace(tzinfo=timezone.utc)
-                delay = max(delay, deadline.timestamp() - server_time.timestamp())
-            except (ValueError, TypeError, OverflowError):
-                pass
-        return max(0, delay)
-    except (ValueError, TypeError, OverflowError):
-        return None
+    return float(value) if len(value) < 12 else math.inf
 
 
-def _error_metadata(response):
-    """Inspect only structured metadata; callers never display its raw values."""
+def _retryable(exc):
+    code = getattr(getattr(exc, "response", None), "status_code", 0)
+    return code == 429 or code >= 500 or isinstance(exc, (requests.Timeout, requests.ConnectionError))
+
+
+def _audio_seconds(wav_bytes):
+    """Length from the byte count and the WAV header; 0 if it is not a WAV."""
     try:
-        data = response.json()
-    except (ValueError, TypeError):
-        return {}
-    error = data.get("error") if isinstance(data, dict) else None
-    metadata = error.get("metadata") if isinstance(error, dict) else None
-    return metadata if isinstance(metadata, dict) else {}
+        with wave.open(io.BytesIO(wav_bytes)) as w:
+            return max(0, len(wav_bytes) - 44) / (w.getframerate() * w.getnchannels() * w.getsampwidth())
+    except (wave.Error, EOFError, ZeroDivisionError):
+        return 0
 
 
 def http_error_hint(service, exc):
     """Never log response bodies: they can echo dictation or credentials."""
     response = getattr(exc, "response", None)
     if response is None:
-        return (f"{service}: connection failed or timed out; the server outcome is unknown. "
-                "Not automatically resent. Check your connection before retrying saved audio.")
+        return f"{service}: connection failed or timed out. Check your connection, then retry the saved audio."
     code = response.status_code
     hints = {
         400: "Invalid request. Check the model, language and model options in config.json.",
@@ -94,36 +91,15 @@ def http_error_hint(service, exc):
         404: "Model or endpoint not found. Check the model ID in config.json.",
         408: "Request timed out. Try a shorter recording.",
         413: "Recording too large. Try a shorter recording.",
-        429: "OpenRouter or its upstream provider rejected the request due to a rate/capacity limit.",
+        429: "OpenRouter or its upstream provider rejected the request due to a rate/capacity limit. Retry the saved recording later.",
     }
-    hint = hints.get(code, "Provider error. Try again later.")
-    if code in (402, 429):
-        metadata = _error_metadata(response)
-        source = metadata.get("limit_source")
-        if code == 402:
-            hint = {
-                "openrouter_key_limit": "OpenRouter API-key spending limit reached. Check your key's limit.",
-                "openrouter_credits": "OpenRouter credits cannot cover this request. Check your balance and request size.",
-                "openrouter_in_flight_budget": "OpenRouter in-flight spending budget is occupied. Retry after other requests settle.",
-            }.get(source, hint) if isinstance(source, str) else hint
-        elif all(isinstance(response.headers.get(name), str) for name in
-                 ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset")):
-            hint = "OpenRouter platform rate limit reached. Check your OpenRouter usage limits."
-        elif metadata.get("provider_code") is not None or metadata.get("provider_name") is not None:
-            hint = "The upstream provider reported a rate/capacity limit."
-        delay = _retry_after(response)
-        if delay is not None:
-            hint += (f" Server requested at least {math.ceil(delay)} seconds before retry."
-                     if math.isfinite(delay) else " Server requested a long wait before retry.")
-        elif code == 429:
-            hint += " Retry the saved recording later."
-    return f"{service}: HTTP {code}. " + hint
+    return f"{service}: HTTP {code}. " + hints.get(code, "Provider error. Try again later.")
 
 
-def _post(url, key, body, timeout):
-    if not key or key.startswith("YOUR_"):
+def _post(url, key, body, timeout, post=None):
+    if not key:
         raise ResponseError("Missing OpenRouter API key. Run setup.bat.")
-    response = _http.post(
+    response = (post or _http.post)(
         url, headers={"Authorization": f"Bearer {key}", "X-Title": "Apollo-s2t"},
         json=body, timeout=(5, timeout),
     )
@@ -137,82 +113,133 @@ def _post(url, key, body, timeout):
         response.close()
 
 
-def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=None, wait=None):
-    """Retry only HTTP 429, at most twice, within a 30-second retry-start window.
+def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=None, on_attempt=None, wait=None):
+    """Transcribe with the primary model; fall back to another vendor when it fails.
 
-    Each request still has its own configured network timeout. ``on_retry`` gets
-    (next_attempt_number, delay_seconds); ``wait(seconds)`` can return True to
-    cancel (e.g. threading.Event.wait). Timeouts/connection failures have an
-    ambiguous server outcome and are deliberately never automatically resent.
-    The first 429 switches to the configured fallback for this recording.
-    ``on_fallback`` receives the replacement model just before that attempt.
+    On the first request, 429, timeout, connection error and 5xx switch to the fallback
+    at once. Later 429s retry the same model (Retry-After honored, 30 s window).
+    A request with no answer after HEDGE_SECONDS also goes to the other model; the first
+    transcript wins. After a primary failure new recordings try the fallback first for
+    BREAKER_SECONDS. ``on_retry`` gets (next_attempt_number, delay_seconds);
+    ``wait(seconds)`` can return True to cancel (e.g. threading.Event.wait).
+    ``on_fallback`` gets the fallback model when a request to it starts.
+    ``on_attempt`` gets (model, ok, seconds) for every finished request.
     """
-    body = {
-        "model": cfg.get("model", DEFAULT_STT_MODEL),
-        "input_audio": {"data": base64.b64encode(wav_bytes).decode("ascii"), "format": "wav"},
-    }
+    primary = cfg.get("model", DEFAULT_STT_MODEL)
+    fallback = cfg.get("fallback_model")
+    body = {"model": primary, "input_audio": {"data": base64.b64encode(wav_bytes).decode("ascii"), "format": "wav"}}
     if cfg.get("language"):
         body["language"] = cfg["language"]
     vocabulary = validate_vocabulary(cfg.get("vocabulary", []))
-    def hints(request):
+    seconds = _audio_seconds(wav_bytes)
+    read_timeout = min(180, 15 + 0.5 * seconds)
+    first, other = (fallback, primary) if fallback and time.monotonic() < _primary_down_until else (primary, fallback)
+
+    def request(model, post=None):
+        global _primary_down_until
+        req = dict(body, model=model)
         # Only the documented MAI 2 Azure integration is enabled. Keep unsupported
         # models usable; never turn the list into transcript replacements.
-        request.pop("provider", None)
-        if vocabulary and request["model"] == "microsoft/mai-transcribe-2":
-            request["provider"] = {"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
-        return request
-    hints(body)
+        if vocabulary and model == "microsoft/mai-transcribe-2":
+            req["provider"] = {"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
+        t0, ok = time.monotonic(), False
+        try:
+            text = _post(STT_URL, key, req, read_timeout, post).get("text")
+            if not isinstance(text, str):
+                raise ResponseError("OpenRouter returned no valid transcript field.")
+            ok = True
+            return text.strip()
+        except Exception as exc:
+            if model == primary and _retryable(exc):
+                _primary_down_until = time.monotonic() + BREAKER_SECONDS
+            raise
+        finally:
+            if on_attempt is not None:
+                try:
+                    on_attempt(model, ok, time.monotonic() - t0)
+                except Exception:
+                    pass
+
+    def announce(model):
+        if model == fallback and on_fallback is not None:
+            on_fallback(model)
+
+    sent = [first]
+
+    def first_request():
+        announce(first)
+        if not other:
+            return request(first)
+        results = queue.Queue()
+        def go(model, post):
+            try:
+                results.put((model, request(model, post), None))
+            except Exception as exc:
+                results.put((model, None, exc))
+        def spawn(model, post=None):
+            threading.Thread(target=go, args=(model, post), daemon=True).start()
+        spawn(first)
+        try:
+            item = results.get(timeout=HEDGE_SECONDS + 0.1 * seconds)
+        except queue.Empty:
+            # Hedge: requests.post uses its own session (a Session is not thread-safe).
+            announce(other)
+            sent.append(other)
+            spawn(other, requests.post)
+            item = results.get()
+        errors = {}
+        while True:
+            model, text, exc = item
+            if exc is None:
+                return text  # a slower request keeps running in its daemon thread
+            errors[model] = exc
+            if len(errors) == len(sent):
+                raise errors.get(primary, exc)
+            item = results.get()
+
+    model = first
     deadline = time.monotonic() + STT_RETRY_WINDOW_SECONDS
     for attempt in range(1, STT_MAX_ATTEMPTS + 1):
         try:
-            data = _post(cfg.get("base_url", "https://openrouter.ai/api/v1/audio/transcriptions"),
-                         key, body, cfg.get("timeout_seconds", 60))
-            break
-        except requests.HTTPError as exc:
-            response = exc.response
-            if response is None or response.status_code != 429 or attempt == STT_MAX_ATTEMPTS:
+            return first_request() if attempt == 1 else request(model)
+        except (requests.RequestException, ResponseError) as exc:
+            nxt = other if attempt == 1 and other else model
+            code = getattr(getattr(exc, "response", None), "status_code", 0)
+            # A malformed reply is worth one try on the other model, never a same-model retry.
+            switchable = _retryable(exc) or (isinstance(exc, ResponseError) and nxt != model)
+            if (len(sent) > 1 or attempt == STT_MAX_ATTEMPTS or not switchable
+                    or (nxt == model and code != 429)):
                 raise
-            primary = cfg.get("model", DEFAULT_STT_MODEL)
-            fallback_model = (cfg.get("fallback_model", STT_RATE_LIMIT_FALLBACKS.get(primary))
-                              if body["model"] == primary else None)
-            delay = _retry_after(response)
-            if delay is None:
-                delay = 0 if fallback_model else 2 ** attempt + random.uniform(0, 0.5)
-            # Never shorten a provider's Retry-After to fit our local budget.
-            if time.monotonic() + delay > deadline:
-                raise
+            delay = 0  # a different model does not owe the old one's Retry-After
+            if nxt == model:
+                delay = _retry_after(exc.response)
+                if delay is None:
+                    delay = 2 ** attempt + random.uniform(0, 0.5)
+                # Never shorten a provider's Retry-After to fit our local budget.
+                if time.monotonic() + delay > deadline:
+                    raise
             if on_retry is not None:
                 on_retry(attempt + 1, delay)
             if (wait or time.sleep)(delay):
                 raise RetryCancelled("Transcription retry cancelled; saved audio can be retried later.") from None
-            if time.monotonic() > deadline:
+            if nxt == model and time.monotonic() > deadline:
                 raise
-            if fallback_model:
-                # Reuse the exact recording/options, without changing the configured
-                # primary or mutating the body associated with the previous request.
-                body = hints(dict(body, model=fallback_model))
-                if on_fallback is not None:
-                    on_fallback(fallback_model)
-    text = data.get("text")
-    if not isinstance(text, str):
-        raise ResponseError("OpenRouter returned no valid transcript field.")
-    return text.strip()
+            if nxt != model:
+                announce(nxt)
+            model = nxt
 
 
 def smooth(text, system_prompt, cfg):
     body = {
-        "model": cfg.get("model", DEFAULT_SMOOTHING_MODEL),
-        "temperature": cfg.get("temperature", 0.2),
-        "max_tokens": cfg.get("max_tokens", 8192),
+        "model": cfg["model"],
+        "temperature": 0.2,
+        "max_tokens": REWRITE_MAX_TOKENS,
         "provider": {"sort": "latency"},
         "messages": [{"role": "system", "content": system_prompt},
                      {"role": "user", "content": text}],
+        "reasoning": {"effort": "minimal", "exclude": True},
     }
-    effort = cfg.get("reasoning_effort", "minimal")
-    if effort is not None:
-        body["reasoning"] = {"effort": effort, "exclude": True}
-    data = _post(cfg.get("base_url", "https://openrouter.ai/api/v1/chat/completions"),
-                 cfg.get("api_key", ""), body, cfg.get("timeout_seconds", 20))
+    data = _post(REWRITE_URL, cfg["api_key"], body, REWRITE_TIMEOUT_SECONDS)
     try:
         choice = data["choices"][0]
         if choice.get("finish_reason") not in ("stop", None):
