@@ -138,10 +138,10 @@ def test_corrupt_audio_format_is_never_rewritten(tmp_path):
 def test_metadata_updates_are_atomic_and_cannot_store_configuration(tmp_path):
     store = RecoveryStore(tmp_path)
     backup = store.create(16000, 1, "dictate")
-    backup.update(state="failed", error="rate_limited", attempts=1)
+    backup.update(state="failed", error="rate_limited")
     reopened = store.open(backup.id)
     assert reopened.metadata["state"] == "failed"
-    assert reopened.metadata["attempts"] == 1
+    assert reopened.metadata["error"] == "rate_limited"
     with pytest.raises(ValueError):
         backup.update(api_key="must-never-be-stored")
     with pytest.raises(ValueError):

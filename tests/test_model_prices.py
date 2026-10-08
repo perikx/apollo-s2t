@@ -1,60 +1,99 @@
-"""Audio billing units and unknown prices must never be guessed."""
+"""Curated ranking, structured prices and local model stats."""
 import json
+import threading
 import pytest
-from apollo_models import price_from_page, token_price, discover_catalog, discover_price
-from apollo_models import RECOMMENDATIONS
+import apollo_i18n
+from apollo_models import (BADGES, STT, TEXT, audio_price, curated, discover_catalog, load_stats,
+                           model_note, price_text, record_attempt, token_price)
 
-def test_recommendations_cover_cost_focused_alternatives_without_openai():
-    assert not any(model.startswith('openai/') for models in RECOMMENDATIONS.values() for model in models)
-    assert 'qwen/qwen3-asr-1.7b' in RECOMMENDATIONS['transcription']
-    assert 'qwen/qwen3.8-flash' in RECOMMENDATIONS['text']
-    assert 'z-ai/glm-5.3-flash' in RECOMMENDATIONS['text']
 
-def test_full_catalog_keeps_recent_and_unrecommended_models():
-    models = ['qwen/qwen3.8-flash', 'brand/new-model', 'openai/custom-text', 'brand/old-model']
+def fake_get(models, calls=None):
     class Response:
         def raise_for_status(self): pass
-        def json(self): return {'data': [{'id': model, 'architecture': {'input_modalities': ['text'], 'output_modalities': ['text']}} for model in models]}
-    assert set(discover_catalog('text', lambda *args, **kwargs: Response())) == set(models)
+        def json(self): return {'data': models}
+    def get(url, **kwargs):
+        if calls is not None: calls.append((url, kwargs))
+        return Response()
+    return get
 
-def page(prices):
-    payload = json.dumps({"display_pricing": prices}, separators=(',', ':'))
-    return '<script>self.__next_f.push(' + json.dumps([1, payload]) + ')</script>'
 
-@pytest.mark.parametrize('unit,price,multiplier,expected', [
-    ('/hour','0.1',1,'$0.1 / Std. Audio'),
-    ('/second','0.0001',1,'$0.0001 / Sek. Audio'),
-    ('/M tokens','0.0000025',1000000,'$2.5 / Mio. Tokens'),
-    ('/hour','0',1,'$0 / Std. Audio')])
-def test_explicit_audio_units(unit,price,multiplier,expected):
-    assert expected in price_from_page(page([{'price':price,'unitLabel':unit,'displayMultiplier':multiplier,'sku_label':'Audio'}]))
+def test_ranking_is_ordered_by_tier_and_text_list_is_current():
+    tiers = [row[0] for row in STT.values()]
+    assert tiers == sorted(tiers, key=list(BADGES).index)
+    assert next(iter(STT)) == 'microsoft/mai-transcribe-2'
+    assert 'deepseek/deepseek-v4-flash-20260731' not in TEXT
+    assert curated('text')['qwen/qwen3.8-flash'] == ('', 'Current inexpensive text editing')
+    assert curated('transcription')['google/chirp-3'][0] == 'avoid'
 
-@pytest.mark.parametrize('value', [None, '-1', 'NaN', 'Infinity', 'wat'])
-def test_invalid_price_is_unavailable(value):
-    assert price_from_page(page([{'price':value,'unitLabel':'/hour'}])) == 'Preis nicht verfügbar'
 
-def test_missing_units_and_changed_page_do_not_claim_a_free_model():
-    assert price_from_page(page([{'price':'0.1'}])) == 'Preis nicht verfügbar'
-    assert price_from_page('<html>No price metadata</html>') == 'Preis nicht verfügbar'
-    assert token_price({}) == 'Preis nicht verfügbar'
-    assert token_price({'prompt':'NaN','completion':'0'}) == 'Preis nicht verfügbar'
-    assert '$1.00 Eingabe' in token_price({'prompt':'0.000001','completion':'0.000005'})
+def test_catalog_is_one_request_and_prices_are_numbers():
+    calls = []
+    audio = {'input_modalities': ['audio'], 'output_modalities': ['transcription']}
+    models = [{'id': 'openai/whisper-1', 'architecture': audio}, {'id': 'brand/new', 'architecture': audio}]
+    data = discover_catalog('transcription', fake_get(models, calls))
+    assert data['openai/whisper-1']['price'] == ('audio', 6.0) and data['brand/new']['price'] is None
+    assert calls == [('https://openrouter.ai/api/v1/models', {'params': {'output_modalities': 'transcription'}, 'timeout': 15})]
 
-def test_public_audio_catalog_does_not_treat_prompt_value_as_a_token_price():
-    class Response:
-        def raise_for_status(self): pass
-        def json(self): return {'data':[{'id':'audio/asr','pricing':{'prompt':'0.1'},
-            'architecture':{'input_modalities':['audio'],'output_modalities':['transcription']}}]}
-    data = discover_catalog('transcription', lambda *args, **kwargs:Response())
-    assert data['audio/asr']['price'] == 'Preis wird geladen …'
 
-def test_public_price_request_contains_no_credentials():
-    calls=[]
-    class Response:
-        text=page([{'price':'0.1','unitLabel':'/hour'}])
-        def raise_for_status(self):pass
-    def get(url,**kwargs): calls.append((url,kwargs));return Response()
-    assert 'Std. Audio' in discover_price('audio/model',get)
-    assert calls==[('https://openrouter.ai/audio/model',{'timeout':15})]
-    with pytest.raises(ValueError):discover_price('https://other.example/x',get)
-    assert len(calls)==1
+def test_text_catalog_keeps_unranked_models_and_reads_token_prices():
+    text = {'input_modalities': ['text'], 'output_modalities': ['text']}
+    models = [{'id': 'brand/new-model', 'architecture': text, 'pricing': {'prompt': '0.000001', 'completion': '0.000005'}},
+              {'id': 'brand/no-price', 'architecture': text}]
+    data = discover_catalog('text', fake_get(models))
+    assert data['brand/new-model']['price'] == ('tokens', pytest.approx(1.0), pytest.approx(5.0))
+    assert data['brand/no-price']['price'] is None
+
+
+@pytest.mark.parametrize('pricing', [{}, {'prompt': 'NaN', 'completion': '0'}, {'prompt': '-1', 'completion': '0'}, {'prompt': 'wat', 'completion': '1'}])
+def test_invalid_token_price_is_unknown(pricing):
+    assert token_price(pricing) is None
+
+
+def test_price_text_is_translated():
+    apollo_i18n.set_language('en')
+    try:
+        assert price_text(audio_price('microsoft/mai-transcribe-2')) == '$1.67 / 1000 min'
+        assert price_text(('tokens', 0.1, 0.4)) == '$0.10 in · $0.40 out / 1M tokens'
+        assert price_text(None) == ''
+        apollo_i18n.set_language('de')
+        assert 'Eingabe' in price_text(('tokens', 0.1, 0.4))
+    finally:
+        apollo_i18n.set_language('en')
+
+
+def test_note_joins_badge_stats_and_reason(tmp_path):
+    apollo_i18n.set_language('en')
+    ranked = curated('transcription')
+    assert model_note('microsoft/mai-transcribe-2', ranked, None) == 'Best · Most accurate and fastest; can be rate limited'
+    assert model_note('brand/new', ranked, None) == ''
+    stat = {'ok': 47, 'fail': 3, 'median_s': 1.84}
+    assert model_note('brand/new', ranked, stat) == 'You: 94% ok · 1.8 s'
+    assert model_note('brand/new', ranked, {'ok': 2, 'fail': 2, 'median_s': 1.0}) == ''
+
+
+def test_stats_count_attempts_and_keep_last_50_latencies(tmp_path):
+    path = tmp_path / 'stats.json'
+    assert load_stats(path) == {}
+    for i in range(60): record_attempt(path, 'a/b', True, i)
+    record_attempt(path, 'a/b', False, 99)
+    stat = load_stats(path)['a/b']
+    assert (stat['ok'], stat['fail']) == (60, 1) and stat['median_s'] == pytest.approx(34.5)
+    assert len(json.loads(path.read_text())['a/b']['seconds']) == 50
+    assert list(tmp_path.iterdir()) == [path]  # no temporary file left behind
+
+
+def test_stats_never_raise_or_store_text(tmp_path):
+    path = tmp_path / 'stats.json'
+    path.write_text('not json')
+    record_attempt(path, 'a/b', True, 1.0)
+    assert load_stats(path)['a/b']['ok'] == 1
+    record_attempt(tmp_path / 'missing' / 'stats.json', 'a/b', True, 1.0)  # unwritable: ignored
+    assert set(json.loads(path.read_text())['a/b']) == {'ok', 'seconds'}
+
+
+def test_stats_survive_concurrent_attempts(tmp_path):
+    path = tmp_path / 'stats.json'
+    threads = [threading.Thread(target=record_attempt, args=(path, 'a/b', True, 1.0)) for _ in range(20)]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    assert load_stats(path)['a/b']['ok'] == 20

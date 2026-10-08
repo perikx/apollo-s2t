@@ -30,12 +30,12 @@ def main(argv=None):
         return 1
     try:
         import sounddevice as sd
-        audio = cfg["audio"]
-        sd.check_input_settings(device=audio["device"], channels=audio["channels"],
-                                samplerate=audio["samplerate"], dtype="int16")
-        for index, device in enumerate(sd.query_devices()):
-            if device["max_input_channels"]:
-                print(f"  Input {index}: {device['name']}")
+        from apollo import CHANNELS, SAMPLERATE
+        device = cfg["audio"]["device"]
+        sd.check_input_settings(device=device, channels=CHANNELS, samplerate=SAMPLERATE, dtype="int16")
+        for index, info in enumerate(sd.query_devices()):
+            if info["max_input_channels"]:
+                print(f"  Input {index}: {info['name']}")
         print("[OK] Configured audio input accepts the sample rate and channel count.")
     except Exception:
         print("[FAIL] Audio input unavailable. Check installation, device and Windows microphone permissions.")
@@ -50,9 +50,10 @@ def main(argv=None):
         from apollo import to_wav_bytes, PROMPTS
         from apollo_api import transcribe_openrouter, smooth
         print(f"Speak now for {args.seconds} seconds. Audio will be sent to OpenRouter.")
-        data = sd.rec(int(audio["samplerate"] * args.seconds), samplerate=audio["samplerate"],
-                      channels=audio["channels"], dtype="int16", device=audio["device"], blocking=True)
-        text = transcribe_openrouter(to_wav_bytes(data, audio["samplerate"], audio["channels"]),
+        with sd.RawInputStream(samplerate=SAMPLERATE, channels=CHANNELS,
+                               dtype="int16", device=device) as stream:
+            data = bytes(stream.read(int(SAMPLERATE * args.seconds))[0])
+        text = transcribe_openrouter(to_wav_bytes(data, SAMPLERATE, CHANNELS),
                                      cfg["openrouter_stt"], api_key(cfg))
         if not text:
             raise ValueError("No speech recognized")

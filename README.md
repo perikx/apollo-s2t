@@ -1,7 +1,7 @@
 # apollo
 
 <p align="center">
-  <img src="assets/apollo-monochrome.png" alt="Apollo" width="160">
+  <img src="assets/apollo.png" alt="Apollo" width="160">
 </p>
 
 **Speak. Your words appear where you type.**

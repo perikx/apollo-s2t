@@ -22,7 +22,7 @@ _ID = re.compile(r"[0-9a-f]{32}\Z")
 _HEADER_SIZE = 44
 _MAX_PCM_BYTES = 0xFFFFFFFF - 36
 _STATES = frozenset({"recording", "pending", "processing", "failed", "ready", "too_short", "interrupted"})
-_UPDATE_FIELDS = frozenset({"state", "error", "attempts", "last_attempt_at", "completed_at"})
+_UPDATE_FIELDS = frozenset({"state", "error"})
 
 
 class RecoveryError(ValueError):
@@ -33,23 +33,11 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def _header(rate: int, channels: int, payload_size: int) -> bytes:
+def wav_header(rate: int, channels: int, payload_size: int) -> bytes:
     return struct.pack(
         "<4sI4s4sIHHIIHH4sI", b"RIFF", payload_size + 36, b"WAVE", b"fmt ",
         16, 1, channels, rate, rate * channels * 2, channels * 2, 16, b"data", payload_size,
     )
-
-
-def _sync_directory(path: Path) -> None:
-    # Windows does not support opening directories through os.open. Each file
-    # is still flushed before replacement; POSIX can additionally sync the name.
-    if os.name == "nt":
-        return
-    fd = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -61,7 +49,6 @@ def _atomic_write(path: Path, data: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        _sync_directory(path.parent)
     finally:
         try:
             temporary.unlink()
@@ -98,41 +85,15 @@ class RecoveryStore:
 
     def _read_metadata(self, recording_id: str) -> dict[str, Any]:
         try:
-            path = self._path(recording_id, ".json")
-            if path.stat().st_size > 1024 * 1024:
-                raise RecoveryError("Recovery metadata is too large")
-            metadata = json.loads(path.read_text(encoding="utf-8"))
-            if (
-                not isinstance(metadata, dict)
-                or metadata.get("version") != 1
-                or metadata.get("id") != recording_id
-                or type(metadata.get("samplerate")) is not int
-                or not 1 <= metadata["samplerate"] <= 384000
-                or type(metadata.get("channels")) is not int
-                or not 1 <= metadata["channels"] <= 8
-                or metadata.get("sample_width") != 2
-                or metadata.get("state") not in _STATES
-                or not isinstance(metadata.get("mode"), str)
-                or not isinstance(metadata.get("prompt"), str)
-                or not isinstance(metadata.get("created_at"), str)
-            ):
-                raise RecoveryError("Invalid recovery metadata")
+            metadata = json.loads(self._path(recording_id, ".json").read_text(encoding="utf-8"))
             datetime.fromisoformat(metadata["created_at"])
+            # These must exist; later code reads them without checks.
+            metadata["samplerate"], metadata["channels"], metadata["state"], metadata["mode"], metadata["prompt"]
             return metadata
-        except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            if isinstance(exc, RecoveryError):
-                raise
+        except (OSError, KeyError, TypeError, ValueError) as exc:
             raise RecoveryError("Cannot read recovery metadata") from exc
 
     def create(self, samplerate: int, channels: int, mode: str, prompt: str = "", *, hotkey: str = "") -> RecordingBackup:
-        if type(samplerate) is not int or not 1 <= samplerate <= 384000:
-            raise ValueError("Invalid recording sample rate")
-        if type(channels) is not int or not 1 <= channels <= 8:
-            raise ValueError("Invalid recording channel count")
-        if not isinstance(mode, str) or not mode or len(mode) > 128:
-            raise ValueError("Invalid recording mode")
-        if not isinstance(prompt, str) or len(prompt.encode("utf-8")) > 900000:
-            raise ValueError("Invalid recording prompt")
         recording_id = uuid.uuid4().hex
         timestamp = _now()
         metadata = {
@@ -142,7 +103,7 @@ class RecoveryStore:
         }
         with self._lock(recording_id):
             # Complete the initial header before this backup can accept samples.
-            _atomic_write(self._path(recording_id, ".wav"), _header(samplerate, channels, 0))
+            _atomic_write(self._path(recording_id, ".wav"), wav_header(samplerate, channels, 0))
             _atomic_write(self._path(recording_id, ".json"), json.dumps(metadata, ensure_ascii=False).encode("utf-8"))
         return RecordingBackup(self, recording_id)
 
@@ -191,7 +152,7 @@ class RecoveryStore:
             if not match or match[1] in protected or path.is_symlink() or not path.is_file():
                 continue
             try:
-                metadata = self._read_metadata(match[1])
+                self._read_metadata(match[1])
                 if not path.name.endswith(".tmp") and self._path(match[1], ".wav").exists():
                     continue
             except (OSError, ValueError):
@@ -243,7 +204,7 @@ class RecordingBackup:
                 if actual_size < _HEADER_SIZE or actual_size - _HEADER_SIZE > _MAX_PCM_BYTES:
                     raise RecoveryError("Invalid recovery WAV length")
                 old_header = stream.read(_HEADER_SIZE)
-                canonical = _header(metadata["samplerate"], metadata["channels"], 0)
+                canonical = wav_header(metadata["samplerate"], metadata["channels"], 0)
                 if old_header[:4] != canonical[:4] or old_header[8:40] != canonical[8:40]:
                     raise RecoveryError("Invalid recovery WAV format")
                 frame_size = metadata["channels"] * 2
@@ -252,7 +213,7 @@ class RecordingBackup:
                 if actual_size != payload_size + _HEADER_SIZE:
                     # An interrupted OS write may leave an incomplete frame.
                     stream.truncate(payload_size + _HEADER_SIZE)
-                repaired = _header(metadata["samplerate"], metadata["channels"], payload_size)
+                repaired = wav_header(metadata["samplerate"], metadata["channels"], payload_size)
                 if old_header != repaired or actual_size != payload_size + _HEADER_SIZE:
                     stream.seek(0)
                     stream.write(repaired)
@@ -281,7 +242,7 @@ class RecordingBackup:
                 stream.flush()
                 os.fsync(stream.fileno())
                 stream.seek(0)
-                stream.write(_header(metadata["samplerate"], metadata["channels"], payload_size))
+                stream.write(wav_header(metadata["samplerate"], metadata["channels"], payload_size))
                 stream.flush()
                 os.fsync(stream.fileno())
 
@@ -306,7 +267,7 @@ class RecordingBackup:
                 raise ValueError("PCM replacement must contain complete int16 frames")
             if len(pcm) > _MAX_PCM_BYTES:
                 raise RecoveryError("Recording exceeds the WAV size limit")
-            _atomic_write(self.path, _header(metadata["samplerate"], metadata["channels"], len(pcm)) + pcm)
+            _atomic_write(self.path, wav_header(metadata["samplerate"], metadata["channels"], len(pcm)) + pcm)
             self._finished = True
 
     def update(self, **fields: Any) -> None:
@@ -314,12 +275,6 @@ class RecordingBackup:
             raise ValueError("Unsupported recovery metadata field")
         if "state" in fields and fields["state"] not in _STATES:
             raise ValueError("Invalid recovery state")
-        if "attempts" in fields and (type(fields["attempts"]) is not int or fields["attempts"] < 0):
-            raise ValueError("Invalid recovery attempt count")
-        for key in ("error", "last_attempt_at", "completed_at"):
-            value = fields.get(key)
-            if value is not None and (not isinstance(value, str) or len(value) > 1000):
-                raise ValueError("Invalid recovery metadata value")
         with self._lock:
             metadata = self.metadata
             metadata.update(fields, updated_at=_now())

@@ -32,9 +32,7 @@ class Key(ctypes.Structure): _fields_ = [("down",w.BOOL),("repeat",w.WORD),("vir
 class Event(ctypes.Union): _fields_ = [("key",Key),("padding",ctypes.c_byte*16)]
 class Record(ctypes.Structure): _fields_ = [("type",w.WORD),("event",Event)]
 kernel.GetConsoleScreenBufferInfo.argtypes = (w.HANDLE,ctypes.POINTER(Info))
-kernel.SetConsoleWindowInfo.argtypes = (w.HANDLE,w.BOOL,ctypes.POINTER(w.SMALL_RECT))
 kernel.ReadConsoleOutputCharacterW.argtypes = (w.HANDLE,w.LPWSTR,w.DWORD,Coord,ctypes.POINTER(w.DWORD))
-kernel.ReadConsoleOutputAttribute.argtypes = (w.HANDLE,ctypes.POINTER(w.WORD),w.DWORD,Coord,ctypes.POINTER(w.DWORD))
 kernel.WriteConsoleInputW.argtypes = (w.HANDLE,ctypes.POINTER(Record),w.DWORD,ctypes.POINTER(w.DWORD))
 
 def children(pid):
@@ -79,26 +77,7 @@ with tempfile.TemporaryDirectory(prefix="apollo-terminal-check-", ignore_cleanup
             text = buffer.value
             if "Language / Sprache / 语言" in text: break
             time.sleep(.2)
-        assert "██" in text and "Language / Sprache" in text, repr(text[:1000])
-        # The brand must keep moving after the intro, while the prompt waits.
-        first = (w.WORD*(info.size.x*6))(); second = (w.WORD*len(first))()
-        assert kernel.ReadConsoleOutputAttribute(output,first,len(first),Coord(0,0),ctypes.byref(read))
-        time.sleep(1.3)
-        assert kernel.ReadConsoleOutputAttribute(output,second,len(second),Coord(0,0),ctypes.byref(read))
-        assert list(first) != list(second), 'Banner stopped animating at the input prompt'
-        # Capture only our own terminal, when Windows provides a visible console HWND.
-        hwnd = kernel.GetConsoleWindow()
-        if ctypes.windll.user32.IsWindowVisible(hwnd):
-            # Keep this test's own console inside the desktop for an uncropped capture.
-            ctypes.windll.user32.SetWindowPos(hwnd, None, 40, 40, 960, 640, 0x14)
-            kernel.GetConsoleScreenBufferInfo(output,ctypes.byref(info))
-            viewport = w.SMALL_RECT(0,0,info.window.Right-info.window.Left,info.window.Bottom-info.window.Top)
-            kernel.SetConsoleWindowInfo(output,True,ctypes.byref(viewport))
-            time.sleep(.2)
-            from PIL import ImageGrab
-            bounds = w.RECT()
-            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(bounds))
-            ImageGrab.grab(bbox=(bounds.left,bounds.top,bounds.right,bounds.bottom)).save(root/".pytest_cache/terminal-native.png")
+        assert "Language / Sprache" in text, repr(text[:1000])
         input_handle = kernel.CreateFileW("CONIN$",0x40000000,3,None,3,0,None)
         def type_text(value):
             records = []

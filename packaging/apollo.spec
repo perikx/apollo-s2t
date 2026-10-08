@@ -17,21 +17,11 @@ datas = [
     (os.path.join(root, "config.example.json"), "."),
     (os.path.join(root, "prompts"), "prompts"),
     (os.path.join(root, "assets", "apollo.ico"), "assets"),
-    (os.path.join(root, "assets", "apollo.png"), "assets"),
+    (os.path.join(root, "assets", "apollo-app.png"), "assets"),  # small UI copy of apollo.png
     (os.path.join(root, "assets", "fonts"), "assets/fonts"),
     (os.path.join(root, "LICENSE"), "."),
     (os.path.join(root, "THIRD_PARTY_NOTICES.md"), "."),
     (os.path.join(root, "licenses"), "licenses"),
-]
-
-# Modules PyInstaller can miss because they're imported lazily / via COM.
-hiddenimports = [
-    "pystray._win32",
-    "PIL.Image",
-    "PIL.ImageDraw",
-    "comtypes",
-    "comtypes.client",
-    "comtypes.stream",
 ]
 
 a = Analysis(
@@ -39,11 +29,14 @@ a = Analysis(
     pathex=[root],
     binaries=[],
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore", "__main__"],
+    excludes=["tkinter", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore", "__main__",
+              "setuptools", "pkg_resources", "unittest", "pydoc", "pydoc_data", "doctest",
+              "multiprocessing", "xmlrpc", "lib2to3",
+              "numpy", "PIL", "pystray", "comtypes", "mouse"],
     noarchive=False,
 )
 
@@ -54,6 +47,23 @@ a = Analysis(
 a.binaries = [entry for entry in a.binaries
               if not (Path(entry[0]).name.lower() == "icuuc.dll"
                       or Path(entry[0]).name.lower().startswith("icudt"))]
+
+# Size: drop Qt parts the widget UI never loads (Quick/Qml/Pdf/Svg/Network/OpenGL,
+# software GL, translations), all Qt plugins except qwindows + qico (PNG is built in),
+# the Poppler OpenSSL copies (Python's own libssl-3/libcrypto-3 stay) and the
+# PortAudio builds for other CPUs (sounddevice loads libportaudio64bit.dll on x64).
+DROP = ("opengl32sw", "qt6quick", "qt6qml", "qt6pdf", "qt6virtualkeyboard", "qt6opengl",
+        "qt6network", "qt6svg", "qtnetwork.pyd", "pyside6/translations",
+        "libssl-3-x64", "libcrypto-3-x64")
+def wanted(entry):
+    name = entry[0].lower().replace("\\", "/")
+    if name.startswith("pyside6/plugins/"):
+        return name.endswith(("/qwindows.dll", "/qico.dll"))
+    if name.startswith("_sounddevice_data/"):
+        return name.endswith("/libportaudio64bit.dll")
+    return not any(part in name for part in DROP)
+a.binaries = [entry for entry in a.binaries if wanted(entry)]
+a.datas = [entry for entry in a.datas if wanted(entry)]
 
 # Python may ship an older MSVC runtime. Loading that at the archive root first
 # can make QtCore fail with "specified procedure could not be found", even when
@@ -78,7 +88,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,  # windowed: no console window; logs still go to apollo.log

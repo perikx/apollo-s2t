@@ -1,16 +1,15 @@
 """Shared modern selectors. Network work never blocks the Qt event loop."""
-import queue
 import threading
 import time
 
 from PySide6.QtCore import QObject, Signal, Qt, QSize, QEvent, QRect
-from PySide6.QtGui import QPainter, QColor
-from PySide6.QtWidgets import (QHBoxLayout, QVBoxLayout, QWidget, QPushButton,
-                              QLineEdit, QListWidget, QListWidgetItem, QStyledItemDelegate,
-                              QStyle, QStyleOptionViewItem, QScrollArea, QAbstractScrollArea, QApplication, QSizePolicy)
+from PySide6.QtGui import QPainter, QColor, QFont
+from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QLineEdit, QListWidget,
+                              QListWidgetItem, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
+                              QScrollArea, QSizePolicy)
 
 from apollo_design import label, icon, TEXT, MUTED
-from apollo_models import discover_catalog, discover_price, RECOMMENDATIONS
+from apollo_models import discover_catalog, audio_price, curated, load_stats, model_note, price_text, STT
 from apollo_i18n import t
 
 MODES = {"dictate": "Diktieren", "polish": "Bereinigen", "prompt": "Prompt"}
@@ -72,9 +71,9 @@ class KeyCapture(QPushButton):
 class Choice(QWidget):
     """Small inline choices; no extra native window or modal event loop."""
     changed = Signal(str)
-    def __init__(self, options, value, pixmap, app=None, translate=True):
+    def __init__(self, options, value, translate=True):
         super().__init__()
-        self.options, self.value, self.pixmap, self.app = options, value, pixmap, app
+        self.options, self.value = options, value
         self.translate = translate
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
         self.button = QPushButton(t(options.get(value, str(value))) if translate else options.get(value, str(value)))
@@ -108,33 +107,19 @@ class Choice(QWidget):
         return super().eventFilter(watched, event)
 
 
-class WheelRouter(QObject):
-    """Wheel the area under the pointer, even when its fields lack focus.
+INFO, MORE = Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
+_stats_path = None
 
-    Consume nested-list/preview wheel events even at their limits, so Qt cannot
-    propagate them to the surrounding page. The filter dies with the page.
-    """
-    def __init__(self, area):
-        super().__init__(area); self.area = area
-        QApplication.instance().installEventFilter(self)
-    def eventFilter(self, watched, event):
-        if event.type() != QEvent.Type.Wheel or not isinstance(watched, QWidget): return False
-        node = watched; target = None
-        while node is not None and node is not self.area:
-            if target is None and isinstance(node, QAbstractScrollArea): target = node
-            node = node.parentWidget()
-        if node is not self.area: return False
-        target = target or self.area
-        horizontal = not (event.pixelDelta().y() or event.angleDelta().y())
-        bar = target.horizontalScrollBar() if horizontal else target.verticalScrollBar()
-        delta = (event.pixelDelta().x() if horizontal else event.pixelDelta().y()) or (event.angleDelta().x() if horizontal else event.angleDelta().y())/120*bar.singleStep()*3
-        bar.setValue(bar.value()-round(delta)); event.accept(); return True
+
+def set_stats_path(path):
+    """apollo.py calls this once; pickers show the per-model stats stored there."""
+    global _stats_path
+    _stats_path = path
 
 
 class ModelCatalog(QObject):
     changed = Signal()
-    result = Signal(int, str, object, str)
-    priced = Signal(int, str, str)
+    result = Signal(int, str, object)
     def __init__(self):
         super().__init__()
         self.data = {"transcription": {}, "text": {}}
@@ -143,7 +128,6 @@ class ModelCatalog(QObject):
         self.started = False
         self.started_at = 0
         self.result.connect(self.receive)
-        self.priced.connect(self.receive_price)
     def start(self, reload=False):
         if self.started and not reload: return
         if reload and time.monotonic()-self.started_at < 3: return
@@ -151,48 +135,21 @@ class ModelCatalog(QObject):
         self.started_at = time.monotonic()
         self.generation += 1
         generation = self.generation
-        self.errors.clear()
         def fetch(kind):
-            try:
-                models = discover_catalog(kind)
-                self.result.emit(generation, kind, models, "")
-                if kind == "transcription":
-                    pending = queue.Queue()
-                    for key in models: pending.put(key)
-                    def prices():
-                        while generation == self.generation:
-                            try: key = pending.get_nowait()
-                            except queue.Empty: return
-                            try: price = discover_price(key)
-                            except Exception: price = "Preis nicht verfügbar"
-                            self.priced.emit(generation, key, price)
-                    # Daemon workers let Quit finish immediately even during a network outage.
-                    for _ in range(4): threading.Thread(target=prices, daemon=True, name="apollo-prices").start()
-            except Exception:
-                self.result.emit(generation, kind, {}, "Katalog nicht erreichbar. Bitte erneut laden.")
+            try: models = discover_catalog(kind)
+            except Exception: models = {}
+            self.result.emit(generation, kind, models)
+        # Daemon workers let Quit finish immediately even during a network outage.
         for kind in self.data:
             threading.Thread(target=fetch, args=(kind,), daemon=True, name="apollo-catalog").start()
-    def receive(self, generation, kind, data, error):
+    def receive(self, generation, kind, data):
         if generation != self.generation: return
         if data: self.data[kind] = data
-        self.errors[kind] = error
+        self.errors[kind] = not data
         self.changed.emit()
-    def receive_price(self, generation, model, price):
-        if generation != self.generation: return
-        if model in self.data["transcription"]:
-            self.data["transcription"][model]["price"] = price
-            self.changed.emit()
     def details(self, kind, value):
-        if value is None: return {"name": t("Kein Fallback"), "price": t("Bei einem Fehler bleibt die Aufnahme im Recovery-Cache.")}
-        return self.data[kind].get(value, {"name": value, "price": "Preis nicht verfügbar"})
-
-
-def compact_price(price):
-    """Shorten only presentation; retain explicit, verified billing units."""
-    price = t(price)
-    return (price.replace(" Eingabe", " In").replace(" Ausgabe", " Out")
-            .replace(" / Mio. Tokens", " / 1M Token").replace("Std. Audio", "h Audio")
-            .replace("Sek. Audio", "s Audio").removeprefix("Audio: "))
+        if value is None: return {"name": t("No fallback"), "price": None}
+        return self.data[kind].get(value) or {"name": value, "price": audio_price(value) if kind == "transcription" else None}
 
 
 def paint_model(painter, rect, name, price, text_color=TEXT, muted_color=MUTED):
@@ -211,16 +168,22 @@ def paint_model(painter, rect, name, price, text_color=TEXT, muted_color=MUTED):
 
 class ModelRow(QStyledItemDelegate):
     def paint(self, painter, option, index):
-        if index.data(Qt.ItemDataRole.UserRole+2):
+        if index.data(MORE):
             painter.save(); painter.setPen(QColor(MUTED)); painter.setFont(option.font)
             painter.drawText(option.rect.adjusted(10, 0, -10, 0), Qt.AlignmentFlag.AlignVCenter, index.data())
             painter.restore(); return
         option = QStyleOptionViewItem(option); self.initStyleOption(option, index); option.text = ""
         option.widget.style().drawControl(QStyle.ControlElement.CE_ItemViewItem, option, painter, option.widget)
         painter.save(); painter.setFont(option.font)
-        name, price = index.data(Qt.ItemDataRole.UserRole+1)
-        paint_model(painter, option.rect.adjusted(10, 0, -10, 0), name,
-                    compact_price(price) if index.data(Qt.ItemDataRole.UserRole) else "Aus"); painter.restore()
+        name, price, note = index.data(INFO)
+        rect = option.rect.adjusted(10, 0, -10, 0)
+        if note:
+            paint_model(painter, QRect(rect.x(), rect.y()+2, rect.width(), 22), name, price)
+            small = QFont(option.font); small.setPixelSize(12); painter.setFont(small); painter.setPen(QColor(MUTED))
+            painter.drawText(QRect(rect.x(), rect.y()+24, rect.width(), 16), Qt.AlignmentFlag.AlignVCenter,
+                             painter.fontMetrics().elidedText(note, Qt.TextElideMode.ElideRight, rect.width()))
+        else: paint_model(painter, rect, name, price)
+        painter.restore()
 
 
 class ModelButton(QPushButton):
@@ -228,24 +191,26 @@ class ModelButton(QPushButton):
         super().paintEvent(event)
         p = QPainter(self); p.setFont(self.font())
         info = self.field.catalog.details(self.field.kind, self.field.value)
-        paint_model(p, self.rect().adjusted(10, 0, -30, 0), info["name"], compact_price(info["price"]) if self.field.value else "Aus", "#fafafa", "#d6d6d3")
+        paint_model(p, self.rect().adjusted(10, 0, -30, 0), info["name"], price_text(info["price"]) if self.field.value else t("Off"), "#fafafa", "#d6d6d3")
         icon("chevron", "#fafafa").paint(p, self.width()-24, (self.height()-16)//2, 16, 16); p.end()
 
 
 class ModelPicker(QWidget):
-    """Embedded search and one-line model rows in the existing form."""
+    """Embedded search and one ranked list; unranked models sit behind "Show all models"."""
     def __init__(self, field):
         super().__init__(field)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.field = field
         self.selection = field.value
+        self.show_all = False
+        self.stats = {}
         self.layout = QVBoxLayout(self); self.layout.setContentsMargins(0, 0, 0, 0); self.layout.setSpacing(4)
-        self.search = QLineEdit(); self.search.setPlaceholderText(t("Modelle suchen …")); self.search.setAccessibleName(t(field.title + " suchen"))
+        self.search = QLineEdit(); self.search.setPlaceholderText(t("Search models …")); self.search.setAccessibleName(f"{field.title}: {t('Search models …')}")
         self.layout.addWidget(self.search)
         self.items = QListWidget(); self.items.setStyleSheet("QListWidget::item { padding: 0; margin: 0; border-radius: 6px; }")
         self.items.setItemDelegate(ModelRow(self.items)); self.items.setFixedHeight(166)
         self.layout.addWidget(self.items)
-        self.note = label("Eingabe / Ausgabe · USD · Einheit beim Modell", "muted", True)
+        self.note = label("", "muted", True)
         self.layout.addWidget(self.note)
         self.items.currentItemChanged.connect(self.selected)
         self.items.itemClicked.connect(lambda _: self.apply()); self.items.itemActivated.connect(lambda _: self.apply())
@@ -253,68 +218,76 @@ class ModelPicker(QWidget):
         self.search.returnPressed.connect(self.apply)
         self.search.installEventFilter(self); self.items.installEventFilter(self)
         field.catalog.changed.connect(self.refresh)
-        self.refresh()
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
             self.hide(); self.field.button.setFocus(); return True
         if watched is self.search and event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Down:
-            self.items.setFocus()
-            for row in range(self.items.count()):
-                if self.items.item(row).flags() & Qt.ItemFlag.ItemIsSelectable:
-                    self.items.setCurrentRow(row); break
+            self.items.setFocus(); self.items.setCurrentRow(0)
             return True
         return super().eventFilter(watched, event)
+    def open(self):
+        self.selection = self.field.value
+        # A current model outside the ranking must be visible.
+        self.show_all = bool(self.selection) and self.selection not in curated(self.field.kind)
+        self.stats = load_stats(_stats_path) if _stats_path else {}
+        self.search.clear(); self.refresh(); self.search.setFocus()
     def selected(self, item, previous):
-        if item is not None and item.flags() & Qt.ItemFlag.ItemIsSelectable: self.selection = item.data(Qt.ItemDataRole.UserRole)
+        if item is not None and not item.data(MORE): self.selection = item.data(Qt.ItemDataRole.UserRole)
+    def add(self, model, info, ranked):
+        note = model_note(model, ranked, self.stats.get(model))
+        price = price_text(info["price"]) if model else t("Off")
+        item = QListWidgetItem(info["name"]); item.setData(Qt.ItemDataRole.UserRole, model)
+        item.setData(INFO, (info["name"], price, note)); item.setSizeHint(QSize(0, 44 if note else 32))
+        tip = [info["name"], model or t("Off"), price, note]
+        if model in STT: tip.append(t("English WER {wer}% · {speed}x real time").format(wer=STT[model][1], speed=STT[model][2]))
+        item.setToolTip("\n".join(filter(None, tip)))
+        self.items.addItem(item)
+        if model == self.selection: self.items.setCurrentItem(item)
     def refresh(self):
+        if self.isHidden(): return
         scroll = self.items.verticalScrollBar().value()
         self.items.blockSignals(True)
         self.items.clear()
         query = self.search.text().casefold()
-        data = dict(self.field.catalog.data[self.field.kind])
-        available = bool(data)
-        recommendations = RECOMMENDATIONS[self.field.kind]
-        recommended = {key: data.pop(key) for key in recommendations if key in data}
-        groups = [("Empfohlen für Apollo", recommended), ("Weitere Modelle", data)]
-        if self.field.allow_none:
-            groups.insert(0, ("", {None: self.field.catalog.details(self.field.kind, None)}))
-        for heading, models in groups:
-            matches = [(model, info) for model, info in models.items() if query in (str(model) + " " + info["name"]).casefold()]
-            if heading and matches and not query:
-                header = QListWidgetItem(t(heading)); header.setFlags(Qt.ItemFlag.NoItemFlags)
-                header.setData(Qt.ItemDataRole.UserRole+2, True); header.setSizeHint(QSize(0, 26)); self.items.addItem(header)
-            for model, info in matches:
-                item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, model)
-                item.setSizeHint(QSize(0, 32)); item.setText(info["name"])
-                item.setData(Qt.ItemDataRole.UserRole+1, (info["name"], info["price"]))
-                reason = recommendations.get(model, "")
-                item.setToolTip(f'{info["name"]}\n{model or t("Deaktiviert")}\n{compact_price(info["price"])}' + (f'\n{t("Empfohlen")}: {t(reason)}' if reason else ""))
-                self.items.addItem(item)
-                if model == self.selection: self.items.setCurrentItem(item)
+        catalog, kind = self.field.catalog, self.field.kind
+        data, ranked = catalog.data[kind], curated(kind)
+        def found(model, info): return query in ((model or "") + " " + info["name"]).casefold()
+        top = [(model, data[model]) for model in ranked if model in data]
+        rest = [(model, info) for model, info in data.items() if model not in ranked]
+        if self.field.allow_none and found(None, catalog.details(kind, None)): self.add(None, catalog.details(kind, None), ranked)
+        for model, info in top:
+            if found(model, info): self.add(model, info, ranked)
+        if not query and rest:
+            more = QListWidgetItem(t("Hide other models") if self.show_all else t("Show all models ({count})").format(count=len(rest)))
+            more.setData(MORE, True); more.setSizeHint(QSize(0, 32)); self.items.addItem(more)
+        for model, info in rest:
+            if (self.show_all or query) and found(model, info): self.add(model, info, ranked)
         self.items.blockSignals(False)
-        self.items.setFixedHeight(max(38, min(self.items.count(), 5)*32+4))
+        height = sum(self.items.item(i).sizeHint().height() for i in range(min(self.items.count(), 5)))
+        self.items.setFixedHeight(max(38, height+4))
         self.items.verticalScrollBar().setValue(scroll)
-        error = self.field.catalog.errors.get(self.field.kind)
-        if error: self.note.setText(t(error))
-        elif not available: self.note.setText(t("Katalog wird geladen …"))
-        elif not self.items.count(): self.note.setText(t("Keine passenden Modelle gefunden."))
-        else: self.note.setText(t("{count} Modelle · USD").format(count=len(self.field.catalog.data[self.field.kind])))
+        if catalog.errors.get(kind): self.note.setText(t("Catalog unavailable. Please reload."))
+        elif not data: self.note.setText(t("Loading catalog …"))
+        elif not self.items.count(): self.note.setText(t("No matching models found."))
+        else: self.note.setText(t("{count} models · USD").format(count=len(data)))
     def apply(self):
         item = self.items.currentItem()
-        if item is None or not item.flags() & Qt.ItemFlag.ItemIsSelectable:
-            self.note.setText(t("Bitte ein Modell auswählen."))
+        if item is None:
+            self.note.setText(t("Choose a model."))
             return
+        if item.data(MORE):
+            self.show_all = not self.show_all; self.refresh(); return
         self.field.value = item.data(Qt.ItemDataRole.UserRole)
         self.field.refresh()
         self.hide(); self.field.button.setFocus()
 
 
 class ModelField(QWidget):
-    def __init__(self, title, kind, value, catalog, pixmap, app=None, allow_none=False):
+    def __init__(self, title, kind, value, catalog, allow_none=False):
         super().__init__()
         self.title, self.kind, self.value = t(title), kind, value
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        self.catalog, self.pixmap, self.app, self.allow_none = catalog, pixmap, app, allow_none
+        self.catalog, self.allow_none = catalog, allow_none
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
         self.button = ModelButton(); self.button.field = self; self.button.setAutoDefault(False)
         self.button.setFixedHeight(38); self.button.setAccessibleName(t(title))
@@ -324,8 +297,9 @@ class ModelField(QWidget):
         self.refresh()
     def refresh(self):
         info = self.catalog.details(self.kind, self.value)
-        self.button.setAccessibleName(t(f'{self.title}: {info["name"]}. {info["price"]}'))
-        self.button.setToolTip(f'{info["name"]}\n{self.value or "Deaktiviert"}\n{info["price"]}'); self.button.update()
+        price = price_text(info["price"])
+        self.button.setAccessibleName(f'{self.title}: {info["name"]}. {price}')
+        self.button.setToolTip(f'{info["name"]}\n{self.value or t("Off")}\n{price}'); self.button.update()
     def choose(self):
         self.catalog.start()
         if self.picker is None:
@@ -335,7 +309,7 @@ class ModelField(QWidget):
             if field.picker: field.picker.hide()
         self.picker.setVisible(opening)
         if opening:
-            self.picker.selection = self.value; self.picker.search.clear(); self.picker.refresh(); self.picker.search.setFocus()
+            self.picker.open()
             area = self.parentWidget()
             while area and not isinstance(area, QScrollArea): area = area.parentWidget()
             if area: area.ensureWidgetVisible(self.picker)

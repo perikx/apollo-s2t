@@ -21,15 +21,21 @@ exe = root / 'dist/apollo.exe'
 archive = CArchiveReader(str(exe))
 pyz = next(name for name in archive.toc if name.endswith('.pyz'))
 modules = archive.open_embedded_archive(pyz).toc
-assert all(name in modules for name in ('apollo_overlay', 'apollo_models', 'apollo_recovery', 'apollo_design', 'apollo_widgets', 'apollo_setup', 'apollo_terminal'))
+assert all(name in modules for name in ('apollo_overlay', 'apollo_models', 'apollo_recovery', 'apollo_design', 'apollo_widgets', 'apollo_terminal'))
 assert 'config.json' not in archive.toc
 assert not any(Path(name).name.lower() == 'icuuc.dll' for name in archive.toc), 'Qt must use native Windows ICU'
 import hashlib
-assert hashlib.sha256(archive.extract('assets\\apollo.png')).digest() == hashlib.sha256((root/'assets/apollo.png').read_bytes()).digest()
+assert hashlib.sha256(archive.extract('assets\\apollo-app.png')).digest() == hashlib.sha256((root/'assets/apollo-app.png').read_bytes()).digest()
 assert hashlib.sha256(archive.extract('assets\\fonts\\Figtree.ttf')).digest() == hashlib.sha256((root/'assets/fonts/Figtree.ttf').read_bytes()).digest()
 assert 'assets\\fonts\\OFL.txt' in archive.toc
 assert 'THIRD_PARTY_NOTICES.md' in archive.toc
 assert 'tkinter' not in modules
+# Size: these were dropped on purpose (see apollo.spec).
+names = [name.lower().replace('\\', '/') for name in list(archive.toc) + list(modules)]
+for gone in ('opengl32sw', 'qt6quick', 'qt6pdf'):
+    assert not any(gone in name for name in names), gone + ' must not be bundled'
+for gone in ('numpy', 'pil'):
+    assert not any(name == gone or name.startswith((gone + '/', gone + '.')) for name in names), gone + ' must not be bundled'
 assert any('QtWidgets.pyd' in name for name in archive.toc)
 assert any(name.endswith('qwindows.dll') for name in archive.toc)
 print('Frozen Qt UI and Windows platform plugin included; Tk and private config excluded.', flush=True)

@@ -1,5 +1,7 @@
 """Runtime rebinding preserves working keys and local form input on failure."""
 from copy import deepcopy
+import threading
+import time
 import types
 import pytest
 import apollo
@@ -21,20 +23,22 @@ def hooks(monkeypatch):
 
 def event(code,kind='down'):return types.SimpleNamespace(scan_code=code,event_type=kind)
 
+def drain(app):app._key_events.join()  # the dispatcher thread runs the key events
+
 def test_rebind_deactivates_old_hook_and_preserves_typeable_keys(app,hooks,monkeypatch):
     callbacks,removed,calls=hooks
     app.bind_hotkeys()
     old=callbacks[0]
-    assert not old(event(8));assert calls==[('dictate','down')]
+    assert not old(event(8));drain(app);assert calls==[('dictate','down')]
     app.update_preferences({'hotkeys':{'dictate':'n','polish':'m','prompt':'p'}})
     assert removed==[old] and old(event(8)) is True
     new=callbacks[1]
-    assert new(event(8)) is True and not new(event(11))
+    assert new(event(8)) is True and not new(event(11));drain(app)
     app.ui_windows.add('window-a')
-    assert new(event(11)) is True
+    assert new(event(11)) is True;drain(app)
     assert len(calls)==2
     app.ui_windows.clear()
-    assert not new(event(12)) and calls[-1][0]=='polish'
+    assert not new(event(12));drain(app);assert calls[-1][0]=='polish'
 
 @pytest.mark.parametrize('key',['unknown','alias'])
 def test_unknown_or_alias_key_does_not_remove_working_hook(app,hooks,key):
@@ -63,6 +67,26 @@ def test_held_recording_release_survives_popup_focus(app,hooks):
     callbacks,removed,calls=hooks
     app.cfg['hotkey_mode']='hold';app.bind_hotkeys()
     app.recording=True;app.active_mode='dictate';app.ui_windows.add('window-a')
-    assert callbacks[0](event(8,'up')) is True
-    assert calls==[('dictate','up')]
+    assert callbacks[0](event(8,'up')) is False  # a running recording always gets its key, even over an Apollo window
+    drain(app);assert calls==[('dictate','up')]
     app.recording=False
+
+def test_hook_does_not_wait_for_app_lock(app,hooks):
+    callbacks,removed,calls=hooks;app.bind_hotkeys()
+    held,done=threading.Event(),threading.Event()
+    def hold():
+        with app._lock:
+            held.set();done.wait(3)
+    threading.Thread(target=hold,daemon=True).start();held.wait(3)
+    start=time.monotonic()
+    try:assert not callbacks[0](event(8))
+    finally:done.set()
+    assert time.monotonic()-start<0.05
+
+def test_held_key_repeat_is_ignored_until_keyup(app,hooks):
+    callbacks,removed,calls=hooks
+    app.cfg['hotkey_mode']='toggle';app.bind_hotkeys()
+    for _ in range(5):assert not callbacks[0](event(8))
+    drain(app);assert calls==[('dictate','down')]
+    callbacks[0](event(8,'up'));callbacks[0](event(8));drain(app)
+    assert [kind for _,kind in calls]==['down','up','down']

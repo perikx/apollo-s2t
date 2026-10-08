@@ -7,47 +7,33 @@
     "prompt": "f10"
   },
   "hotkey_mode": "toggle",
-  "autostart_delay_seconds": 20,
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-2",
-    "fallback_model": "microsoft/mai-transcribe-1.5",
-    "base_url": "https://openrouter.ai/api/v1/audio/transcriptions",
+    "fallback_model": "elevenlabs/scribe-v2",
     "language": "",
-    "timeout_seconds": 60,
     "vocabulary": []
   },
   "smoothing": {
     "api_key": "",
-    "model": "google/gemini-3.5-flash-lite",
-    "base_url": "https://openrouter.ai/api/v1/chat/completions",
-    "temperature": 0.2,
-    "reasoning_effort": "minimal",
-    "max_tokens": 8192,
-    "timeout_seconds": 20
+    "model": "google/gemini-3.5-flash-lite"
   },
   "prompt_profiles": {
     "active": "default",
-    "dir": "prompts",
-    "include_karpathy": true,
     "output_language": "english"
   },
   "audio": {
-    "samplerate": 16000,
-    "channels": 1,
     "device": null
   },
   "insertion": {
-    "mode": "instant",
-    "target": "focused",
-    "click_to_paste": false,
-    "armed_timeout": 30,
-    "restore_clipboard": true,
-    "restore_delay": 0.4
+    "restore_clipboard": true
   },
-  "min_record_seconds": 0.3,
-  "max_record_seconds": 300,
-  "max_pending_recordings": 3,
   "beep": true,
-  "overlay": {"visible": true, "x": null, "y": null},
-  "recovery_cache": {"minutes": 15, "max_entries": 10, "max_mb": 64}
+  "overlay": {
+    "visible": true,
+    "x": null,
+    "y": null
+  },
+  "recovery_cache": {
+    "minutes": 15
+  }
 }

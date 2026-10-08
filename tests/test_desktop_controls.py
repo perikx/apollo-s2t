@@ -1,11 +1,11 @@
+from array import array
 from datetime import datetime, timedelta, timezone
 import os
 
-import numpy as np
 import pytest
 
 import apollo
-from apollo_models import discover_models
+from apollo_models import discover_catalog
 from apollo_recovery import RecoveryStore
 from apollo_config import normalize_config, ConfigError, read_config
 
@@ -61,13 +61,7 @@ def test_preferences_atomic_failure_keeps_running_config(app, monkeypatch):
     assert app.cfg["overlay"]["visible"] is True
 
 
-def test_preferences_saved_and_no_windows_balloon(app):
-    class Tray:
-        def notify(self, *args):
-            pytest.fail("No Windows notifications")
-        def update_menu(self):
-            pass
-    app._tray = Tray()
+def test_preferences_saved(app):
     app.update_preferences({"overlay": {"visible": False}, "recovery_cache": {"minutes": 5}})
     app.notify("Provider busy")
     assert app.ui_events.get_nowait() == ("status", "Provider busy")
@@ -76,8 +70,7 @@ def test_preferences_saved_and_no_windows_balloon(app):
     assert cfg["recovery_cache"]["minutes"] == 5
 
 
-@pytest.mark.parametrize("changes", [{"recovery_cache": {"minutes": 0}}, {"recovery_cache": {"max_mb": True}},
-                                     {"overlay": {"visible": "false"}}, {"overlay": {"x": float("nan")}}])
+@pytest.mark.parametrize("changes", [{"recovery_cache": {"minutes": 0}}, {"overlay": {"visible": "false"}}, {"overlay": {"x": float("nan")}}])
 def test_bad_cache_settings_rejected(changes):
     with pytest.raises(ConfigError):
         normalize_config(changes)
@@ -96,17 +89,9 @@ def test_catalog_filters_endpoint_modalities_and_sends_no_key():
     def get(url, **kwargs):
         calls.append(kwargs)
         return Response()
-    assert list(discover_models("transcription", get)) == ["speech/real"]
-    assert list(discover_models("text", get)) == ["chat/audio"]
+    assert list(discover_catalog("transcription", get)) == ["speech/real"]
+    assert list(discover_catalog("text", get)) == ["chat/audio"]
     assert calls[0] == {"params": {"output_modalities": "transcription"}, "timeout": 15}
-
-
-def test_microphone_level_uses_real_samples():
-    recorder = apollo.Recorder(16000, 1, None)
-    recorder._callback(np.zeros((100, 1), dtype=np.int16), 100, None, None)
-    assert recorder.level == 0
-    recorder._callback(np.full((100, 1), 16384, dtype=np.int16), 100, None, None)
-    assert recorder.level == pytest.approx(0.5)
 
 
 def test_cache_cleans_old_orphans_and_temporary_files_only(tmp_path):
@@ -136,13 +121,13 @@ def test_completed_dictation_never_pastes_into_apollo_dialog(app, desktop):
 
 def test_visual_envelope_follows_quiet_speech_and_pauses_without_altering_pcm():
     recorder = apollo.Recorder(16000, 1, None)
-    samples = np.concatenate([np.zeros((320, 1), dtype=np.int16),
-        np.full((320, 1), 330, dtype=np.int16), np.full((320, 1), 3300, dtype=np.int16),
-        np.zeros((320, 1), dtype=np.int16)])
-    original = samples.copy()
-    recorder._callback(samples, len(samples), None, None)
-    levels = recorder.visual_levels
+    samples = array("h", [0] * 320 + [330] * 320 + [3300] * 320 + [0] * 320).tobytes()
+    recorder._callback(samples, len(samples) // 2, None, None)
+    levels = recorder.visual_levels()
     assert levels[0] == levels[-1] == 0
     assert .3 < levels[1] < levels[2] <= 1
-    assert np.array_equal(samples, original)
-    assert np.array_equal(np.concatenate(recorder._frames), original)
+    assert b"".join(recorder._frames) == samples
+
+
+def test_visual_levels_are_empty_before_audio_arrives():
+    assert apollo.Recorder(16000, 1, None).visual_levels() == ()

@@ -6,8 +6,6 @@ No desktop, microphone, registry writes or paid requests are used.
 import hashlib
 import json
 from pathlib import Path
-import sys
-import types
 
 import pytest
 
@@ -40,7 +38,6 @@ def check_saved_setup(path, legacy):
     assert "live" not in cfg["insertion"]
     assert cfg["smoothing"]["api_key"] == ("saved-openrouter-key" if legacy else "new-openrouter-key")
     if legacy:
-        assert cfg["openrouter_stt"]["language"] == "de"
         assert cfg["hotkeys"]["dictate"] == "f7"
         assert cfg["prompt_profiles"]["active"] == "my-project"
         backup = json.loads(path.with_name("config.json.bak").read_text(encoding="utf-8"))
@@ -66,7 +63,7 @@ def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, leg
     monkeypatch.setattr(apollo_terminal.getpass, "getpass", get_key)
     monkeypatch.setattr(apollo_api, "check_key", lambda key: "")
     monkeypatch.setattr("builtins.input", answer)
-    apollo.run_setup()
+    apollo.run_terminal_setup_app()
     output = capsys.readouterr().out + "\n".join(prompts)
     assert "OpenRouter" in output
     assert "deepgram" not in output.lower()
@@ -75,48 +72,6 @@ def test_console_setup_only_offers_openrouter(monkeypatch, tmp_path, capsys, leg
     assert "new-openrouter-key" not in output
     assert startup == ["disable"]
     check_saved_setup(path, legacy)
-
-
-@pytest.mark.parametrize("legacy", [False, True], ids=["fresh", "upgrade"])
-def test_windowed_setup_passes_preserved_config_to_full_wizard(monkeypatch, tmp_path, legacy):
-    path, startup = prepare_setup(monkeypatch, tmp_path, legacy)
-    calls = []
-    module = types.ModuleType("apollo_setup")
-    def wizard(cfg, received_path, autostart, initial_error=""):
-        assert received_path == str(path)
-        assert not initial_error
-        calls.append(cfg)
-        if not apollo.api_key(cfg): cfg["smoothing"]["api_key"] = "new-openrouter-key"
-        apollo.save_config(received_path, cfg)
-        autostart(False)
-        return True
-    module.run_windowed_setup = wizard
-    monkeypatch.setitem(sys.modules, "apollo_setup", module)
-    assert apollo.run_setup_gui() is True
-    assert len(calls) == 1 and startup == ["disable"]
-    check_saved_setup(path, legacy)
-
-
-def test_cancelled_windowed_setup_does_not_save_or_enable_autostart(monkeypatch, tmp_path):
-    path, startup = prepare_setup(monkeypatch, tmp_path, False)
-    module = types.ModuleType("apollo_setup")
-    module.run_windowed_setup = lambda *args, **kwargs: False
-    monkeypatch.setitem(sys.modules, "apollo_setup", module)
-    assert apollo.run_setup_gui() is False
-    assert not path.exists() and startup == []
-
-
-def test_invalid_config_stays_intact_when_setup_cancelled(monkeypatch, tmp_path):
-    path, startup = prepare_setup(monkeypatch, tmp_path, False)
-    path.write_text("invalid", encoding="utf-8")
-    module = types.ModuleType("apollo_setup")
-    def cancel(cfg, received_path, autostart, initial_error=""):
-        assert initial_error and cfg == apollo.default_config()
-        return False
-    module.run_windowed_setup = cancel
-    monkeypatch.setitem(sys.modules, "apollo_setup", module)
-    assert not apollo.run_setup_gui()
-    assert path.read_text() == "invalid" and startup == []
 
 
 @pytest.mark.parametrize("relative", [
@@ -130,14 +85,12 @@ def test_user_facing_files_do_not_reintroduce_retired_provider(relative):
 
 def test_current_logo_and_install_commands_are_present():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 'src="assets/apollo-monochrome.png"' in readme
-    assert readme.index('src="assets/apollo-monochrome.png"') < readme.index("Download for Windows")
+    assert 'src="assets/apollo.png"' in readme
+    assert readme.index('src="assets/apollo.png"') < readme.index("Download for Windows")
     assert "https://github.com/perikx/apollo-s2t/releases/latest" in readme
     assert "docs/configuration.md" in readme and "docs/development.md" in readme
     assert "img.shields.io" not in readme
     assert len(readme.split()) < 170
-    artwork = (ROOT / "assets/apollo-monochrome.png").read_bytes()
-    assert hashlib.sha256(artwork).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"
     # Keep the user-supplied original artwork intact.
     logo = (ROOT / "assets/apollo.png").read_bytes()
     assert hashlib.sha256(logo).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"
