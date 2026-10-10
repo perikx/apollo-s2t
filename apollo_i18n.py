@@ -28,7 +28,7 @@ CATALOG = {
     "Kein Schlüssel gespeichert": ("No key saved", None, "未保存密钥"),
     "Prüfen und speichern": ("Check and save", None, "检查并保存"),
     "Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.": ("Paste a new key. Leave empty to keep the saved key.", None, "粘贴新密钥。留空则保留已保存的密钥。"),
-    "OPENROUTER_API_KEY ist gesetzt und hat Vorrang vor diesem Feld.": ("OPENROUTER_API_KEY is set. It has priority over this field.", None, "已设置 OPENROUTER_API_KEY，它优先于此字段。"),
+    "Verwendet OPENROUTER_API_KEY": ("Uses OPENROUTER_API_KEY", None, "使用 OPENROUTER_API_KEY"),
     "Schlüssel wird geprüft …": ("Checking the key …", None, "正在检查密钥…"),
     "Gespeichert und geprüft.": ("Saved and checked.", None, "已保存并检查。"),
     "Gespeichert, aber nicht geprüft:": ("Saved, but not checked:", None, "已保存，但未检查："),

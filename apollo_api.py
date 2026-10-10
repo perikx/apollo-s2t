@@ -88,7 +88,7 @@ def http_error_hint(service, exc):
     code = response.status_code
     hints = {
         400: "Invalid request. Check the model, language and model options in config.json.",
-        401: "API key rejected. Set a new key in Settings or check OPENROUTER_API_KEY.",
+        401: "API key rejected. Set a new key in Settings.",
         402: "OpenRouter credit or spending limit. Check your balance and API-key limit.",
         403: "Access denied. Check your key permissions and provider access.",
         404: "Model or endpoint not found. Check the model ID in config.json.",

@@ -19,6 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Models
 - Settings has an OpenRouter API key field. It checks a new key before it saves it. A rejected key (HTTP 401) opens Settings.
+- The saved key now wins over `OPENROUTER_API_KEY`. The environment variable is only a fallback when no key is saved.
 - The model picker is ranked, with a tier badge and a reason for each model.
 - Apollo stores your own success rate and latency in `model_stats.json` and shows them in the picker.
 - Apollo no longer scrapes prices from model pages.

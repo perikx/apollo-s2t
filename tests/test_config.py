@@ -62,12 +62,12 @@ def test_defaults_are_independent():
     assert default_config() == DEFAULTS
 
 
-def test_environment_key_takes_precedence_without_being_persisted(monkeypatch):
+def test_saved_key_wins_and_environment_is_only_a_fallback(monkeypatch):
     cfg = default_config()
-    cfg["smoothing"]["api_key"] = "file-key"
     monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
     assert api_key(cfg) == "env-key"
-    assert cfg["smoothing"]["api_key"] == "file-key"
+    cfg["smoothing"]["api_key"] = "file-key"
+    assert api_key(cfg) == "file-key"  # a stale environment value must not hide the key from Settings
 
 
 def test_placeholder_key_is_not_valid():

@@ -102,18 +102,14 @@ def run_terminal_setup(cfg, path, set_autostart, *, terminal=None, check=None, d
         ui.header(1, "OpenRouter")
         ui.write("  openrouter.ai/keys · /cancel\n")
         while True:
-            if not os.environ.get("OPENROUTER_API_KEY"):
-                value = ui.ask(ui.text("OpenRouter key (hidden)"), hidden=True)
-                if value: cfg["smoothing"]["api_key"] = value
+            value = ui.ask(ui.text("OpenRouter key (hidden)"), hidden=True)
+            if value: cfg["smoothing"]["api_key"] = value
             key = api_key(cfg)
             if not key: ui.write("  " + ui.text("Please enter an OpenRouter key.")); continue
             ui.write("  " + ui.text("Checking access") + " …")
             error = check(key)
             if not error: break
             ui.write("  " + t(error, language))
-            if os.environ.get("OPENROUTER_API_KEY"):
-                # A fixed environment key cannot be corrected in the form.
-                ui.ask("OPENROUTER_API_KEY: /cancel", hidden=True)
         ui.header(2, ui.text("Your recording keys"))
         ui.write("  " + " · ".join(f"{key.upper()}: {mode}" for mode,key in cfg["hotkeys"].items()))
         customize = ui.yes("Customize keys, language and models? y/n")
