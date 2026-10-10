@@ -31,13 +31,16 @@ def warm():
         pass
 
 
+KEY_REJECTED = "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
+
+
 def check_key(key):
     """Read-only authentication check; no model inference, audio or billing."""
     try:
         response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
         try:
             if response.status_code in (401, 403):
-                return "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
+                return KEY_REJECTED
             response.raise_for_status()
             data = response.json()
             if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
@@ -85,7 +88,7 @@ def http_error_hint(service, exc):
     code = response.status_code
     hints = {
         400: "Invalid request. Check the model, language and model options in config.json.",
-        401: "API key rejected. Run setup.bat or check OPENROUTER_API_KEY.",
+        401: "API key rejected. Set a new key in Settings or check OPENROUTER_API_KEY.",
         402: "OpenRouter credit or spending limit. Check your balance and API-key limit.",
         403: "Access denied. Check your key permissions and provider access.",
         404: "Model or endpoint not found. Check the model ID in config.json.",

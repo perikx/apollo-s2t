@@ -26,6 +26,11 @@ Keep the API key in `smoothing.api_key`, which supplies **both** stages for comp
 with existing installations. `OPENROUTER_API_KEY` takes precedence; its value is not
 written into configuration. Keys beginning with `YOUR_` are treated as placeholders.
 
+To change the key, open **Settings → OpenRouter API key**. Paste the new key and click
+**Check and save**. Apollo checks the key with OpenRouter and does not save a rejected key.
+When OpenRouter is not reachable, Apollo saves the key and marks it as not checked.
+When OpenRouter rejects the key during a dictation (HTTP 401), Apollo opens this page.
+
 Model selection checked **2026-09-29**:
 
 - [MAI-Transcribe-2](https://openrouter.ai/microsoft/mai-transcribe-2) was released on

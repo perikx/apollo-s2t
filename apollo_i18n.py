@@ -24,6 +24,15 @@ def t(text, language=None):
 # Older keys are German; newer keys are English.
 CATALOG = {
     "Gespeichert": ("Saved", None, "已保存"),
+    "OpenRouter-API-Schlüssel": ("OpenRouter API key", None, "OpenRouter API 密钥"),
+    "Kein Schlüssel gespeichert": ("No key saved", None, "未保存密钥"),
+    "Prüfen und speichern": ("Check and save", None, "检查并保存"),
+    "Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.": ("Paste a new key. Leave empty to keep the saved key.", None, "粘贴新密钥。留空则保留已保存的密钥。"),
+    "OPENROUTER_API_KEY ist gesetzt und hat Vorrang vor diesem Feld.": ("OPENROUTER_API_KEY is set. It has priority over this field.", None, "已设置 OPENROUTER_API_KEY，它优先于此字段。"),
+    "Schlüssel wird geprüft …": ("Checking the key …", None, "正在检查密钥…"),
+    "Gespeichert und geprüft.": ("Saved and checked.", None, "已保存并检查。"),
+    "Gespeichert, aber nicht geprüft:": ("Saved, but not checked:", None, "已保存，但未检查："),
+    "API key rejected. Set a new key in Settings. Audio saved.": (None, "API-Schlüssel abgelehnt. Neuen Schlüssel in den Einstellungen setzen. Audio gesichert.", "API 密钥被拒绝。请在设置中设置新密钥。音频已保存。"),
     "Aufnahmeverlauf": ("Recording log", None, "录音日志"),
     "Ein Begriff pro Zeile · mit Audio an MAI 2 gesendet": ("One phrase per line · sent with audio to MAI 2", None, "每行一个词 · 随音频发送给 MAI 2"),
     "Persönliches Wörterbuch": ("Personal vocabulary", None, "个人词汇表"),
