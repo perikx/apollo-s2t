@@ -3,7 +3,6 @@ from datetime import datetime
 from collections import deque
 import logging
 import math
-import os
 import queue
 import threading
 import time
@@ -309,14 +308,13 @@ class FloatingUI:
         account = self.card(layout, "OpenRouter-API-Schlüssel")
         self.api_input = QLineEdit(); self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_input.setAccessibleName(t("OpenRouter-API-Schlüssel"))
-        saved = api_key(cfg)
-        self.api_input.setPlaceholderText(f"{t('Gespeichert')}: …{saved[-4:]}" if saved else t("Kein Schlüssel gespeichert"))
+        saved = cfg["smoothing"]["api_key"].strip()
+        self.api_input.setPlaceholderText(f"{t('Gespeichert')}: …{saved[-4:]}" if saved else
+                                          t("Verwendet OPENROUTER_API_KEY") if api_key(cfg) else t("Kein Schlüssel gespeichert"))
         self.api_input.returnPressed.connect(self.save_api_key)
         row = QHBoxLayout(); row.addWidget(self.api_input, 1)
         self.api_button = button("Prüfen und speichern", self.save_api_key); row.addWidget(self.api_button); account.addLayout(row)
         self.api_status = label("Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.", "muted", True); account.addWidget(self.api_status)
-        if os.environ.get("OPENROUTER_API_KEY"):
-            account.addWidget(label("OPENROUTER_API_KEY ist gesetzt und hat Vorrang vor diesem Feld.", "error", True))
         interface = self.card(layout, "Sprache der Oberfläche")
         self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
         keys = self.card(layout, "Aufnahmetasten")

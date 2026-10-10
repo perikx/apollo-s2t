@@ -145,7 +145,8 @@ def validate_config(cfg):
 
 
 def api_key(cfg):
-    key = (os.environ.get("OPENROUTER_API_KEY") or cfg["smoothing"].get("api_key", "")).strip()
+    # The key saved in Settings wins; the environment is only a fallback for an empty config.
+    key = (cfg["smoothing"].get("api_key", "").strip() or os.environ.get("OPENROUTER_API_KEY", "")).strip()
     return "" if key.startswith("YOUR_") else key
 
 

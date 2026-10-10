@@ -23,7 +23,7 @@ The two model IDs must differ. A custom primary without a fallback keeps no fall
 is not necessarily compatible with this transcription API.
 
 Keep the API key in `smoothing.api_key`, which supplies **both** stages for compatibility
-with existing installations. `OPENROUTER_API_KEY` takes precedence; its value is not
+with existing installations. `OPENROUTER_API_KEY` is only a fallback when no key is saved; its value is not
 written into configuration. Keys beginning with `YOUR_` are treated as placeholders.
 
 To change the key, open **Settings → OpenRouter API key**. Paste the new key and click
