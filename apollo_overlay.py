@@ -3,7 +3,9 @@ from datetime import datetime
 from collections import deque
 import logging
 import math
+import os
 import queue
+import threading
 import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPainterPath
@@ -13,6 +15,8 @@ from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT,
                            label, button, vector, icon, paint_logo)
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
+from apollo_api import check_key, KEY_REJECTED
+from apollo_config import api_key
 
 
 class DebugLog(logging.Handler):
@@ -302,6 +306,17 @@ class FloatingUI:
         self.content_layout.addWidget(button("Speichern", save, primary=True))
     def settings_page(self):
         cfg = self.app.cfg; layout = self.form(); self.key_fields = {}
+        account = self.card(layout, "OpenRouter-API-Schlüssel")
+        self.api_input = QLineEdit(); self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_input.setAccessibleName(t("OpenRouter-API-Schlüssel"))
+        saved = api_key(cfg)
+        self.api_input.setPlaceholderText(f"{t('Gespeichert')}: …{saved[-4:]}" if saved else t("Kein Schlüssel gespeichert"))
+        self.api_input.returnPressed.connect(self.save_api_key)
+        row = QHBoxLayout(); row.addWidget(self.api_input, 1)
+        self.api_button = button("Prüfen und speichern", self.save_api_key); row.addWidget(self.api_button); account.addLayout(row)
+        self.api_status = label("Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.", "muted", True); account.addWidget(self.api_status)
+        if os.environ.get("OPENROUTER_API_KEY"):
+            account.addWidget(label("OPENROUTER_API_KEY ist gesetzt und hat Vorrang vor diesem Feld.", "error", True))
         interface = self.card(layout, "Sprache der Oberfläche")
         self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
         keys = self.card(layout, "Aufnahmetasten")
@@ -325,6 +340,34 @@ class FloatingUI:
         self.vocabulary.setToolTip(t("Ein Begriff pro Zeile · maximal 100. MAI-Transcribe 2 erhält diese Begriffe mit dem Audio als Erkennungshilfe. Andere Modelle verwenden sie derzeit nicht."))
         words.addWidget(label("Ein Begriff pro Zeile · mit Audio an MAI 2 gesendet", "muted", True))
         layout.addStretch(); self.footer("", self.save_settings)
+    def save_api_key(self):
+        key = self.api_input.text().strip()
+        if not key: return
+        self.api_button.setEnabled(False); self.set_api_status("Schlüssel wird geprüft …", "muted")
+        result = []
+        # The check is a network call: run it off the Qt thread and poll for the answer.
+        threading.Thread(target=lambda: result.append(check_key(key)), daemon=True).start()
+        def done():
+            if not result: QTimer.singleShot(100, done); return
+            problem = result[0]
+            try:
+                if problem != KEY_REJECTED:
+                    # Offline is not a reason to lose a new key; save it and say it is unchecked.
+                    self.app.update_preferences({"smoothing": {"api_key": key}})
+            except (OSError, ValueError):
+                problem = "Speichern fehlgeschlagen. Bitte erneut versuchen."
+            try:
+                self.api_button.setEnabled(True)
+                if problem in (KEY_REJECTED, "Speichern fehlgeschlagen. Bitte erneut versuchen."):
+                    self.set_api_status(problem, "error"); return
+                self.api_input.clear(); self.api_input.setPlaceholderText(f"{t('Gespeichert')}: …{key[-4:]}")
+                self.set_api_status("Gespeichert und geprüft." if not problem else t("Gespeichert, aber nicht geprüft:") + " " + t(problem), "muted")
+            except RuntimeError:
+                pass  # the settings page closed while the check ran; the key is saved
+        QTimer.singleShot(100, done)
+    def set_api_status(self, text, kind):
+        self.api_status.setText(t(text)); self.api_status.setObjectName(kind)
+        self.api_status.style().unpolish(self.api_status); self.api_status.style().polish(self.api_status)
     def save_settings(self):
         previous_language = self.app.cfg["ui_language"]
         scroll_position = self.form_scroll.verticalScrollBar().value()

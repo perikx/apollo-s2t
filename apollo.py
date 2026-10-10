@@ -885,7 +885,12 @@ class App:
             hint = http_error_hint("Transcription", exc)
             self._saved_status(backup, "failed", hint)
             log.error("%s Audio kept in recovery folder.", hint)
-            self.notify("Transcription failed. Audio saved. Retry in Recovery.")
+            if getattr(exc.response, "status_code", 0) == 401:
+                # A rejected key fails every recording: open the key field at once.
+                self.notify("API key rejected. Set a new key in Settings. Audio saved.")
+                self._ui_event("open", "settings")
+            else:
+                self.notify("Transcription failed. Audio saved. Retry in Recovery.")
             beep("error", self.beep_enabled)
         except (ResponseError, ValueError, TypeError):
             durable()
