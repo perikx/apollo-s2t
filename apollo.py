@@ -33,7 +33,7 @@ from apollo_i18n import set_language
 from apollo_recovery import RecoveryStore, wav_header
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.4.2"
+APP_VERSION = "0.4.3"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
