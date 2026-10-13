@@ -24,8 +24,7 @@ engineering for debugging changes to those libraries. See docs/development.md an
 packaging/build-exe.bat for the build procedure. Build requirements do not require
 proprietary tools or a paid Qt license.
 
-Other runtime dependencies retain their upstream licenses: NumPy (BSD), Pillow
-(MIT-CMU), Requests (Apache-2.0), keyboard/mouse (MIT), pyperclip (BSD), pystray
-(LGPL-3.0), sounddevice (MIT), PortAudio (MIT), comtypes (MIT), certifi (MPL-2.0),
+Other runtime dependencies retain their upstream licenses: Requests (Apache-2.0),
+keyboard (MIT), pyperclip (BSD), sounddevice (MIT), PortAudio (MIT), certifi (MPL-2.0),
 charset-normalizer (MIT), idna (BSD) and urllib3 (MIT). See the respective installed
 package metadata for full copyright and license details.

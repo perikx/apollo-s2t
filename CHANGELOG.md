@@ -3,7 +3,7 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## [0.4.3] - 2026-10-13
 
 ### Speech reliability
 - Fallback is `elevenlabs/scribe-v2`, another vendor than the MAI primary.
