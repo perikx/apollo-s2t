@@ -54,27 +54,28 @@ F9 and F10 use fixed rewrite settings: minimal reasoning, temperature 0.2, at mo
 4096 output tokens, a 20-second timeout and latency-first provider routing.
 Reasoning is not included in pasted output. An incomplete response falls back to the raw text.
 
-F9 instructs the model to make minimal edits: punctuation, capitalization, sentence/paragraph
-breaks and small, unambiguous grammar corrections. Meaningful repetitions stay, even when
-you repeat a point several times for emphasis. It removes clear hesitation sounds such as
-"um" or "ähm", but preserves meaning-bearing words such as "but" and "if", your tone,
-qualifications and original order. It must not summarize, paraphrase or infer what you meant.
+F9 removes filler sounds ("um", "ähm"), filler words that carry no meaning, stutters,
+doubled words, false starts and self-corrections (only the corrected version stays). It fixes
+punctuation, capitalization, sentence/paragraph breaks and the grammar that the disfluencies broke.
+Every point, condition, deliberate emphasis ("wichtig, wichtig, wichtig"), your tone and the
+original order stay. It must not summarize, paraphrase or infer what you meant.
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
 
-## Fallback, hedge and circuit breaker
+## Race, fallback and circuit breaker
 
 The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 180 seconds.
 The rewrite timeout is 20 seconds. The connection timeout is 5 seconds.
 
-On the first request, a 429, timeout, connection error or 5xx error switches to the fallback
-model at once, with the same audio and language. Apollo also hedges: if the primary has not
-answered after 3 seconds (plus 0.1 second per second of audio), Apollo sends the same audio to
-the fallback model. The first transcript wins. A later 429 retries the same model and respects
-`Retry-After`. Apollo makes at most three requests in a row, within 30 seconds of the first.
+Apollo sends each recording to the primary and the fallback model at the same time, with the
+same audio and language. The first transcript wins, so a slow model never delays the text.
+The speech cost is two requests per recording. If both models fail, Apollo shows the primary's error.
+`HEDGE_SECONDS` and `HEDGE_PER_AUDIO_SECOND` in `apollo_api.py` can delay the second request again.
+Without a fallback model, a 429 retries the same model and respects `Retry-After`.
+Apollo makes at most three requests in a row, within 30 seconds of the first.
 
-After a primary failure, the circuit breaker opens for 5 minutes. New recordings try the fallback
-first, then the primary. Authentication, credit and other HTTP errors do not switch models.
+After a primary failure, the circuit breaker opens for 5 minutes. New recordings list the fallback
+first. Authentication, credit and other HTTP errors do not switch models.
 Rewrite requests are not retried. Saved audio stays available for an explicit recovery.
 Apollo logs the fallback switch and shows no balloon. Public model discovery sends no API key or audio.
 
@@ -97,7 +98,9 @@ API references: [transcription](https://openrouter.ai/docs/guides/overview/multi
 | `hotkey_mode` | `toggle` taps to start/stop; `hold` records while held. |
 | `audio.device` | `null` uses the system microphone, otherwise a sounddevice name/index. |
 | `insertion.restore_clipboard` | Restore previous text only while Apollo still owns the clipboard. Default true. |
+| `hotkeys_in_fullscreen` | `true` (default): the keys also work in full-screen apps and games. `false`: a full-screen app keeps the keys; a running recording still stops. |
 | `beep` | Enable start, stop, ready and error tones. |
+| `auto_update` | `true` (default): the exe installs new GitHub releases and restarts after 2 quiet minutes. |
 
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
 audio stays in recovery. A recording stops and processes after 300 seconds. At most 3 jobs
@@ -188,11 +191,14 @@ not a hard bound during slow disk writes or system stalls. Keep enough free disk
 
 ## Clipboard
 
-Apollo pastes the complete result into the focused window. The old clipboard text is
-restored only if it has not changed in the meantime. Other clipboard formats, such as
-images or rich formatting, are not preserved by the text-only clipboard library.
-If an Apollo window has focus when the result is ready, the text is only copied.
-There is no other insertion mode.
+Before it pastes, Apollo asks Windows UI Automation which control has the focus.
+
+- A text field: Apollo pastes. The old clipboard text is restored only if it has not changed in the meantime.
+- No window, the desktop, an Apollo window or another control: Apollo only copies the text and plays the ready beep. Press Ctrl+V where you want the text.
+- Unknown (for example a web page document): Apollo pastes, keeps the text on the clipboard and plays the ready beep.
+
+The ready beep (two short high tones) always means: the text is on the clipboard.
+Other clipboard formats, such as images or rich formatting, are not preserved by the text-only clipboard library.
 
 ## F10 profiles
 

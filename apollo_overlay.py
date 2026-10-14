@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
-                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT,
                            label, button, vector, icon, paint_logo)
@@ -323,6 +323,9 @@ class FloatingUI:
             field = KeyCapture(cfg["hotkeys"][mode]); row.addWidget(field); keys.addLayout(row); self.key_fields[mode] = field
         for field in self.key_fields.values(): field.setToolTip(t("Taste anklicken und die neue Taste drücken"))
         self.key_mode = Choice({"toggle": "Antippen zum Starten / Stoppen", "hold": "Gedrückt halten"}, cfg["hotkey_mode"]); keys.addWidget(self.key_mode)
+        self.fullscreen_keys = QCheckBox(t("Tasten auch in Vollbild-Apps und Spielen"))
+        self.fullscreen_keys.setChecked(cfg["hotkeys_in_fullscreen"]); keys.addWidget(self.fullscreen_keys)
+        self.fullscreen_keys.setToolTip(t("Aus: Spiele wie Minecraft behalten F8, F9 und F10. Eine laufende Aufnahme lässt sich immer stoppen."))
         profiles = self.card(layout, "Prompt-Profil")
         self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], translate=False); profiles.addWidget(self.profile)
         self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"]); profiles.addWidget(self.language)
@@ -337,6 +340,10 @@ class FloatingUI:
         words.addWidget(self.vocabulary)
         self.vocabulary.setToolTip(t("Ein Begriff pro Zeile · maximal 100. MAI-Transcribe 2 erhält diese Begriffe mit dem Audio als Erkennungshilfe. Andere Modelle verwenden sie derzeit nicht."))
         words.addWidget(label("Ein Begriff pro Zeile · mit Audio an MAI 2 gesendet", "muted", True))
+        updates = self.card(layout, "Updates")
+        self.auto_update = QCheckBox(t("Automatisch aktualisieren")); self.auto_update.setChecked(cfg["auto_update"])
+        updates.addWidget(self.auto_update)
+        updates.addWidget(label(t("Version") + f" {self.app.version} · " + t("Lädt neue Versionen von GitHub und startet neu, wenn du nicht diktierst."), "muted", True))
         layout.addStretch(); self.footer("", self.save_settings)
     def save_api_key(self):
         key = self.api_input.text().strip()
@@ -374,7 +381,7 @@ class FloatingUI:
             except ValueError: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
             if not 5 <= minutes <= 60: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
             self.app.update_preferences({"hotkeys": {k:v.value for k,v in self.key_fields.items()}, "hotkey_mode": self.key_mode.value,
-                "ui_language": self.interface_language.value,
+                "hotkeys_in_fullscreen": self.fullscreen_keys.isChecked(), "auto_update": self.auto_update.isChecked(), "ui_language": self.interface_language.value,
                 "openrouter_stt": {"vocabulary": [line.strip() for line in self.vocabulary.toPlainText().splitlines() if line.strip()]},
                 "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
             self.app.prune_recovery(); self.result.setObjectName("muted")

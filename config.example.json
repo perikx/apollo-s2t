@@ -7,6 +7,7 @@
     "prompt": "f10"
   },
   "hotkey_mode": "toggle",
+  "hotkeys_in_fullscreen": true,
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-2",
     "fallback_model": "elevenlabs/scribe-v2",
@@ -28,6 +29,7 @@
     "restore_clipboard": true
   },
   "beep": true,
+  "auto_update": true,
   "overlay": {
     "visible": true,
     "x": null,

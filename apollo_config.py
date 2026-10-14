@@ -15,6 +15,7 @@ DEFAULTS = {
     "ui_language": "en",
     "hotkeys": {"dictate": "f8", "polish": "f9", "prompt": "f10"},
     "hotkey_mode": "toggle",
+    "hotkeys_in_fullscreen": True,  # False: games and other full-screen apps keep F8, F9 and F10
     "openrouter_stt": {
         "model": DEFAULT_STT_MODEL,
         "fallback_model": "elevenlabs/scribe-v2",
@@ -25,6 +26,7 @@ DEFAULTS = {
     "audio": {"device": None},
     "insertion": {"restore_clipboard": True},
     "beep": True,
+    "auto_update": True,  # install new GitHub releases and restart when idle
     "overlay": {"visible": True, "x": None, "y": None},
     "recovery_cache": {"minutes": 15},
 }
@@ -133,7 +135,7 @@ def validate_config(cfg):
         raise ConfigError("openrouter_stt.language must be a string or empty for auto-detection.")
     language = cfg["openrouter_stt"]["language"].strip().lower()
     cfg["openrouter_stt"]["language"] = "" if language in ("auto", "multi") else language
-    for section, field in ((cfg, "beep"), (cfg["insertion"], "restore_clipboard")):
+    for section, field in ((cfg, "beep"), (cfg, "hotkeys_in_fullscreen"), (cfg, "auto_update"), (cfg["insertion"], "restore_clipboard")):
         if type(section[field]) is not bool:
             raise ConfigError(f"{field} must be true or false, not a string.")
     for field in ("active", "output_language"):

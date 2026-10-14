@@ -62,14 +62,16 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         response._content_consumed = True
         return response
     monkeypatch.setattr(apollo_api._http, "post", rejected)
+    monkeypatch.setattr(apollo_api._hedge_http, "post", rejected)
     app.on_press("dictate")
     app.recorder._callback(audio, len(audio) // 2, None, None)
     with caplog.at_level(logging.INFO, logger="apollo"):
         app.on_release("dictate")
         app._join_jobs()
-    assert len(posts) == 3
-    assert [body["model"] for body in posts] == ["microsoft/mai-transcribe-2",
-                                               "elevenlabs/scribe-v2", "elevenlabs/scribe-v2"]
+    # Both models at once, then two retries of the primary after its Retry-After.
+    models = [body["model"] for body in posts]
+    assert sorted(models[:2]) == ["elevenlabs/scribe-v2", "microsoft/mai-transcribe-2"]
+    assert models[2:] == ["microsoft/mai-transcribe-2"] * 2
     entry = app.recovery_items()[0]
     assert read_pcm(entry.path) == audio
     assert entry.metadata["state"] == "failed"

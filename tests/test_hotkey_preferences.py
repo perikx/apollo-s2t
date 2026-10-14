@@ -90,3 +90,30 @@ def test_held_key_repeat_is_ignored_until_keyup(app,hooks):
     drain(app);assert calls==[('dictate','down')]
     callbacks[0](event(8,'up'));callbacks[0](event(8));drain(app)
     assert [kind for _,kind in calls]==['down','up','down']
+
+def test_fullscreen_app_keeps_its_key_when_turned_off(app,hooks,monkeypatch):
+    callbacks,removed,calls=hooks
+    monkeypatch.setattr(apollo,'is_fullscreen',lambda hwnd:True)
+    app.cfg['hotkeys_in_fullscreen']=False;app.bind_hotkeys()
+    assert callbacks[0](event(8)) is True  # the game gets F8
+    drain(app);assert calls==[]
+
+def test_fullscreen_app_still_stops_a_running_recording(app,hooks,monkeypatch):
+    callbacks,removed,calls=hooks
+    monkeypatch.setattr(apollo,'is_fullscreen',lambda hwnd:True)
+    app.cfg['hotkeys_in_fullscreen']=False;app.bind_hotkeys()
+    app.recording=True;app.active_mode='dictate'
+    assert callbacks[0](event(8)) is False
+    drain(app);assert calls==[('dictate','down')]
+    app.recording=False
+
+def test_fullscreen_keys_work_by_default(app,hooks,monkeypatch):
+    callbacks,removed,calls=hooks
+    monkeypatch.setattr(apollo,'is_fullscreen',lambda hwnd:True)
+    app.bind_hotkeys()
+    assert callbacks[0](event(8)) is False
+    drain(app);assert calls==[('dictate','down')]
+
+def test_fullscreen_preference_is_saved(app):
+    app.update_preferences({'hotkeys_in_fullscreen':False})
+    assert app.cfg['hotkeys_in_fullscreen'] is False

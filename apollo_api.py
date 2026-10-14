@@ -1,4 +1,4 @@
-"""OpenRouter STT and rewriting. STT retries 429, falls back to another model and hedges slow requests."""
+"""OpenRouter STT and rewriting. STT asks two models at once, uses the first transcript and retries 429."""
 import base64
 import io
 import math
@@ -10,25 +10,31 @@ import wave
 import requests
 from apollo_config import DEFAULT_STT_MODEL, validate_vocabulary
 
-# A single processing worker uses this pool for both requests, reusing TLS connections.
+# Two pools with warm TLS connections: one for each model of the race.
+# A Session is not thread-safe, so each request thread needs its own pool.
 _http = requests.Session()
+_hedge_http = requests.Session()
 STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
 REWRITE_URL = "https://openrouter.ai/api/v1/chat/completions"
 REWRITE_TIMEOUT_SECONDS = 20
 REWRITE_MAX_TOKENS = 4096  # enough for any dictation; a large value can trigger 402 credit-limit errors
 STT_MAX_ATTEMPTS = 3
 STT_RETRY_WINDOW_SECONDS = 30
-HEDGE_SECONDS = 3.0  # plus 0.1 s per second of audio
+# Wait before the second model starts. 0: both models start at once and the faster
+# transcript wins (twice the speech cost, but a slow model never delays the text).
+HEDGE_SECONDS = 0.0  # plus HEDGE_PER_AUDIO_SECOND for each second of audio
+HEDGE_PER_AUDIO_SECOND = 0.0
 BREAKER_SECONDS = 300
 _primary_down_until = 0.0  # time.monotonic() until which new recordings try the fallback first
 
 
 def warm():
-    """Open the TLS connection early; errors do not matter."""
-    try:
-        _http.head("https://openrouter.ai/api/v1/models", timeout=(3, 3)).close()
-    except Exception:
-        pass
+    """Open the TLS connections early; errors do not matter."""
+    for session in (_http, _hedge_http):
+        try:
+            session.head("https://openrouter.ai/api/v1/models", timeout=(3, 3)).close()
+        except Exception:
+            pass
 
 
 KEY_REJECTED = "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
@@ -125,7 +131,7 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     transcript wins. After a primary failure new recordings try the fallback first for
     BREAKER_SECONDS. ``on_retry`` gets (next_attempt_number, delay_seconds);
     ``wait(seconds)`` can return True to cancel (e.g. threading.Event.wait).
-    ``on_fallback`` gets the fallback model when a request to it starts.
+    ``on_fallback`` gets the fallback model when its transcript is used.
     ``on_attempt`` gets (model, ok, seconds) for every finished request.
     """
     primary = cfg.get("model", DEFAULT_STT_MODEL)
@@ -170,8 +176,8 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     sent = [first]
 
     def first_request():
-        announce(first)
         if not other:
+            announce(first)
             return request(first)
         results = queue.Queue()
         def go(model, post):
@@ -183,17 +189,16 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
             threading.Thread(target=go, args=(model, post), daemon=True).start()
         spawn(first)
         try:
-            item = results.get(timeout=HEDGE_SECONDS + 0.1 * seconds)
+            item = results.get(timeout=HEDGE_SECONDS + HEDGE_PER_AUDIO_SECOND * seconds)
         except queue.Empty:
-            # Hedge: requests.post uses its own session (a Session is not thread-safe).
-            announce(other)
             sent.append(other)
-            spawn(other, requests.post)
+            spawn(other, _hedge_http.post)
             item = results.get()
         errors = {}
         while True:
             model, text, exc = item
             if exc is None:
+                announce(model)
                 return text  # a slower request keeps running in its daemon thread
             errors[model] = exc
             if len(errors) == len(sent):
@@ -206,11 +211,13 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
         try:
             return first_request() if attempt == 1 else request(model)
         except (requests.RequestException, ResponseError) as exc:
-            nxt = other if attempt == 1 and other else model
+            if attempt == 1 and len(sent) > 1:
+                model = primary  # both models failed: only a 429 of the primary (the raised error) is retried
+            nxt = other if attempt == 1 and other and len(sent) == 1 else model
             code = getattr(getattr(exc, "response", None), "status_code", 0)
             # A malformed reply is worth one try on the other model, never a same-model retry.
             switchable = _retryable(exc) or (isinstance(exc, ResponseError) and nxt != model)
-            if (len(sent) > 1 or attempt == STT_MAX_ATTEMPTS or not switchable
+            if (attempt == STT_MAX_ATTEMPTS or not switchable
                     or (nxt == model and code != 429)):
                 raise
             delay = 0  # a different model does not owe the old one's Retry-After
