@@ -13,7 +13,7 @@ Download `apollo.exe` and run it. Setup asks for your [OpenRouter key](https://o
 | Key | Action |
 | --- | --- |
 | F8 | Dictate |
-| F9 | Clean up, preserving your words and repetitions |
+| F9 | Clean up: removes fillers, stutters and false starts, keeps your words |
 | F10 | Build a prompt |
 
 Press once to record, again to stop. Change keys, models and fallback in the app. Failed transcriptions can be retried from Recovery.

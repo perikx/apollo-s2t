@@ -54,6 +54,7 @@ def desktop(monkeypatch, tmp_path):
     monkeypatch.setattr(apollo, "_clip_sequence", lambda: clipboard.sequence)
     monkeypatch.setattr(apollo, "_CLIP_GENERATION", 0)
     monkeypatch.setattr(apollo, "get_foreground_window", lambda: "window-a")
+    monkeypatch.setattr(apollo, "focused_is_editable", lambda: True)  # a text field has the focus
     monkeypatch.setattr(apollo, "warm", lambda: None)  # no network
     monkeypatch.setattr(apollo.threading, "Timer", timer)
     monkeypatch.setattr(apollo, "beep", lambda *args: None)
@@ -63,6 +64,7 @@ def desktop(monkeypatch, tmp_path):
     def no_network(*args, **kwargs):
         raise AssertionError("Tests must not make network requests")
     monkeypatch.setattr(apollo_api._http, "post", no_network)
+    monkeypatch.setattr(apollo_api._hedge_http, "post", no_network)
     monkeypatch.setattr(apollo_api, "_primary_down_until", 0.0)  # no circuit breaker carried between tests
     return types.SimpleNamespace(clip=clipboard, sent=sent, timers=timers)
 
