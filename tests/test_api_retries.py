@@ -1,6 +1,7 @@
 """No network calls: exercise rate rejection recovery, fallback, circuit breaker and hedging."""
 import json
 import threading
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -240,7 +241,7 @@ def test_hedge_returns_fallback_transcript_without_waiting_for_slow_primary(monk
         return response(200, {"text": "slow primary"})
     monkeypatch.setattr(api._http, "post", slow)
     hedged = Mock(return_value=response(200, {"text": "fast fallback"}))
-    monkeypatch.setattr(api.requests, "post", hedged)
+    monkeypatch.setattr(api._hedge_http, "post", hedged)
     notify = Mock()
     try:
         assert api.transcribe_openrouter(b"wav", CFG, "key", on_fallback=notify) == "fast fallback"
@@ -259,7 +260,7 @@ def test_hedge_both_fail_raises_primary_error(monkeypatch, hedge):
         release.set()
         return response(429)
     monkeypatch.setattr(api._http, "post", slow)
-    monkeypatch.setattr(api.requests, "post", rejected)
+    monkeypatch.setattr(api._hedge_http, "post", rejected)
     with pytest.raises(requests.HTTPError) as caught:
         api.transcribe_openrouter(b"wav", CFG, "key")
     assert caught.value.response.status_code == 500
@@ -270,5 +271,34 @@ def test_hedge_waits_for_primary_when_fallback_fails(monkeypatch, hedge):
         threading.Event().wait(0.2)
         return response(200, {"text": "primary wins"})
     monkeypatch.setattr(api._http, "post", slow)
-    monkeypatch.setattr(api.requests, "post", Mock(return_value=response(429)))
+    monkeypatch.setattr(api._hedge_http, "post", Mock(return_value=response(429)))
     assert api.transcribe_openrouter(b"wav", CFG, "key") == "primary wins"
+
+
+def test_both_models_start_at_once_and_fast_one_wins(monkeypatch):
+    release, started = threading.Event(), time.monotonic()
+    def slow(*args, **kwargs):
+        release.wait(5)
+        return response(200, {"text": "slow primary"})
+    monkeypatch.setattr(api._http, "post", slow)
+    monkeypatch.setattr(api._hedge_http, "post", Mock(return_value=response(200, {"text": "fast fallback"})))
+    try:
+        assert api.transcribe_openrouter(b"wav", CFG, "key") == "fast fallback"
+    finally:
+        release.set()
+    assert time.monotonic() - started < 1  # no wait for the slow model
+
+
+def test_fast_primary_wins_without_fallback_notice(monkeypatch):
+    release = threading.Event()
+    def slow(*args, **kwargs):
+        release.wait(5)
+        return response(200, {"text": "slow fallback"})
+    monkeypatch.setattr(api._http, "post", Mock(return_value=response(200, {"text": "fast primary"})))
+    monkeypatch.setattr(api._hedge_http, "post", slow)
+    notify = Mock()
+    try:
+        assert api.transcribe_openrouter(b"wav", CFG, "key", on_fallback=notify) == "fast primary"
+    finally:
+        release.set()
+    notify.assert_not_called()

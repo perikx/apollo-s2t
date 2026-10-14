@@ -3,6 +3,32 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.4] - 2026-10-14
+
+### Insertion
+- Apollo checks the focused control with UI Automation before it pastes, as before 0.4.3.
+  - A text field: Apollo pastes and restores the old clipboard.
+  - No window, the desktop or no text field: the text stays on the clipboard and the ready beep plays.
+  - An unknown control: Apollo pastes, keeps the text on the clipboard and plays the ready beep.
+- The ready beep also plays when an Apollo window has the focus or another app changed the clipboard.
+- Fixed: a paste without a text field lost the text, because Apollo restored the old clipboard.
+
+### Speed
+- Apollo sends each recording to both speech models at once and uses the first transcript.
+  A slow MAI-Transcribe 2 no longer delays the text. Before, the second model started only after
+  3 s plus 0.1 s per second of audio (18 s for a 2.5-minute recording). The speech cost doubles.
+- Each model has its own warm TLS connection.
+
+### Settings
+- New check box "Keys also work in full-screen apps and games" (`hotkeys_in_fullscreen`, default on).
+  When it is off, games such as Minecraft keep F8, F9 and F10. A running recording always stops.
+- New check box "Update automatically" (`auto_update`, default on). The exe checks the latest
+  GitHub release every 6 hours, verifies its SHA-256 and restarts after 2 quiet minutes.
+
+### Rewrite
+- F9 removes filler words, stutters, doubled words, false starts and self-corrections.
+  It keeps every point, deliberate emphasis and the speaker's words.
+
 ## [0.4.3] - 2026-10-13
 
 ### Speech reliability

@@ -52,3 +52,52 @@ def test_apollo_window_focus_copies_without_pasting(app, desktop):
     app.insert_text("saved words", time.monotonic())
     assert desktop.clip.text == "saved words"
     assert desktop.sent == []
+
+
+def test_no_text_field_copies_and_plays_ready_beep(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    monkeypatch.setattr(apollo, "focused_is_editable", lambda: False)
+    app.insert_text("words", time.monotonic())
+    assert desktop.sent == [] and desktop.clip.text == "words"
+    assert beeps == ["ready"]
+    restore_timers(desktop)
+    assert desktop.clip.text == "words"  # never restored: the user pastes it by hand
+
+
+def test_unknown_target_pastes_keeps_text_and_beeps(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    monkeypatch.setattr(apollo, "focused_is_editable", lambda: None)
+    app.insert_text("words", time.monotonic())
+    assert desktop.sent == ["ctrl+v"] and beeps == ["ready"]
+    restore_timers(desktop)
+    assert desktop.clip.text == "words"
+
+
+def test_text_field_paste_has_no_ready_beep(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    app.insert_text("words", time.monotonic())
+    assert desktop.sent == ["ctrl+v"] and beeps == []
+
+
+def test_skipped_paste_still_copies_and_beeps(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    monkeypatch.setattr(apollo, "_owns_clipboard", lambda token: False)  # another app took the clipboard
+    app.insert_text("words", time.monotonic())
+    assert desktop.sent == [] and desktop.clip.text == "words" and beeps == ["ready"]
+
+
+def test_apollo_window_focus_plays_ready_beep(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    app.ui_windows.add("window-a")
+    app.insert_text("words", time.monotonic())
+    assert desktop.sent == [] and beeps == ["ready"]
+
+
+def test_native_focus_checks_never_raise():
+    assert apollo._uia_verdict() in (True, False, None)
+    assert apollo.is_fullscreen(0) is False

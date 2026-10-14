@@ -13,7 +13,7 @@ Tests replace the microphone, keyboard, clipboard and timers with isolated doubl
 They never call a paid provider. FIFO/shutdown tests use real worker threads with explicit
 synchronization. Regression coverage includes hotkey toggle behavior, clipboard ownership,
 stale timers, bounded capture, parallel jobs, paste-first saving, dropped config keys and the
-fallback, hedge and circuit breaker.
+race of two models, fallback and circuit breaker.
 Recovery regressions use temporary folders to check WAV checkpoints, interrupted writes,
 saved raw/final text, restart recovery and clipboard-only recovery. API doubles cover
 429 recovery, Retry-After seconds/dates, retry limits, cancellation, ambiguous network
@@ -28,7 +28,7 @@ retired-provider references from returning to setup, launchers or user documenta
 
 - `apollo.py`: recording, hotkey hook and dispatcher, parallel jobs, prompts, paste and the fixed constants.
 - `apollo_config.py`: one source of defaults, validation, atomic writes and dropping of removed keys.
-- `apollo_api.py`: OpenRouter transcription (fallback, hedge, circuit breaker) and rewrite requests.
+- `apollo_api.py`: OpenRouter transcription (race of two models, fallback, circuit breaker) and rewrite requests.
 - `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
 - `apollo_overlay.py`: floating control/speech bubble and in-app settings/recovery/debug.
 - `apollo_design.py` / `apollo_widgets.py`: Qt surfaces, vector icons and selectors.
