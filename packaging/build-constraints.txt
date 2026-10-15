@@ -1,0 +1,22 @@
+# Exact versions for the release build (CI and packaging\build-exe.bat).
+# THIRD_PARTY_NOTICES.md names the Qt version: change both together.
+altgraph==0.17.5
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+idna==3.19
+keyboard==0.13.5
+packaging==26.3
+pefile==2024.8.26
+pycparser==3.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pyperclip==1.11.0
+PySide6-Essentials==6.11.2
+pywin32-ctypes==0.2.3
+requests==2.34.2
+setuptools==84.0.0
+shiboken6==6.11.2
+sounddevice==0.5.6
+truststore==0.10.5
+urllib3==2.7.0
