@@ -4,7 +4,7 @@ cd /d "%~dp0.."
 title Apollo s2t - build exe
 call bootstrap.bat
 if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -m pip install "pyinstaller>=6,<7"
+".venv\Scripts\python.exe" -m pip install -c packaging\build-constraints.txt -r requirements.txt pyinstaller
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean packaging\apollo.spec
 if errorlevel 1 goto failed

@@ -1,7 +1,9 @@
 name: Tests
 on:
   push:
+    branches: [main]  # branches with a pull request get the pull_request run
   pull_request:
+  workflow_call:  # the release workflow tests before it builds
 permissions:
   contents: read
 jobs:

@@ -48,6 +48,12 @@ a.binaries = [entry for entry in a.binaries
               if not (Path(entry[0]).name.lower() == "icuuc.dll"
                       or Path(entry[0]).name.lower().startswith("icudt"))]
 
+# The Universal C Runtime is part of Windows 10 and 11, and Windows always loads its own
+# copy. Some build machines (GitHub's Windows Server runners) add a local copy: 1 MB of dead weight.
+a.binaries = [entry for entry in a.binaries
+              if not (Path(entry[0]).name.lower() == "ucrtbase.dll"
+                      or Path(entry[0]).name.lower().startswith("api-ms-win-"))]
+
 # Size: drop Qt parts the widget UI never loads (Quick/Qml/Pdf/Svg/Network/OpenGL,
 # software GL, translations), all Qt plugins except qwindows + qico (PNG is built in),
 # the Poppler OpenSSL copies (Python's own libssl-3/libcrypto-3 stay) and the

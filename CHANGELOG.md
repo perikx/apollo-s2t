@@ -3,6 +3,15 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Build and release
+- GitHub Actions builds the exe and publishes the release when a `v*.*.*` tag is pushed.
+  The workflow tests first, checks the tag against `APP_VERSION` and starts the exe once.
+- `packaging/build-constraints.txt` pins the exact build versions; `packaging/build-exe.bat` uses them too.
+- `packaging/release_files.py` collects the release files and takes the notes from this file.
+- The test workflow runs on push only for `main`. Pull requests get one run per Python version.
+
 ## [0.4.6] - 2026-10-15
 
 ### Remote Desktop

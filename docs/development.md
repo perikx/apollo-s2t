@@ -86,13 +86,32 @@ normal and high DPI output; real microphone/recognition checks remain separate.
 Screenshots remain local for visual inspection. The Windows pytest
 suite also runs this isolated smoke test; it does not record, paste or call providers.
 
+## Release
+
+GitHub Actions builds and publishes each release. Do not upload a local build.
+
+1. In `apollo.py`, set `APP_VERSION`, for example `0.4.7`.
+2. In `CHANGELOG.md`, change `## Unreleased` to `## [0.4.7] - <date>`. This section becomes the release notes.
+3. Merge the change into `main` with a pull request.
+4. Tag the merge commit and push the tag:
+   `git tag v0.4.7 origin/main` and then `git push origin v0.4.7`.
+
+The `Release` workflow then runs the tests and checks that the tag matches `APP_VERSION`.
+It builds the exe with the exact versions in `packaging/build-constraints.txt` and starts it once.
+Then it publishes `apollo.exe`, `apollo.exe.sha256` and `Apollo-Third-Party-Notices.zip`.
+The self-update needs `apollo.exe.sha256`; never publish a release without it.
+A pull request that changes `packaging/`, `requirements.txt` or the workflow builds the exe as a check.
+
+To update a pinned version, change `packaging/build-constraints.txt`. For PySide6, also change
+the Qt version in `THIRD_PARTY_NOTICES.md`.
+
 ## Packaging
 
 `packaging\build-exe.bat` builds a windowed executable with PyInstaller on Windows.
 The bundled model/configuration defaults and profiles use the same Python modules as the
 source app. The windowed executable opens a real terminal for first-run setup.
 QtCore/QtGui/QtWidgets come from PySide6 Essentials on Windows; Tk is excluded.
-The runtime needs only `requests`, `sounddevice`, `keyboard`, `pyperclip` and PySide6.
+The runtime needs only `requests`, `truststore`, `sounddevice`, `keyboard`, `pyperclip` and PySide6.
 Apollo does not use numpy, pystray, Pillow, comtypes or mouse; the spec excludes them.
 The spec also filters the build: it drops unused Qt modules (Quick, Qml, Pdf, Svg, Network,
 OpenGL), all Qt plugins except `qwindows` and `qico`, translations, other CPU builds of

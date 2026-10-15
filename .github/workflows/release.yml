@@ -1,0 +1,66 @@
+name: Release
+# A tag such as v0.4.7 tests, builds and publishes the release.
+# A pull request that changes the build only builds the exe, as a check.
+on:
+  push:
+    tags: ['v*.*.*']
+  pull_request:
+    paths: ['packaging/**', 'requirements.txt', '.github/workflows/release.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/tests.yml
+  build:
+    needs: test
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -c packaging/build-constraints.txt -r requirements.txt pyinstaller
+      - name: Check that the tag matches APP_VERSION
+        if: github.event_name == 'push'
+        shell: python
+        run: |
+          import os
+          import re
+          version = re.search(r'^APP_VERSION = "([^"]+)"', open("apollo.py", encoding="utf-8").read(), re.M).group(1)
+          tag = os.environ["GITHUB_REF_NAME"]
+          if tag != "v" + version:
+              raise SystemExit(f"Tag {tag} does not match APP_VERSION {version}.")
+      - run: python -m PyInstaller --noconfirm --clean packaging/apollo.spec
+      - run: python packaging/release_files.py release
+      - name: Start the exe once
+        shell: pwsh
+        run: |
+          $dir = New-Item -ItemType Directory "$env:RUNNER_TEMP\check"
+          Copy-Item release\apollo.exe $dir
+          '{"config_version": 2, "smoothing": {"api_key": "sk-or-ci-dummy"}}' | Set-Content "$dir\config.json"
+          $run = Start-Process "$dir\apollo.exe" -ArgumentList "--check" -WorkingDirectory $dir -Wait -PassThru
+          if ($run.ExitCode -ne 0) { Get-Content "$dir\apollo.log"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apollo-release
+          path: release/
+  publish:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apollo-release
+          path: release
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          --title "apollo ${GITHUB_REF_NAME#v}" --notes-file release/notes.md
+          release/apollo.exe release/apollo.exe.sha256 release/Apollo-Third-Party-Notices.zip
