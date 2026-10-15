@@ -3,7 +3,7 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## [0.4.7] - 2026-10-15
 
 ### Build and release
 - GitHub Actions builds the exe and publishes the release when a `v*.*.*` tag is pushed.
@@ -11,6 +11,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - `packaging/build-constraints.txt` pins the exact build versions; `packaging/build-exe.bat` uses them too.
 - `packaging/release_files.py` collects the release files and takes the notes from this file.
 - The test workflow runs on push only for `main`. Pull requests get one run per Python version.
+- The build drops the Universal C Runtime copy (`ucrtbase.dll`, `api-ms-win-*`) that GitHub's
+  runners add. Windows 10 and 11 always load their own copy. The exe stays at 26.5 MB.
 
 ## [0.4.6] - 2026-10-15
 
