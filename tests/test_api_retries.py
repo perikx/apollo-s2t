@@ -32,6 +32,12 @@ def fresh_breaker(monkeypatch):
     monkeypatch.setattr(api, "_primary_down_until", 0.0)
 
 
+@pytest.fixture(autouse=True)
+def sequential(monkeypatch):
+    """Most tests here check the switch and retry rules: the second model starts only after a failure."""
+    monkeypatch.setattr(api, "HEDGE_SECONDS", 30.0)
+
+
 @pytest.fixture
 def clock(monkeypatch):
     class Clock:
@@ -275,7 +281,12 @@ def test_hedge_waits_for_primary_when_fallback_fails(monkeypatch, hedge):
     assert api.transcribe_openrouter(b"wav", CFG, "key") == "primary wins"
 
 
-def test_both_models_start_at_once_and_fast_one_wins(monkeypatch):
+@pytest.fixture
+def race(monkeypatch):
+    monkeypatch.setattr(api, "HEDGE_SECONDS", 0.0)
+
+
+def test_both_models_start_at_once_and_fast_one_wins(monkeypatch, race):
     release, started = threading.Event(), time.monotonic()
     def slow(*args, **kwargs):
         release.wait(5)
@@ -289,7 +300,7 @@ def test_both_models_start_at_once_and_fast_one_wins(monkeypatch):
     assert time.monotonic() - started < 1  # no wait for the slow model
 
 
-def test_fast_primary_wins_without_fallback_notice(monkeypatch):
+def test_fast_primary_wins_without_fallback_notice(monkeypatch, race):
     release = threading.Event()
     def slow(*args, **kwargs):
         release.wait(5)
