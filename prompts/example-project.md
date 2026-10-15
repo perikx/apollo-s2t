@@ -1,8 +1,8 @@
-# Example project profile
-
-This text is injected into the F10 system prompt as **project context**, so the LLM
-knows what you are building when it turns your dictation into a prompt. Replace
-everything below with your own project's details.
+<!--
+Example project profile. A made-up project: replace everything below with your own.
+F10 sends the text outside this comment to the model as project context,
+so the model knows what you build when it turns your dictation into a prompt.
+-->
 
 ## Project
 A learning platform for high-school students.

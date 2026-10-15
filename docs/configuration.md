@@ -189,6 +189,18 @@ microphone cannot supply audio, a full/broken disk cannot save it, and abrupt pr
 or power loss can lose the last unflushed samples. The half-second interval is a target,
 not a hard bound during slow disk writes or system stalls. Keep enough free disk space.
 
+## Remote Desktop
+
+Windows calls the most recent low-level keyboard hook first. A Remote Desktop client
+(`mstsc.exe`, `msrdc.exe`) or Citrix (`wfica32.exe`) installs its own hook when it gets the
+focus and sends every key to the remote computer. While such a window is in front, Apollo
+installs its hook again every second, so F8, F9 and F10 reach Apollo first. All other keys
+still go to the remote computer.
+
+Apollo cannot see the focused control inside the remote session. In a Remote Desktop window
+it always pastes with Ctrl+V and leaves the text on the clipboard, because Remote Desktop
+reads the clipboard late. Apollo runs on your own computer, so clipboard redirection must be on.
+
 ## Clipboard
 
 Before it pastes, Apollo asks Windows UI Automation which control has the focus.
@@ -202,8 +214,16 @@ Other clipboard formats, such as images or rich formatting, are not preserved by
 
 ## F10 profiles
 
-Create `prompts/my-project.md` with the project context and select it in the floating
-Settings window. `prompt_profiles.active` also accepts `my-project`.
+A profile tells the F10 model about your project: stack, folders and rules.
+Edit profiles in Settings > Prompt profile:
+
+1. Select a profile. The text field shows its file.
+2. Change the text and click Save.
+3. To add a profile, type a name next to Create and click Create.
+
+Each profile is a file `prompts/<name>.md`. `prompt_profiles.active` holds the active name.
+Text between `<!--` and `-->` is a note for you; Apollo never sends it to the model.
+The bundled `default` profile has only a note, so F10 sends no project context.
 Profile contents are read at recording start, so edits affect the next recording.
 
 `prompt_profiles.output_language: "english"` produces an English prompt. `"match"`
@@ -211,9 +231,9 @@ keeps the dictated language; any other language name forces that language. This 
 F10 only. F9 keeps the original language. Code identifiers remain unchanged.
 F10 always adds a short guidance line for coding requests.
 
-In an executable build, custom profiles go next to `apollo.exe` in `prompts/`.
-Once that directory exists it takes precedence over bundled profiles; copy any bundled
-profiles you want to retain into the same directory.
+In an executable build, profiles live next to `apollo.exe` in `prompts/`.
+Once that directory exists it takes precedence over bundled profiles.
+The first save in Settings creates the directory and copies the bundled profiles into it.
 
 ## Upgrading older configurations
 

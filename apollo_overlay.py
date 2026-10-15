@@ -18,6 +18,18 @@ from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
 
 
+
+PROFILE_TEMPLATE = """<!--
+Notes for you; F10 does not send them. Describe the project below.
+-->
+
+## Project
+
+## Stack
+
+## Conventions
+"""
+
 class DebugLog(logging.Handler):
     """Only Apollo's safe diagnostics, bounded in RAM; no response bodies/tracebacks."""
     def __init__(self):
@@ -328,6 +340,15 @@ class FloatingUI:
         self.fullscreen_keys.setToolTip(t("Aus: Spiele wie Minecraft behalten F8, F9 und F10. Eine laufende Aufnahme lässt sich immer stoppen."))
         profiles = self.card(layout, "Prompt-Profil")
         self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], translate=False); profiles.addWidget(self.profile)
+        self.profile_text = QPlainTextEdit(self.app.profile_text(self.profile.value)); self.profile_text.setFixedHeight(170)
+        self.profile_loaded = self.profile.value  # the profile whose text the editor shows
+        self.profile_text.setAccessibleName(t("Inhalt des Prompt-Profils"))
+        self.profile_text.setPlaceholderText(t("Projekt, Stack, Ordner und Regeln für F10"))
+        self.profile.changed.connect(self.switch_profile); profiles.addWidget(self.profile_text)
+        profiles.addWidget(label("F10 sendet diesen Text als Projekt-Kontext. Text zwischen <!-- und --> ist nur eine Notiz für dich.", "muted", True))
+        row = QHBoxLayout(); self.new_profile = QLineEdit(); self.new_profile.setPlaceholderText(t("Name für ein neues Profil"))
+        self.new_profile.setAccessibleName(t("Name für ein neues Profil")); self.new_profile.returnPressed.connect(self.create_profile)
+        row.addWidget(self.new_profile, 1); row.addWidget(button("Anlegen", self.create_profile)); profiles.addLayout(row)
         self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"]); profiles.addWidget(self.language)
         cache = self.card(layout, "Recovery-Cache")
         self.minutes = QLineEdit(str(cfg["recovery_cache"]["minutes"])); self.minutes.setAccessibleName(t("Recovery-Dauer in Minuten"))
@@ -345,6 +366,31 @@ class FloatingUI:
         updates.addWidget(self.auto_update)
         updates.addWidget(label(t("Version") + f" {self.app.version} · " + t("Lädt neue Versionen von GitHub und startet neu, wenn du nicht diktierst."), "muted", True))
         layout.addStretch(); self.footer("", self.save_settings)
+    def store_profile_text(self, name):
+        """Write the editor text to its profile, if the user changed it."""
+        if self.profile_text.document().isModified():
+            self.app.save_profile(name, self.profile_text.toPlainText())
+            self.profile_text.document().setModified(False)
+    def switch_profile(self, name):
+        try:
+            self.store_profile_text(self.profile_loaded)
+        except (OSError, ValueError) as exc:
+            self.result.setText(t(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen.")); self.result.setObjectName("error")
+        self.profile_text.setPlainText(self.app.profile_text(name)); self.profile_text.document().setModified(False)
+        self.profile_loaded = name
+    def create_profile(self):
+        name = self.new_profile.text().strip()
+        if not name: return
+        try:
+            if name in self.profile.options: raise ValueError("Dieses Profil gibt es schon.")
+            self.store_profile_text(self.profile.value)
+            self.app.save_profile(name, PROFILE_TEMPLATE)
+            self.profile.options = {p:p for p in self.app.available_profiles()}
+            self.profile.set_value(name); self.switch_profile(name); self.new_profile.clear()
+            self.result.setObjectName("muted"); self.result.setText(t("Profil angelegt. Text eintragen und speichern."))
+        except (OSError, ValueError) as exc:
+            self.result.setText(t(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen.")); self.result.setObjectName("error")
+        self.result.style().unpolish(self.result); self.result.style().polish(self.result)
     def save_api_key(self):
         key = self.api_input.text().strip()
         if not key: return
@@ -380,6 +426,7 @@ class FloatingUI:
             try: minutes = int(self.minutes.text())
             except ValueError: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
             if not 5 <= minutes <= 60: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
+            self.store_profile_text(self.profile.value)
             self.app.update_preferences({"hotkeys": {k:v.value for k,v in self.key_fields.items()}, "hotkey_mode": self.key_mode.value,
                 "hotkeys_in_fullscreen": self.fullscreen_keys.isChecked(), "auto_update": self.auto_update.isChecked(), "ui_language": self.interface_language.value,
                 "openrouter_stt": {"vocabulary": [line.strip() for line in self.vocabulary.toPlainText().splitlines() if line.strip()]},

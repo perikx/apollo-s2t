@@ -13,6 +13,8 @@ from logging.handlers import RotatingFileHandler
 import operator
 import os
 import queue
+import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -32,10 +34,11 @@ from apollo_config import (ConfigError, api_key, default_config, normalize_confi
                            read_config, save_config, scan_codes_of)
 from apollo_i18n import set_language
 from apollo_recovery import RecoveryStore, wav_header
+from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.4.5"
+APP_VERSION = "0.4.6"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -189,10 +192,34 @@ def load_profile_text(cfg, base_dir=None):
     path = os.path.join(profiles_dir(cfg, base_dir), name + ".md")
     try:
         with open(path, encoding="utf-8") as handle:
-            return handle.read().strip()
+            # <!-- notes --> are for the reader of the file; the model never gets them.
+            return re.sub(r"<!--.*?-->", "", handle.read(), flags=re.S).strip()
     except OSError:
         log.warning("F10 profile unavailable; using no project context.")
         return ""
+
+
+PROFILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}")
+
+
+def write_profile(name, text, base_dir=None):
+    """Save prompts/<name>.md next to Apollo. The first save copies the bundled profiles there,
+    because a prompts folder next to Apollo hides the bundled ones."""
+    if not PROFILE_NAME.fullmatch(name or "") or name.endswith("."):
+        raise ConfigError("Use 1–40 letters, digits, spaces, dots, - or _ for a profile name.")
+    directory = os.path.join(base_dir or BASE_DIR, PROFILES_DIR)
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+        bundled = os.path.join(RES_DIR, PROFILES_DIR)
+        if os.path.isdir(bundled) and os.path.abspath(bundled) != os.path.abspath(directory):
+            for item in os.listdir(bundled):
+                if item.endswith(".md"):
+                    shutil.copyfile(os.path.join(bundled, item), os.path.join(directory, item))
+    path = os.path.join(directory, name + ".md")
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text.strip() + "\n")
+    os.replace(temporary, path)
 
 
 def build_prompt_system(cfg, base_dir=None):
@@ -396,6 +423,11 @@ def is_fullscreen(hwnd):
         return ctypes.windll.user32.GetWindowLongW(wintypes.HWND(hwnd), -16) & caption != caption
     except Exception:
         return False
+
+
+def install_key_hook(callback):
+    """Install the keyboard hook; return the function that removes it."""
+    return KeyHook(callback).remove
 
 
 def _com_method(pointer, index, *argtypes):
@@ -653,7 +685,7 @@ class App:
                         return False
                 self._key_events.put((callback, event.event_type, now))
                 return False
-            return [keyboard.hook(guarded, suppress=True)]
+            return [install_key_hook(guarded)]
         except ConfigError:
             raise
         except Exception as exc:
@@ -724,6 +756,17 @@ class App:
 
     def available_profiles(self):
         return list_profiles(self.cfg, self.base_dir)
+
+    def profile_text(self, name):
+        """The file text of a profile, with its notes, for the editor."""
+        try:
+            with open(os.path.join(profiles_dir(self.cfg, self.base_dir), name + ".md"), encoding="utf-8") as handle:
+                return handle.read()
+        except OSError:
+            return ""
+
+    def save_profile(self, name, text):
+        write_profile(name, text, self.base_dir)
 
     def prune_recovery(self):
         try:
@@ -834,6 +877,12 @@ class App:
 
     def insert_text(self, text, t0):
         """Paste into a text field. In every other case the text stays on the clipboard and the ready beep plays."""
+        if get_foreground_window() not in self.ui_windows and remote_desktop_in_front():
+            # Apollo cannot see the focus inside the remote session. Remote Desktop fetches the
+            # clipboard late, so the text stays there: a restore could paste the old text.
+            if paste_text(text, self.cfg["insertion"], keep=True):
+                log.info("Pasted %d characters into Remote Desktop; processing %.0f ms.", len(text), (time.monotonic() - t0) * 1000)
+                return
         editable = False if get_foreground_window() in self.ui_windows else focused_is_editable()
         if editable is True and paste_text(text, self.cfg["insertion"]):
             log.info("Delivered %d characters; processing %.0f ms.", len(text), (time.monotonic() - t0) * 1000)
@@ -1180,7 +1229,8 @@ def main():
     app = App(cfg)
     def quit_app():
         app.close()
-        keyboard.unhook_all()
+        for remove in app._key_handles:
+            remove()
     try:
         app.bind_hotkeys()
         log.info("Apollo running: %s. STT: %s. Rewrite: %s. Version: %s.", cfg["hotkey_mode"],

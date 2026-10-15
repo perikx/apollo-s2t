@@ -55,6 +55,7 @@ def desktop(monkeypatch, tmp_path):
     monkeypatch.setattr(apollo, "_CLIP_GENERATION", 0)
     monkeypatch.setattr(apollo, "get_foreground_window", lambda: "window-a")
     monkeypatch.setattr(apollo, "focused_is_editable", lambda: True)  # a text field has the focus
+    monkeypatch.setattr(apollo, "remote_desktop_in_front", lambda: False)
     monkeypatch.setattr(apollo, "warm", lambda: None)  # no network
     monkeypatch.setattr(apollo.threading, "Timer", timer)
     monkeypatch.setattr(apollo, "beep", lambda *args: None)
