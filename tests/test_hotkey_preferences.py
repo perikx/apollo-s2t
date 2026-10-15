@@ -11,11 +11,10 @@ from apollo_config import ConfigError
 def hooks(monkeypatch):
     callbacks=[]; removed=[]
     codes={'f8':8,'f9':9,'f10':10,'n':11,'m':12,'p':13,'alias':8}
-    def hook(callback, suppress):
-        assert suppress
+    def hook(callback):
         callbacks.append(callback)
         return lambda: removed.append(callback)
-    monkeypatch.setattr(apollo.keyboard,'hook',hook,raising=False)
+    monkeypatch.setattr(apollo,'install_key_hook',hook)
     monkeypatch.setattr(apollo.keyboard,'key_to_scan_codes',lambda key:(codes[key],),raising=False)
     calls=[]
     monkeypatch.setattr(apollo,'make_key_handler',lambda app,mode,toggle:lambda event:calls.append((mode,event.event_type)))

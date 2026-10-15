@@ -1,6 +1,7 @@
-# Default profile
+<!--
+Default profile: no project context. Apollo sends nothing from this file to the model.
 
-No specific project context. Dictated text is turned into a clean, general-purpose
-prompt. Copy this file to e.g. `myproject.md`, fill in your project context below,
-and select it as the active profile (tray icon → "F10 prompt profile", or set
-`prompt_profiles.active` in config.json).
+To add context for a project, make a new profile in Settings > Prompt profile,
+or copy example-project.md to a new file in the prompts folder next to apollo.exe.
+Text between these comment marks is a note for you; the model never gets it.
+-->
