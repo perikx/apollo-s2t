@@ -97,6 +97,9 @@ class Choice(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, key); self.items.addItem(item)
         self.items.setFixedHeight(min(self.items.count()*34+8, 150))
         self.button.setEnabled(bool(self.items.count()))
+    def set_value(self, value):
+        self.value = value
+        self.button.setText(t(self.options[value]) if self.translate else self.options[value]); self.refresh_options()
     def apply(self, item):
         self.value = item.data(Qt.ItemDataRole.UserRole)
         self.button.setText(t(self.options[self.value]) if self.translate else self.options[self.value]); self.items.hide(); self.button.setFocus()

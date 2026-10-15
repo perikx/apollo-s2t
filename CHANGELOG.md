@@ -3,6 +3,20 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.6] - 2026-10-15
+
+### Remote Desktop
+- F8, F9 and F10 work while a Remote Desktop (mstsc, msrdc) or Citrix window has the focus.
+  Apollo has its own keyboard hook now (`apollo_keyhook.py`). While such a window is in front,
+  the hook installs itself again every second and is first in the hook chain again.
+- In a Remote Desktop window, Apollo pastes with Ctrl+V and keeps the text on the clipboard.
+
+### F10 profiles
+- Settings > Prompt profile has a text field for the selected profile and a Create button.
+  The first save copies the bundled profiles next to Apollo, so they stay visible.
+- Text between `<!--` and `-->` in a profile is a note; Apollo does not send it to the model.
+  The bundled `default` profile no longer sends its help text as project context.
+
 ## [0.4.5] - 2026-10-15
 
 ### Setup and connection

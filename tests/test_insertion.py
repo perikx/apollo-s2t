@@ -101,3 +101,14 @@ def test_apollo_window_focus_plays_ready_beep(app, desktop, monkeypatch):
 def test_native_focus_checks_never_raise():
     assert apollo._uia_verdict() in (True, False, None)
     assert apollo.is_fullscreen(0) is False
+
+
+def test_remote_desktop_gets_paste_and_keeps_text_without_beep(app, desktop, monkeypatch):
+    beeps = []
+    monkeypatch.setattr(apollo, "beep", lambda kind, enabled: beeps.append(kind))
+    monkeypatch.setattr(apollo, "remote_desktop_in_front", lambda: True)
+    monkeypatch.setattr(apollo, "focused_is_editable", lambda: False)  # UIA sees only the RDP window
+    app.insert_text("remote words", time.monotonic())
+    assert desktop.sent == ["ctrl+v"] and beeps == []
+    restore_timers(desktop)
+    assert desktop.clip.text == "remote words"  # Remote Desktop may fetch the clipboard late
