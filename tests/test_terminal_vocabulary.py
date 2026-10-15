@@ -98,3 +98,22 @@ def test_other_models_do_not_receive_unverified_options(monkeypatch):
     post = Mock(return_value={"text": "ok"}); monkeypatch.setattr(api, "_post", post)
     api.transcribe_openrouter(b"wave", {"model": "openai/gpt-4o-mini-transcribe", "vocabulary": ["PANDU"]}, "key")
     assert "provider" not in post.call_args.args[2]
+
+
+def test_setup_can_continue_without_connection(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    # Language, "save without check?" no, then yes, then defaults: no customizing, no autostart, save.
+    ui, output = terminal(["de", "n", "y", "n", "n", "y"], ["sk-or-v1-one", "sk-or-v1-two"])
+    check = Mock(return_value=api.NO_CONNECTION)
+    path = tmp_path / "config.json"
+    assert run_terminal_setup(default_config(), path, lambda _: None, terminal=ui, check=check)
+    assert json.loads(path.read_text())["smoothing"]["api_key"] == "sk-or-v1-two"
+    assert check.call_count == 2
+
+
+def test_rejected_key_never_offers_to_continue(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    ui, output = terminal(["en", "n", "n", "y"], ["bad", "good"])
+    check = Mock(side_effect=[api.KEY_REJECTED, ""])
+    assert run_terminal_setup(default_config(), tmp_path / "config.json", lambda _: None, terminal=ui, check=check)
+    assert not any("without a check" in line for line in output)

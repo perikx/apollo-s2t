@@ -129,3 +129,45 @@ def test_retry_after_accepts_plain_numbers_only():
     assert delay("3") == 3 and delay(" 12 ") == 12
     assert delay(None) is None and delay("-1") is None and delay("Wed, 21 Oct 2026 07:28:00 GMT") is None
     assert delay("9" * 20) == float("inf")
+
+
+class _KeyResponse:
+    def __init__(self, status, data=None):
+        self.status_code, self.data = status, data
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(response=self)
+    def json(self):
+        return self.data
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("failure, message", [
+    (requests.exceptions.SSLError("certificate verify failed"), api.TLS_BLOCKED),
+    (requests.ConnectionError("no route"), api.NO_CONNECTION),
+    (requests.Timeout("slow"), api.NO_CONNECTION),
+])
+def test_key_check_names_the_network_cause(failure, message):
+    def get(*args, **kwargs):
+        raise failure
+    assert api.check_key("sk-or-v1-abc", get=get) == message
+
+
+@pytest.mark.parametrize("key", ["sk-or-v1-abc​", "sk-or v1", "sk-or-ä", ""])
+def test_key_with_invisible_or_foreign_characters_is_not_sent(key):
+    def get(*args, **kwargs):
+        raise AssertionError("an invalid key must not be sent")
+    assert api.check_key(key, get=get) == api.KEY_INVALID
+
+
+def test_key_check_results():
+    assert api.check_key("k", get=lambda *a, **k: _KeyResponse(200, {"data": {}})) == ""
+    assert api.check_key("k", get=lambda *a, **k: _KeyResponse(401)) == api.KEY_REJECTED
+    assert api.check_key("k", get=lambda *a, **k: _KeyResponse(502)) == api.UNAVAILABLE
+
+
+def test_windows_certificate_store_is_used():
+    import ssl
+    import truststore
+    assert ssl.SSLContext is truststore.SSLContext

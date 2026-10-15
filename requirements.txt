@@ -1,4 +1,5 @@
 requests>=2.31,<3
+truststore>=0.10,<1
 sounddevice>=0.4.6,<1
 keyboard>=0.13.5,<1
 pyperclip>=1.8.2,<2
