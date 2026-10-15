@@ -14,7 +14,7 @@ from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT,
                            label, button, vector, icon, paint_logo)
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
-from apollo_api import check_key, KEY_REJECTED
+from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
 
 
@@ -356,14 +356,14 @@ class FloatingUI:
             if not result: QTimer.singleShot(100, done); return
             problem = result[0]
             try:
-                if problem != KEY_REJECTED:
+                if problem not in KEY_UNUSABLE:
                     # Offline is not a reason to lose a new key; save it and say it is unchecked.
                     self.app.update_preferences({"smoothing": {"api_key": key}})
             except (OSError, ValueError):
                 problem = "Speichern fehlgeschlagen. Bitte erneut versuchen."
             try:
                 self.api_button.setEnabled(True)
-                if problem in (KEY_REJECTED, "Speichern fehlgeschlagen. Bitte erneut versuchen."):
+                if problem in KEY_UNUSABLE or problem == "Speichern fehlgeschlagen. Bitte erneut versuchen.":
                     self.set_api_status(problem, "error"); return
                 self.api_input.clear(); self.api_input.setPlaceholderText(f"{t('Gespeichert')}: …{key[-4:]}")
                 self.set_api_status("Gespeichert und geprüft." if not problem else t("Gespeichert, aber nicht geprüft:") + " " + t(problem), "muted")

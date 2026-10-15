@@ -89,7 +89,7 @@ class Terminal:
 
 def run_terminal_setup(cfg, path, set_autostart, *, terminal=None, check=None, discover=None):
     """Only save after validation and explicit completion; cancellation keeps all files."""
-    from apollo_api import check_key
+    from apollo_api import check_key, KEY_UNUSABLE
     import keyboard
     cfg = deepcopy(cfg); ui = terminal or Terminal(cfg["ui_language"])
     check = check or check_key; discover = discover or discover_catalog
@@ -110,6 +110,9 @@ def run_terminal_setup(cfg, path, set_autostart, *, terminal=None, check=None, d
             error = check(key)
             if not error: break
             ui.write("  " + t(error, language))
+            # Without a connection the key can still be right: let the user go on, as Settings does.
+            if error not in KEY_UNUSABLE and ui.yes("Save the key without a check and continue? y/n"):
+                break
         ui.header(2, ui.text("Your recording keys"))
         ui.write("  " + " · ".join(f"{key.upper()}: {mode}" for mode,key in cfg["hotkeys"].items()))
         customize = ui.yes("Customize keys, language and models? y/n")

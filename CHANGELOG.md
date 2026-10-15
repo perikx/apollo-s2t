@@ -3,6 +3,17 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.5] - 2026-10-15
+
+### Setup and connection
+- Apollo trusts the Windows certificate store (`truststore`). Virus scanners, company proxies
+  and school networks that check HTTPS no longer block the connection to OpenRouter.
+- The key check names the cause: no connection, blocked TLS connection, invalid characters in the key
+  or an OpenRouter error. Before, every failure showed "OpenRouter is currently unavailable".
+- A key with an invisible or non-ASCII character is not sent. Apollo asks you to copy it again.
+- Setup can save the key without a check and continue when there is no connection.
+  A rejected key still blocks setup.
+
 ## [0.4.4] - 2026-10-14
 
 ### Insertion

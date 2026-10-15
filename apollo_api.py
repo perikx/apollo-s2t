@@ -1,6 +1,7 @@
 """OpenRouter STT and rewriting. STT asks two models at once, uses the first transcript and retries 429."""
 import base64
 import io
+import logging
 import math
 import queue
 import random
@@ -8,7 +9,14 @@ import threading
 import time
 import wave
 import requests
+import truststore
 from apollo_config import DEFAULT_STT_MODEL, validate_vocabulary
+
+# Trust the Windows certificate store. Virus scanners, company proxies and school
+# networks often check HTTPS with their own root certificate; the certifi list
+# alone rejects that connection with an SSL error.
+truststore.inject_into_ssl()
+log = logging.getLogger("apollo")
 
 # Two pools with warm TLS connections: one for each model of the race.
 # A Session is not thread-safe, so each request thread needs its own pool.
@@ -38,12 +46,24 @@ def warm():
 
 
 KEY_REJECTED = "Der API-Schlüssel wurde abgelehnt. Bitte korrigieren und erneut versuchen."
+KEY_INVALID = "Der Schlüssel enthält ungültige Zeichen. Bitte erneut von openrouter.ai/keys kopieren."
+KEY_UNUSABLE = (KEY_REJECTED, KEY_INVALID)  # never save these keys
+NO_CONNECTION = "Keine Verbindung zu openrouter.ai. Internet, Firewall, VPN und Proxy prüfen."
+TLS_BLOCKED = ("Die sichere Verbindung zu openrouter.ai wurde blockiert. Prüfe Datum und Uhrzeit. "
+               "Trage Apollo im Virenscanner als Ausnahme ein.")
+UNAVAILABLE = "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
 
 
-def check_key(key):
-    """Read-only authentication check; no model inference, audio or billing."""
+def check_key(key, get=requests.get):
+    """Read-only authentication check; no model inference, audio or billing.
+
+    Return "" for a working key, otherwise a message that names the cause.
+    """
+    # A copied key can carry an invisible character; HTTP headers allow only ASCII.
+    if not key or not key.isascii() or not key.isprintable() or " " in key:
+        return KEY_INVALID
     try:
-        response = requests.get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
+        response = get("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key}, timeout=(5, 15))
         try:
             if response.status_code in (401, 403):
                 return KEY_REJECTED
@@ -52,8 +72,16 @@ def check_key(key):
             if not isinstance(data.get("data"), dict): return "Schlüssel konnte nicht geprüft werden. Bitte erneut versuchen."
             return ""
         finally: response.close()
-    except (requests.RequestException, ValueError):
-        return "OpenRouter ist gerade nicht erreichbar. Bitte erneut versuchen."
+    except requests.exceptions.SSLError:  # a subclass of ConnectionError: check it first
+        log.warning("Key check: the TLS connection to openrouter.ai failed (SSLError).")
+        return TLS_BLOCKED
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        log.warning("Key check: no connection to openrouter.ai (%s).", type(exc).__name__)
+        return NO_CONNECTION
+    except (requests.RequestException, ValueError) as exc:
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        log.warning("Key check: OpenRouter answered with an error (%s, HTTP %s).", type(exc).__name__, code)
+        return UNAVAILABLE
 
 
 class ResponseError(ValueError):
@@ -188,8 +216,11 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
         def spawn(model, post=None):
             threading.Thread(target=go, args=(model, post), daemon=True).start()
         spawn(first)
+        delay = HEDGE_SECONDS + HEDGE_PER_AUDIO_SECOND * seconds
         try:
-            item = results.get(timeout=HEDGE_SECONDS + HEDGE_PER_AUDIO_SECOND * seconds)
+            if delay <= 0:
+                raise queue.Empty  # race: start the second model now, even if the first already failed
+            item = results.get(timeout=delay)
         except queue.Empty:
             sent.append(other)
             spawn(other, _hedge_http.post)
