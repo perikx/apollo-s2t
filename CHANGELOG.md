@@ -3,6 +3,13 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.8] - 2026-10-25
+
+### Recording
+- Increase the maximum recording duration from 5 to 30 minutes for F8, F9 and F10.
+- The recorder buffer and automatic stop use the same limit. At the limit, captured audio
+  is saved and processed as before. Incomplete rewrites still fall back to the full raw transcript.
+
 ## [0.4.7] - 2026-10-15
 
 ### Build and release

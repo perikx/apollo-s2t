@@ -293,15 +293,21 @@ def test_failed_final_disk_repair_reports_incomplete_and_releases_slot(app, monk
     app._slots.release()
 
 
-def test_five_minute_limit_preserves_all_samples_and_notifies(app, monkeypatch, desktop):
+def test_thirty_minute_limit_preserves_all_samples_and_notifies(app, monkeypatch, desktop):
     input_stream(monkeypatch)
     notices = []
     monkeypatch.setattr(app, "notify", notices.append)
     monkeypatch.setattr(apollo, "transcribe_openrouter", lambda *args, **kwargs: "full recording")
     app.on_press("dictate")
+    assert desktop.timers[-1].interval == 1800
     app.recorder._callback(pcm_of(1, 16000 * 301), 16000 * 301, None, None)
+    assert app.recording and app.recorder.sample_count == 16000 * 301
+    app.recorder._callback(pcm_of(2, 16000 * 1500), 16000 * 1500, None, None)
     desktop.timers[-1].fire()
     app._join_jobs()
     assert not app.recording
-    assert len(read_pcm(app.recovery_items()[0].path)) == 16000 * 300 * 2
+    saved = read_pcm(app.recovery_items()[0].path)
+    assert len(saved) == 16000 * 1800 * 2
+    assert saved[:2] == pcm_of(1, 1) and saved[-2:] == pcm_of(2, 1)
+    assert app.recovery_items()[0].read_transcript() == "full recording"
     assert any("time limit reached" in notice for notice in notices)
