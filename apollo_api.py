@@ -25,7 +25,7 @@ _hedge_http = requests.Session()
 STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
 REWRITE_URL = "https://openrouter.ai/api/v1/chat/completions"
 REWRITE_TIMEOUT_SECONDS = 20
-REWRITE_MAX_TOKENS = 4096  # enough for any dictation; a large value can trigger 402 credit-limit errors
+REWRITE_MAX_TOKENS = 4096  # incomplete rewrites fall back to the full raw transcript
 STT_MAX_ATTEMPTS = 3
 STT_RETRY_WINDOW_SECONDS = 30
 # Wait before the second model starts. 0: both models start at once and the faster

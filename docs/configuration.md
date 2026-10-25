@@ -103,7 +103,10 @@ API references: [transcription](https://openrouter.ai/docs/guides/overview/multi
 | `auto_update` | `true` (default): the exe installs new GitHub releases and restarts after 2 quiet minutes. |
 
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
-audio stays in recovery. A recording stops and processes after 300 seconds. At most 3 jobs
+audio stays in recovery. A recording stops and processes after 30 minutes (1,800 seconds).
+This is about 57.6 MB of uncompressed audio, sent through the base64 JSON transcription endpoint.
+Provider size and processing limits still apply; failed requests keep the audio for Recovery.
+At most 3 jobs
 (the active recording plus processing jobs) run at once. A full queue rejects a new start with an error tone.
 Apollo restores the clipboard 1.5 seconds after a paste. At login, Apollo waits 3 seconds for the
 audio device and keyboard hooks.

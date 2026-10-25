@@ -284,6 +284,7 @@ def test_recorder_bounds_audio_and_releases_buffers():
 
 def test_stream_closed_and_frames_released_even_when_stop_raises():
     recorder = apollo.Recorder(16000, 1, None)
+    assert recorder.max_bytes == 16000 * 1800 * 2
     recorder._frames = [bytes(20)]
     closed = []
     def fail():

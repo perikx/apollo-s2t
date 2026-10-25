@@ -38,13 +38,13 @@ from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.4.7"
+APP_VERSION = "0.4.8"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "apollo.log")
 SAMPLERATE, CHANNELS = 16000, 1
-MIN_RECORD_SECONDS, MAX_RECORD_SECONDS = 0.3, 300
+MIN_RECORD_SECONDS, MAX_RECORD_SECONDS = 0.3, 30 * 60
 MAX_PENDING_RECORDINGS = 3
 AUTOSTART_DELAY_SECONDS = 3  # wait for the audio device and keyboard hooks at login
 RESTORE_DELAY_SECONDS = 1.5  # slow apps read the clipboard late
@@ -243,7 +243,7 @@ def audio_envelope(rms):
 
 
 class Recorder:
-    def __init__(self, samplerate, channels, device, max_seconds=300):
+    def __init__(self, samplerate, channels, device, max_seconds=MAX_RECORD_SECONDS):
         self.samplerate, self.channels, self.device = samplerate, channels, device
         self.max_bytes = int(samplerate * max_seconds) * channels * 2
         self._stream = None
