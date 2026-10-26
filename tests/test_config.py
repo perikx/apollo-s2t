@@ -56,6 +56,18 @@ def test_migration_is_idempotent():
     assert again == cfg and not notes
 
 
+@pytest.mark.parametrize("minutes", [0, 31, True, 1.5, "10", None])
+def test_invalid_recording_limit_rejected(minutes):
+    with pytest.raises(ConfigError):
+        normalize_config({"recording": {"max_minutes": minutes}})
+
+
+def test_recording_limit_migration_and_boundaries():
+    assert normalize_config({})[0]["recording"]["max_minutes"] == 30
+    for minutes in (1, 30):
+        assert normalize_config({"recording": {"max_minutes": minutes}})[0]["recording"]["max_minutes"] == minutes
+
+
 def test_defaults_are_independent():
     cfg = default_config()
     cfg["hotkeys"]["dictate"] = "changed"

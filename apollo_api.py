@@ -1,5 +1,6 @@
 """OpenRouter STT and rewriting. STT asks two models at once, uses the first transcript and retries 429."""
 import base64
+from array import array
 import io
 import logging
 import math
@@ -118,7 +119,7 @@ def http_error_hint(service, exc):
     """Never log response bodies: they can echo dictation or credentials."""
     response = getattr(exc, "response", None)
     if response is None:
-        return f"{service}: connection failed or timed out. Check your connection, then retry the saved audio."
+        return f"{service}: connection or audio upload failed. Retry the saved audio. Short recordings may still work."
     code = response.status_code
     hints = {
         400: "Invalid request. Check the model, language and model options in config.json.",
@@ -136,9 +137,13 @@ def http_error_hint(service, exc):
 def _post(url, key, body, timeout, post=None):
     if not key:
         raise ResponseError("Missing OpenRouter API key. Run setup.bat.")
+    # Requests also uses the connect timeout while writing the request body.
+    # Allow slow uploads without making text requests wait longer to connect.
+    audio = body.get("input_audio", {}).get("data", "")
+    upload_timeout = max(15, min(180, len(audio) / (32 * 1024))) if audio else 5
     response = (post or _http.post)(
         url, headers={"Authorization": f"Bearer {key}", "X-Title": "Apollo-s2t"},
-        json=body, timeout=(5, timeout),
+        json=body, timeout=(upload_timeout, timeout),
     )
     try:
         response.raise_for_status()
@@ -162,6 +167,31 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
     ``on_fallback`` gets the fallback model when its transcript is used.
     ``on_attempt`` gets (model, ok, seconds) for every finished request.
     """
+    if _audio_seconds(wav_bytes) > 60:
+        transcripts = []
+        with wave.open(io.BytesIO(wav_bytes)) as audio:
+            rate, width, channels = audio.getframerate(), audio.getsampwidth(), audio.getnchannels()
+            while audio.tell() < audio.getnframes():
+                if wait and wait(0):
+                    raise RetryCancelled("Transcription cancelled; saved audio can be retried later.")
+                start = audio.tell()
+                frames = audio.readframes(rate * 60)
+                if width == 2 and audio.tell() < audio.getnframes():
+                    # Cut at the quietest 100 ms in the last five seconds.
+                    samples = array("h", frames)
+                    step = max(1, rate // 10) * channels
+                    candidates = range(rate * 55 * channels, len(samples) - step + 1, step)
+                    cut = min(candidates, key=lambda i: sum(abs(v) for v in samples[i:i+step]))
+                    end = (cut + step // 2) // channels
+                    frames = frames[:end * channels * width]
+                    audio.setpos(start + end)
+                part = io.BytesIO()
+                with wave.open(part, "wb") as output:
+                    output.setparams(audio.getparams())
+                    output.writeframes(frames)
+                transcripts.append(transcribe_openrouter(part.getvalue(), cfg, key, on_retry=on_retry,
+                    on_fallback=on_fallback, on_attempt=on_attempt, wait=wait))
+        return "\n\n".join(text for text in transcripts if text)
     primary = cfg.get("model", DEFAULT_STT_MODEL)
     fallback = cfg.get("fallback_model")
     body = {"model": primary, "input_audio": {"data": base64.b64encode(wav_bytes).decode("ascii"), "format": "wav"}}

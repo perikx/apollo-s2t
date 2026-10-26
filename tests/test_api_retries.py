@@ -231,7 +231,7 @@ def test_hint_never_discloses_response_body_and_has_fixed_text():
 
 def test_connection_hint_hides_exception_text():
     hint = api.http_error_hint("STT", requests.Timeout("secret url/private-key"))
-    assert "timed out" in hint
+    assert "audio upload failed" in hint
     assert "secret" not in hint and "private-key" not in hint
 
 

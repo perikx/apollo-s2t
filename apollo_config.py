@@ -24,6 +24,7 @@ DEFAULTS = {
     "smoothing": {"api_key": "", "model": DEFAULT_SMOOTHING_MODEL},
     "prompt_profiles": {"active": "default", "output_language": "english"},
     "audio": {"device": None},
+    "recording": {"max_minutes": 30},
     "insertion": {"restore_clipboard": True},
     "beep": True,
     "auto_update": True,  # install new GitHub releases and restart when idle
@@ -108,6 +109,7 @@ def validate_config(cfg):
     if fallback == stt["model"]:
         raise ConfigError("Primary and fallback models must be different.")
     cache = cfg["recovery_cache"]
+    _number(cfg["recording"]["max_minutes"], "recording.max_minutes", 1, 30, True)
     _number(cache["minutes"], "recovery_cache.minutes", 5, 60, True)
     if type(cfg["overlay"]["visible"]) is not bool:
         raise ConfigError("overlay.visible must be true or false.")

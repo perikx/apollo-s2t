@@ -38,7 +38,7 @@ from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.4.8"
+APP_VERSION = "0.4.9"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -627,7 +627,7 @@ class App:
         self.cfg, _ = normalize_config(config)
         self.base_dir = BASE_DIR
         self.samplerate, self.channels = SAMPLERATE, CHANNELS
-        self.recorder = Recorder(SAMPLERATE, CHANNELS, self.cfg["audio"]["device"], MAX_RECORD_SECONDS)
+        self.recorder = Recorder(SAMPLERATE, CHANNELS, self.cfg["audio"]["device"], self.cfg["recording"]["max_minutes"] * 60)
         self.beep_enabled = self.cfg["beep"]
         self.min_samples = int(MIN_RECORD_SECONDS * SAMPLERATE)
         self.recording, self.active_mode = False, None
@@ -726,7 +726,7 @@ class App:
         with self._lock:
             cfg = deepcopy(self.cfg)
         for section, values in changes.items():
-            if section not in ("overlay", "recovery_cache", "prompt_profiles", "openrouter_stt", "smoothing", "hotkeys", "hotkey_mode",
+            if section not in ("overlay", "recovery_cache", "recording", "prompt_profiles", "openrouter_stt", "smoothing", "hotkeys", "hotkey_mode",
                                "hotkeys_in_fullscreen", "auto_update", "ui_language"):
                 raise ConfigError("Unsupported preference")
             if isinstance(values, dict):
@@ -910,6 +910,8 @@ class App:
                 return
             try:
                 cfg = deepcopy(self.cfg)
+                max_seconds = cfg["recording"]["max_minutes"] * 60
+                self.recorder.max_bytes = self.samplerate * self.channels * 2 * max_seconds
                 prompt = build_prompt_system(cfg, self.base_dir) if mode == "prompt" else PROMPTS.get(mode, "")
                 self._capture = (mode, cfg, prompt)
                 self._backup = self.recovery.create(self.samplerate, self.channels, mode, prompt,
@@ -921,7 +923,7 @@ class App:
                 with self._lock:
                     self.recording, self.active_mode = True, mode
                     self._record_timer = threading.Timer(
-                        MAX_RECORD_SECONDS, self.on_release,
+                        max_seconds, self.on_release,
                         args=(mode,), kwargs={"expected_capture": self._capture, "limit_reached": True})
                     self._record_timer.daemon = True
                     self._record_timer.start()
