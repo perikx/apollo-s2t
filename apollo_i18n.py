@@ -23,6 +23,8 @@ def t(text, language=None):
 # key: (English, German, Chinese). None means the same as the key.
 # Older keys are German; newer keys are English.
 CATALOG = {
+    "Maximale Aufnahmelänge (Minuten)": ("Maximum recording length (minutes)", None, "最长录音时长（分钟）"),
+    "Bitte eine Aufnahmelänge von 1 bis 30 Minuten eingeben.": ("Enter a recording length from 1 to 30 minutes.", None, "请输入 1 至 30 分钟的录音时长。"),
     "Gespeichert": ("Saved", None, "已保存"),
     "OpenRouter-API-Schlüssel": ("OpenRouter API key", None, "OpenRouter API 密钥"),
     "Kein Schlüssel gespeichert": ("No key saved", None, "未保存密钥"),

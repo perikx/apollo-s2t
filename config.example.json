@@ -25,6 +25,9 @@
   "audio": {
     "device": null
   },
+  "recording": {
+    "max_minutes": 30
+  },
   "insertion": {
     "restore_clipboard": true
   },

@@ -269,6 +269,22 @@ def test_job_start_failure_does_not_leave_ghost_job(app, monkeypatch):
     app._slots.release()
 
 
+def test_recording_limit_controls_timer_and_buffer_from_next_capture(app, desktop, monkeypatch):
+    monkeypatch.setattr(app.recorder, "start", lambda *args, **kwargs: None)
+    app.update_preferences({"recording": {"max_minutes": 2}})
+    app.on_press("dictate")
+    assert app.recording
+    assert app._record_timer.interval == 120
+    assert app.recorder.max_bytes == 16000 * 2 * 120
+    app.update_preferences({"recording": {"max_minutes": 3}})
+    assert app._record_timer.interval == 120
+    assert app.recorder.max_bytes == 16000 * 2 * 120
+    app.on_release("dictate")
+    app.on_press("dictate")
+    assert app._record_timer.interval == 180
+    assert app.recorder.max_bytes == 16000 * 2 * 180
+
+
 def test_recorder_bounds_audio_and_releases_buffers():
     recorder = apollo.Recorder(16000, 1, None, max_seconds=1)
     data = b"\x01\x00" * 10000

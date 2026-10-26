@@ -31,7 +31,7 @@ def test_transcription_uses_documented_json_and_auto_language(monkeypatch):
     body = kwargs["json"]
     assert body == {"model": DEFAULT_STT_MODEL,
                     "input_audio": {"data": base64.b64encode(b"wave").decode(), "format": "wav"}}
-    assert kwargs["timeout"] == (5, 15)  # short audio: 15 s + half the audio length
+    assert kwargs["timeout"] == (15, 15)  # short audio: 15 s + half the audio length
     assert kwargs["headers"]["Authorization"] == "Bearer test-key"
     response.close.assert_called_once()
 
@@ -118,9 +118,49 @@ def test_stt_read_timeout_scales_with_audio_length(monkeypatch):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
         w.writeframes(bytes(16000 * 2 * seconds))
     api.transcribe_openrouter(wav.getvalue(), {}, "key")
-    assert post.call_args.kwargs["timeout"] == (5, 45)
+    upload, read = post.call_args.kwargs["timeout"]
+    assert upload == pytest.approx(len(base64.b64encode(wav.getvalue())) / (32 * 1024))
+    assert read == 45
     api.transcribe_openrouter(b"not a wav", {}, "key")  # not a WAV: base timeout
-    assert post.call_args.kwargs["timeout"] == (5, 15)
+    assert post.call_args.kwargs["timeout"] == (15, 15)
+
+
+def test_long_audio_preserves_every_sample_and_returns_no_partial_result(monkeypatch):
+    pcm = bytes(range(256)) * 9000
+    source = io.BytesIO()
+    with wave.open(source, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm)
+    received = []
+    def post(*args, **kwargs):
+        with wave.open(io.BytesIO(base64.b64decode(kwargs["json"]["input_audio"]["data"]))) as w:
+            assert w.getnframes() <= 60 * 16000
+            received.append(w.readframes(w.getnframes()))
+        return Mock(json=lambda: {"text": str(len(received))})
+    monkeypatch.setattr(api._http, "post", post)
+    assert api.transcribe_openrouter(source.getvalue(), {}, "key") == "1\n\n2"
+    assert b"".join(received) == pcm
+    def fail(*args, **kwargs):
+        if len(received) > 2: raise requests.Timeout()
+        return post(*args, **kwargs)
+    monkeypatch.setattr(api._http, "post", fail)
+    with pytest.raises(requests.Timeout):
+        api.transcribe_openrouter(source.getvalue(), {}, "key")
+
+
+def test_upload_timeout_is_bounded_and_shared_by_both_models(monkeypatch):
+    timeouts = []
+    def post(*args, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        return Mock(json=lambda: {"text": "recovered"})
+    monkeypatch.setattr(api._http, "post", post)
+    monkeypatch.setattr(api._hedge_http, "post", post)
+    api.transcribe_openrouter(bytes(24 * 1024 * 1024), {"fallback_model": "other/stt"}, "key")
+    # Both requests use the shared upload limit, including the fallback.
+    import time
+    deadline = time.monotonic() + 2
+    while len(timeouts) < 2 and time.monotonic() < deadline:
+        time.sleep(.01)
+    assert timeouts == [(180, 15), (180, 15)]
 
 
 def test_retry_after_accepts_plain_numbers_only():

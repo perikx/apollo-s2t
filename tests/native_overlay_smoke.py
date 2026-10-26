@@ -81,6 +81,13 @@ assert ui.dialog.isVisible() and "Wirklich wichtig" in ui.preview_text.toPlainTe
 backup.update(state="ready", error=""); ui.refresh_recovery()
 screenshot("recovery.png", ui.dialog)
 click("settings"); assert ui.page == "settings"
+ui.record_minutes.setText("31"); ui.save_settings()
+assert app.cfg["recording"]["max_minutes"] == 30 and "1 bis 30" in ui.result.text()
+ui.record_minutes.setText("10"); ui.save_settings()
+assert app.cfg["recording"]["max_minutes"] == 10
+ui.open_page("settings")
+assert ui.record_minutes.text() == "10"
+screenshot("recording-settings.png", ui.dialog)
 assert any(item.text() == "apollo" for item in ui.dialog.findChildren(QLabel))
 ui.interface_language.choose()
 assert all(ui.interface_language.items.item(i).data(Qt.ItemDataRole.UserRole) != ui.interface_language.value for i in range(ui.interface_language.items.count()))

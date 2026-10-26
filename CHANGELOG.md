@@ -3,6 +3,14 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.9] - 2026-10-26
+
+### Recording and recovery
+- Set the maximum recording length from 1 to 30 minutes in Settings. Changes apply to the next recording.
+- Allow more upload time for audio. Split long recordings into sections of up to one minute at quiet points.
+- Return the transcript only after all sections finish. Keep saved audio available when a request fails.
+- Clarify the connection error message when an audio upload fails.
+
 ## [0.4.8] - 2026-10-25
 
 ### Recording

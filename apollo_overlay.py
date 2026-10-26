@@ -329,6 +329,10 @@ class FloatingUI:
         self.api_status = label("Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.", "muted", True); account.addWidget(self.api_status)
         interface = self.card(layout, "Sprache der Oberfläche")
         self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
+        recording = self.card(layout, "Maximale Aufnahmelänge (Minuten)")
+        self.record_minutes = QLineEdit(str(cfg["recording"]["max_minutes"]))
+        self.record_minutes.setAccessibleName(t("Maximale Aufnahmelänge (Minuten)"))
+        recording.addWidget(self.record_minutes)
         keys = self.card(layout, "Aufnahmetasten")
         for mode, text in MODES.items():
             row = QHBoxLayout(); row.addWidget(label(text)); row.addStretch()
@@ -423,11 +427,15 @@ class FloatingUI:
         previous_language = self.app.cfg["ui_language"]
         scroll_position = self.form_scroll.verticalScrollBar().value()
         try:
+            try: record_minutes = int(self.record_minutes.text())
+            except ValueError: raise ValueError("Bitte eine Aufnahmelänge von 1 bis 30 Minuten eingeben.")
+            if not 1 <= record_minutes <= 30: raise ValueError("Bitte eine Aufnahmelänge von 1 bis 30 Minuten eingeben.")
             try: minutes = int(self.minutes.text())
             except ValueError: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
             if not 5 <= minutes <= 60: raise ValueError("Bitte eine Recovery-Dauer von 5 bis 60 Minuten eingeben.")
             self.store_profile_text(self.profile.value)
             self.app.update_preferences({"hotkeys": {k:v.value for k,v in self.key_fields.items()}, "hotkey_mode": self.key_mode.value,
+                "recording": {"max_minutes": record_minutes},
                 "hotkeys_in_fullscreen": self.fullscreen_keys.isChecked(), "auto_update": self.auto_update.isChecked(), "ui_language": self.interface_language.value,
                 "openrouter_stt": {"vocabulary": [line.strip() for line in self.vocabulary.toPlainText().splitlines() if line.strip()]},
                 "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
