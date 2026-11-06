@@ -147,7 +147,8 @@ class Orbit(QWidget):
                 self.moved = True
                 self.ui.x, self.ui.y = self.drag[1]+delta.x(), self.drag[2]+delta.y()
                 self.move(round(self.ui.x-self.CENTER.x()), round(self.ui.y-self.CENTER.y()))
-                if self.glass.refresh(.03): self.update()
+                # Paint the glass for the new position now, so it never trails the window.
+                self.glass.refresh(.1); self.repaint()
     def mouseReleaseEvent(self, event):
         self.drag = None
         if self.moved:
@@ -284,7 +285,7 @@ class FloatingUI:
             self.was_recording = self.app.recording; self.place(); self.orb.update()
         busy = self.app.recording or self.app._busy_recordings
         moving = self.orb.menu_animation.state() == self.orb.menu_animation.State.Running
-        if self.orb.isVisible() and self.orb.glass.refresh(.03 if busy or moving else .25): self.orb.update()
+        if self.orb.isVisible() and self.orb.glass.refresh(.1 if busy or moving else .25): self.orb.update()
         if busy: self.orb.update()
         want = 33 if busy else 100  # animate fast only while recording or processing
         if self.timer.interval() != want: self.timer.setInterval(want)
