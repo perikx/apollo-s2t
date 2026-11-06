@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Overlay
+- Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
+
 ## [0.4.9] - 2026-11-06
 
 ### Recording and recovery

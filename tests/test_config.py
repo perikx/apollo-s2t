@@ -68,6 +68,14 @@ def test_recording_limit_migration_and_boundaries():
         assert normalize_config({"recording": {"max_minutes": minutes}})[0]["recording"]["max_minutes"] == minutes
 
 
+def test_overlay_material_defaults_to_light_and_rejects_unknown():
+    assert normalize_config({})[0]["overlay"]["material"] == "light"
+    for material in ("clear", "light", "dark"):
+        assert normalize_config({"overlay": {"material": material}})[0]["overlay"]["material"] == material
+    with pytest.raises(ConfigError):
+        normalize_config({"overlay": {"material": "glass"}})
+
+
 def test_defaults_are_independent():
     cfg = default_config()
     cfg["hotkeys"]["dictate"] = "changed"
