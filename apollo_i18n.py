@@ -14,6 +14,7 @@ def t(text, language=None):
     if values is None:
         for prefix, suffix, template, key in (
             ("Transcription busy. Audio saved; retrying in ", " seconds.", "Transcription busy. Audio saved; retrying in {seconds} seconds.", "seconds"),
+            ("Transcription failed. Audio saved; retrying automatically in ", " seconds.", "Transcription failed. Audio saved; retrying automatically in {seconds} seconds.", "seconds"),
         ):
             if text.startswith(prefix) and text.endswith(suffix):
                 return t(template, language).format(**{key: text[len(prefix):-len(suffix)]})
@@ -49,6 +50,7 @@ CATALOG = {
     "Dictation did not finish. Check Recovery and free disk space.": (None, "Diktat nicht abgeschlossen. Recovery und freien Speicherplatz prüfen.", "听写未完成。请检查恢复页面和可用磁盘空间。"),
     "Recording unavailable. Reopen Recovery.": (None, "Aufnahme nicht verfügbar. Bitte Recovery erneut öffnen.", "录音不可用。请重新打开恢复页面。"),
     "Transcription busy. Audio saved; retrying in {seconds} seconds.": (None, "Transkription ausgelastet. Audio gesichert; neuer Versuch in {seconds} Sekunden.", "转录繁忙。音频已保存，将在 {seconds} 秒后重试。"),
+    "Transcription failed. Audio saved; retrying automatically in {seconds} seconds.": (None, "Transkription fehlgeschlagen. Audio gesichert; neuer Versuch in {seconds} Sekunden.", "转录失败。音频已保存，将在 {seconds} 秒后自动重试。"),
     "Recording interrupted. Check microphone and disk space; recovery audio may be incomplete.": (None, "Aufnahme unterbrochen. Mikrofon und Speicherplatz prüfen; das Recovery-Audio ist evtl. unvollständig.", "录音中断。请检查麦克风和磁盘空间；恢复音频可能不完整。"),
     "Processing queue full. Your saved dictation is still available.": (None, "Verarbeitungswarteschlange voll. Dein gesichertes Diktat bleibt verfügbar.", "处理队列已满。已保存的听写仍然可用。"),
     "Could not open the recovery folder. Check folder access.": (None, "Recovery-Ordner konnte nicht geöffnet werden. Zugriff prüfen.", "无法打开恢复文件夹。请检查访问权限。"),

@@ -16,7 +16,7 @@ Download `apollo.exe` and run it. Setup asks for your [OpenRouter key](https://o
 | F9 | Clean up: removes fillers, stutters and false starts, keeps your words |
 | F10 | Build a prompt |
 
-Press once to record, again to stop. Change keys, models and fallback in the app. Failed transcriptions can be retried from Recovery.
+Press once to record, again to stop. Change keys, models and fallback in the app. Failed transcriptions are sent again automatically; Recovery keeps the audio.
 
 Audio and text are sent through OpenRouter. Recovery is cached locally; configuration can contain your API key.
 

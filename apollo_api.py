@@ -106,6 +106,11 @@ def _retryable(exc):
     return code == 429 or code >= 500 or isinstance(exc, (requests.Timeout, requests.ConnectionError))
 
 
+def is_retryable(exc):
+    """True for failures that can pass by themselves: rate limit, server error, timeout, no connection."""
+    return _retryable(exc)
+
+
 def _audio_seconds(wav_bytes):
     """Length from the byte count and the WAV header; 0 if it is not a WAV."""
     try:
