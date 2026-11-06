@@ -1,6 +1,6 @@
 # Overlay redesign prototypes
 
-These pages are design prototypes for a new Apollo overlay. The app does not use them.
+These pages are design prototypes for the Apollo overlay. The app implements the glass natively in `apollo_glass.py`.
 Open the HTML files in Chrome or Edge. The glass effect uses `backdrop-filter: url(#filter)`, and only Chromium supports it.
 
 ## Files

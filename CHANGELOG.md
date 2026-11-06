@@ -7,7 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Overlay
 - Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
-- Show the settings, recovery and model panels and the overlay and tray menus in the same material. A change applies at once.
+- Show the orb, the menu droplets, the settings, recovery and model panels and the overlay and tray menus as liquid glass in the same material. The glass blurs, magnifies and bends the desktop behind it. A change applies at once.
+- Use warm grays with the orange of the sun as the accent in panels and menus.
+- Apollo windows no longer appear in screenshots, screen recordings or screen sharing. Windows must exclude them from capture, so that the glass can show the desktop behind it.
 - Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and for the exe, tray and window icons.
 
 ## [0.4.9] - 2026-11-06

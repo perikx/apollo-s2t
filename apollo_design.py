@@ -4,57 +4,59 @@ import sys
 from string import Template
 from apollo_i18n import t
 
-from PySide6.QtCore import Qt, QRectF, QPointF, QSize
+from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPalette, QBrush
-from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMenu,
                               QPushButton, QVBoxLayout, QWidget)
+from apollo_glass import Backdrop, paint_glass
 
-# Panels and menus use the same material as the floating orb. Windows gives a
-# frameless Qt window no reliable backdrop blur, so the glass is a tint: clear
-# shows the most of the desktop, milky light and milky dark show less of it.
-_LIGHT = dict(surface="rgba(246, 246, 243, 236)", edge="rgba(255, 255, 255, 235)", card="rgba(255, 255, 255, 130)",
-              line="rgba(35, 35, 35, 34)", text="#232323", muted="#5f5f5c", error="#a72e29",
-              field="rgba(255, 255, 255, 200)", focus="#232323", button="#232323", button_text="#fafafa",
-              button_hover="#3c3c3c", button_pressed="#111111", nav_checked="#50504e",
-              disabled="rgba(35, 35, 35, 40)", disabled_text="#6f6f6c", item_hover="rgba(35, 35, 35, 16)",
-              item_selected="rgba(35, 35, 35, 34)", item_border="rgba(35, 35, 35, 90)", check_border="#868682")
+# Windows, menus and the orb are liquid glass in the chosen material. The
+# colors are warm grays with the orange of the sun as the one accent.
+SUN = "#ff8a00"
+_LIGHT = dict(text="#232323", muted="#5f5f5c", error="#a72e29", card="rgba(255, 255, 255, 110)",
+              line="rgba(35, 35, 35, 30)", field="rgba(255, 255, 255, 170)", accent=SUN, accent_hover="#ff9d2e",
+              accent_text="#232323", button="rgba(35, 35, 35, 20)", button_hover="rgba(35, 35, 35, 36)",
+              button_pressed="rgba(35, 35, 35, 52)", nav_checked="rgba(255, 138, 0, 70)",
+              disabled="rgba(35, 35, 35, 12)", disabled_text="#8a8a86", item_hover="rgba(35, 35, 35, 16)",
+              item_selected="rgba(255, 138, 0, 60)", check_border="#868682", window="#f6f6f3")
 MATERIAL_STYLES = {
     "light": _LIGHT,
-    "clear": dict(_LIGHT, surface="rgba(250, 250, 248, 200)", card="rgba(255, 255, 255, 96)", field="rgba(255, 255, 255, 176)"),
-    "dark": dict(surface="rgba(28, 28, 30, 236)", edge="rgba(255, 255, 255, 55)", card="rgba(255, 255, 255, 14)",
-                 line="rgba(255, 255, 255, 34)", text="#fafafa", muted="#b4b4af", error="#ff9b8f",
-                 field="rgba(255, 255, 255, 20)", focus="#fafafa", button="rgba(255, 255, 255, 34)", button_text="#fafafa",
-                 button_hover="rgba(255, 255, 255, 52)", button_pressed="rgba(255, 255, 255, 22)",
-                 nav_checked="rgba(255, 255, 255, 78)", disabled="rgba(255, 255, 255, 14)", disabled_text="#8d8d89",
-                 item_hover="rgba(255, 255, 255, 18)", item_selected="rgba(255, 255, 255, 36)",
-                 item_border="rgba(255, 255, 255, 110)", check_border="#b4b4af"),
+    "clear": dict(_LIGHT, card="rgba(255, 255, 255, 80)", field="rgba(255, 255, 255, 140)"),
+    "dark": dict(_LIGHT, text="#fafafa", muted="#b4b4af", error="#ff9b8f", card="rgba(255, 255, 255, 16)",
+                 line="rgba(255, 255, 255, 34)", field="rgba(255, 255, 255, 22)", accent_text="#1c1c1e",
+                 button="rgba(255, 255, 255, 28)", button_hover="rgba(255, 255, 255, 44)",
+                 button_pressed="rgba(255, 255, 255, 18)", nav_checked="rgba(255, 138, 0, 90)",
+                 disabled="rgba(255, 255, 255, 12)", disabled_text="#8d8d89", item_hover="rgba(255, 255, 255, 18)",
+                 item_selected="rgba(255, 138, 0, 80)", check_border="#b4b4af", window="#1c1c1e"),
 }
 _STYLE = Template("""
 QWidget { color: $text; font-family: 'Figtree'; font-size: 14px; }
-QFrame#surface { background: $surface; border: 1px solid $edge; border-radius: 24px; }
+QFrame#surface { background: transparent; border: none; }
 QFrame#card { background: $card; border: 1px solid $line; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
 QLabel#title { font-size: 21px; font-weight: 600; }
 QLabel#section { font-size: 14px; font-weight: 600; }
 QLabel#muted { color: $muted; font-size: 12px; }
 QLabel#error { color: $error; font-size: 13px; }
-QPushButton { background: $button; color: $button_text; border: 1px solid transparent; border-radius: 12px;
+QPushButton { background: $button; color: $text; border: 1px solid transparent; border-radius: 12px;
               padding: 7px 10px; font-size: 14px; text-align: left; }
 QPushButton:hover { background: $button_hover; }
 QPushButton:pressed { background: $button_pressed; }
-QPushButton:focus { border-color: $check_border; }
+QPushButton:focus { border-color: $accent; }
 QPushButton:disabled { background: $disabled; color: $disabled_text; }
-QPushButton#primary { font-weight: 600; text-align: center; }
+QPushButton#primary { background: $accent; color: $accent_text; font-weight: 600; text-align: center; }
+QPushButton#primary:hover { background: $accent_hover; }
+QPushButton#primary:focus { border-color: $text; }
 QPushButton#quiet { background: transparent; border: none; color: $muted; }
 QPushButton#nav { padding: 8px; }
 QPushButton#nav:checked { background: $nav_checked; }
 QLineEdit, QTextEdit, QPlainTextEdit { background: $field; color: $text; border: 1px solid $line; border-radius: 12px;
-                                    padding: 8px; selection-background-color: $focus; selection-color: $selection_text; }
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border-color: $focus; }
+                                    padding: 8px; selection-background-color: $accent; selection-color: $accent_text; }
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border-color: $accent; }
 QPlainTextEdit#log { border-radius: 8px; padding: 6px; font-size: 12px; }
 QListWidget { background: transparent; border: none; outline: none; padding: 3px; }
 QListWidget::item { background: $card; color: $text; border: 1px solid $line; border-radius: 13px; margin: 2px 0px; padding: 8px; }
-QListWidget::item:selected { background: $item_selected; border-color: $item_border; color: $text; }
+QListWidget::item:selected { background: $item_selected; border-color: $accent; color: $text; }
 QListWidget::item:hover { background: $item_hover; }
 QScrollArea { background: transparent; border: none; }
 QScrollArea > QWidget > QWidget { background: transparent; }
@@ -63,9 +65,9 @@ QScrollBar:horizontal { height: 0px; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
 QCheckBox { spacing: 10px; }
 QCheckBox::indicator { width: 22px; height: 22px; border: 1px solid $check_border; border-radius: 6px; background: $field; }
-QCheckBox::indicator:checked { background: $focus; border-color: $focus; }
+QCheckBox::indicator:checked { background: $accent; border-color: $accent; }
 QToolTip { background: #232323; color: #fafafa; border: 1px solid #50504e; padding: 8px; }
-QMenu { background: $surface; color: $text; border: 1px solid $edge; border-radius: 12px; padding: 4px; }
+QMenu { background: transparent; color: $text; border: none; padding: 6px; }
 QMenu::item { padding: 8px 16px; border-radius: 8px; }
 QMenu::item:selected { background: $item_selected; color: $text; }
 """)
@@ -77,30 +79,47 @@ def theme():
     return MATERIAL_STYLES[_current["name"]]
 
 
+def material():
+    return _current["name"]
+
+
 def style(material):
-    colors = MATERIAL_STYLES.get(material, _LIGHT)
-    return _STYLE.substitute(colors, selection_text="#fafafa" if colors["focus"] == "#232323" else "#232323")
+    return _STYLE.substitute(MATERIAL_STYLES.get(material, _LIGHT))
 
 
 def apply_material(material):
     """Restyle all Apollo windows and menus. Open windows change at once."""
     _current["name"] = material if material in MATERIAL_STYLES else "light"
     colors = theme(); app = qt_app(); palette = QPalette()
-    for role, color in ((QPalette.ColorRole.Window, colors["surface"]), (QPalette.ColorRole.Base, colors["field"]),
+    for role, color in ((QPalette.ColorRole.Window, colors["window"]), (QPalette.ColorRole.Base, colors["window"]),
                         (QPalette.ColorRole.Text, colors["text"]), (QPalette.ColorRole.WindowText, colors["text"]),
-                        (QPalette.ColorRole.Button, colors["button"]), (QPalette.ColorRole.ButtonText, colors["button_text"]),
-                        (QPalette.ColorRole.Highlight, colors["focus"]), (QPalette.ColorRole.HighlightedText, colors["surface"])):
+                        (QPalette.ColorRole.Button, colors["window"]), (QPalette.ColorRole.ButtonText, colors["text"]),
+                        (QPalette.ColorRole.Highlight, colors["accent"]), (QPalette.ColorRole.HighlightedText, colors["accent_text"])):
         palette.setColor(role, QColor(color))
     app.setPalette(palette); app.setStyleSheet(style(_current["name"]))
-    for window in app.topLevelWidgets():
-        if isinstance(window, Shell): window.restyle()
+    for widget in app.allWidgets():
+        if widget.property("glyph"): widget.setIcon(icon(widget.property("glyph")))
+        if isinstance(widget, (Shell, GlassMenu)): widget.update()
 
 
-def glass_menu(menu):
-    """Let a menu show the material tint and round corners instead of a square native frame."""
-    menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
-    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    return menu
+def glyph_button(widget, kind):
+    """An icon on a button that follows the text color of the material."""
+    widget.setProperty("glyph", kind); widget.setIcon(icon(kind)); return widget
+
+
+class GlassMenu(QMenu):
+    """A menu on liquid glass with round corners instead of a square native frame."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.glass = Backdrop(self)
+    def showEvent(self, event):
+        self.glass.refresh(0); super().showEvent(event)
+    def paintEvent(self, event):
+        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        paint_glass(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, self.glass, material(), panel=True)
+        painter.end(); super().paintEvent(event)
 
 
 def qt_app():
@@ -209,15 +228,30 @@ class Shell(QDialog):
         self.layout = QVBoxLayout(self.surface); self.layout.setContentsMargins(16, 12, 16, 16); self.layout.setSpacing(12)
         header = QWidget(); header.setFixedHeight(34); row = QHBoxLayout(header); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         row.addWidget(label("apollo", "section")); row.addStretch()
-        self.close_button = close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
+        close = glyph_button(QPushButton(), "close"); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
         close.setObjectName("quiet"); close.setAccessibleName(t("Fenster schließen")); close.clicked.connect(self.reject); row.addWidget(close)
         self.layout.addWidget(header)
         header.mousePressEvent = self.start_move
         self._move_origin = None
         header.mouseMoveEvent = self.move_window
         self.finished.connect(lambda _: self.hide())
-    def restyle(self):
-        self.close_button.setIcon(icon("close"))
+        self.glass = Backdrop(self)
+        # The desktop behind can change; a capture takes about 7 ms.
+        self.glass_timer = QTimer(self); self.glass_timer.timeout.connect(self.refresh_glass); self.glass_timer.start(500)
+    def refresh_glass(self, max_age=.5):
+        if self.isVisible() and self.glass.refresh(max_age): self.update()
+    def showEvent(self, event):
+        self.glass.refresh(0); super().showEvent(event)
+    def moveEvent(self, event):
+        super().moveEvent(event); self.refresh_glass(.03)
+    def paintEvent(self, event):
+        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.surface.geometry())
+        painter.setPen(Qt.PenStyle.NoPen)
+        for spread, alpha in ((6, 10), (3, 18)):
+            painter.setBrush(QColor(0, 0, 0, alpha))
+            painter.drawRoundedRect(rect.adjusted(-spread/2, -spread/4, spread/2, spread), 24+spread/2, 24+spread/2)
+        paint_glass(painter, rect, 24, self.glass, material(), panel=True); painter.end()
     def start_move(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.windowHandle() and self.windowHandle().startSystemMove(): return
