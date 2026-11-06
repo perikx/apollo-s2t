@@ -120,10 +120,13 @@ def paint_glass(painter, rect, radius, backdrop, material, panel=False):
     painter.drawPath(outline)
     # Rim light from the top left, a weaker edge opposite, as in the prototype.
     light = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    light.setColorAt(0, QColor(255, 255, 255, 230)); light.setColorAt(.5, QColor(255, 255, 255, 60))
-    light.setColorAt(1, QColor(255, 255, 255, 120))
-    painter.setBrush(Qt.BrushStyle.NoBrush); painter.setPen(QPen(light, 1.2))
-    painter.drawPath(shape(rect, radius, .6))
+    light.setColorAt(0, QColor(255, 255, 255, 245)); light.setColorAt(.5, QColor(255, 255, 255, 90))
+    light.setColorAt(1, QColor(255, 255, 255, 170))
+    painter.setBrush(Qt.BrushStyle.NoBrush); painter.setPen(QPen(light, 1.4))
+    painter.drawPath(shape(rect, radius, .7))
+    bevel = QLinearGradient(rect.topLeft(), rect.center())  # soft inner bevel facing the light
+    bevel.setColorAt(0, QColor(255, 255, 255, 70)); bevel.setColorAt(1, QColor(255, 255, 255, 0))
+    painter.setPen(QPen(bevel, 3)); painter.drawPath(shape(rect, radius, 2.4))
     painter.restore()
 
 
