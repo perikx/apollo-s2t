@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>apollo s2t · Redesign-Richtungen</title>
+<style>
+@font-face { font-family: "Figtree"; src: url(../../assets/fonts/Figtree.ttf) format("truetype"); font-weight: 300 900; }
+:root {
+  --fg: var(--foreground, #18181b);
+  --mut: var(--muted-foreground, #6b6b70);
+  --line: var(--border, #d9d9d6);
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  /* 8-bit palette */
+  --p-ink: #16161d; --p-ink2: #2a2a36; --p-sun: #ffc021; --p-org: #ff7a1a; --p-crm: #fff3d1;
+  /* ASCII palette */
+  --a-bg: #100f0d; --a-amb: #ffb000; --a-dim: #8a6a1f; --a-red: #ff6b5e; --a-grn: #8fe39d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Figtree", var(--font-sans, sans-serif); color: var(--fg); }
+.page { display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 22px; font-weight: 600; line-height: 1.2; margin: 0; }
+h2 { font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0; }
+p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--mut); max-width: 70ch; }
+section { display: flex; flex-direction: column; gap: 12px; }
+.head { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- logo grid ---------- */
+.logos { display: grid; grid-template-columns: minmax(96px, 1fr) repeat(3, minmax(0, 112px)); gap: 16px 12px; align-items: center; }
+.logos .col { font-size: 13px; font-weight: 600; text-align: center; }
+.logos .row { font-size: 14px; line-height: 1.35; }
+.logos .row b { display: block; font-weight: 600; }
+.logos .row span { color: var(--mut); font-size: 13px; }
+.tile { width: 96px; height: 96px; border-radius: 22px; justify-self: center; display: grid; place-items: center; overflow: hidden; }
+.tile canvas { width: 96px; height: 96px; image-rendering: pixelated; display: block; }
+.tile.ascii { background: var(--a-bg); color: var(--a-amb); }
+.tile.ascii pre { margin: 0; font: 8.5px/1.08 var(--mono); }
+.tile svg { display: block; }
+
+/* ---------- desktop stage ---------- */
+.stage { position: relative; height: 300px; border-radius: 12px; overflow: hidden; user-select: none; touch-action: none; border: 1px solid var(--line); }
+.wall { position: absolute; inset: 0; background: linear-gradient(180deg, #8fc3e8 0%, #f4c58b 62%, #e48a55 100%); }
+.wall .sunb { position: absolute; width: 120px; height: 120px; border-radius: 50%; right: 70px; top: 120px; background: #ffe7a6; }
+.wall .hill { position: absolute; border-radius: 50% 50% 0 0; }
+.wall .h1 { width: 520px; height: 220px; right: -160px; bottom: -90px; background: #3d6b55; }
+.wall .h2 { width: 420px; height: 170px; right: 120px; bottom: -100px; background: #24463a; }
+.wall .h3 { width: 300px; height: 120px; right: -40px; bottom: -70px; background: #172f27; }
+.win { position: absolute; left: 16px; top: 16px; width: 64%; bottom: 56px; background: #1e1e22; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); overflow: hidden; }
+.win .bar { height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #2b2b30; color: #b9b9c0; font-size: 12px; }
+.win .bar i { width: 10px; height: 10px; border-radius: 50%; background: #55555c; }
+.win pre { margin: 0; padding: 12px 16px; font: 12.5px/1.6 var(--mono); color: #d6d6dc; white-space: pre; }
+.k { color: #ff8f6b; } .f { color: #7cc4ff; } .s { color: #a8e07c; } .c { color: #7b7b86; } .n { color: #f5c76a; }
+.task { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: rgba(24,24,28,.9); display: flex; align-items: center; justify-content: center; gap: 8px; }
+.task i { width: 24px; height: 24px; border-radius: 6px; background: #4a4a52; }
+.task i:nth-child(2) { background: #3b82c4; } .task i:nth-child(3) { background: #d9822b; } .task i:nth-child(4) { background: #2f9e6e; }
+.task .clock { position: absolute; right: 16px; color: #e6e6ea; font-size: 12px; font-variant-numeric: tabular-nums; }
+.anchor { position: absolute; width: 0; height: 0; }
+.center { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
+
+/* ---------- segmented state control ---------- */
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 13px/1 "Figtree", sans-serif; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: background-color .12s, color .12s; }
+.seg button:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--background, #fff); border-color: var(--fg); }
+.seg button:focus-visible, .hit:focus-visible { outline: 2px solid var(--ring, #3b82f6); outline-offset: 2px; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 24px; }
+.notes div { font-size: 13px; line-height: 1.45; color: var(--mut); }
+.notes b { display: block; color: var(--fg); font-weight: 600; font-size: 13px; }
+
+/* ---------- 8-bit overlay ---------- */
+.px canvas { image-rendering: pixelated; display: block; }
+.px .main { cursor: grab; }
+.px .tilebtn { position: absolute; left: 0; top: 0; padding: 0; border: 0; background: none; cursor: pointer; opacity: 0;
+  transform: translate(-50%, -50%) scale(.3); transition: transform .18s steps(3), opacity .18s steps(3); pointer-events: none; }
+.px.menu .tilebtn { opacity: 1; pointer-events: auto; transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1); }
+
+/* ---------- ASCII overlay ---------- */
+.as { display: flex; align-items: stretch; background: var(--a-bg); color: var(--a-amb); border: 1px solid #3a3122; border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.35); font: 13px/1.25 var(--mono); cursor: grab; white-space: pre; }
+.as pre { margin: 0; font: inherit; padding: 6px 8px; }
+.as .side { border-left: 1px solid #3a3122; display: none; }
+.as.wide .side { display: block; }
+.as .dim { color: var(--a-dim); } .as .red { color: var(--a-red); } .as .grn { color: var(--a-grn); }
+.as .opt { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: none; border: 0; padding: 0 4px; cursor: pointer; white-space: pre; }
+.as .opt:hover, .as .opt:focus-visible { background: var(--a-amb); color: var(--a-bg); outline: none; }
+.as .opt .dim { color: inherit; opacity: .6; }
+
+/* ---------- Liquid Glass overlay ---------- */
+.lg { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 999px; cursor: grab;
+  isolation: isolate; box-shadow: 0 10px 28px rgba(0,0,0,.22), 0 2px 6px rgba(0,0,0,.18); }
+.lg .tint { position: absolute; inset: 0; border-radius: inherit; background: rgba(255,255,255,.04); transition: background-color .2s; }
+.lg.regular .tint { background: rgba(18,18,24,.30); }
+.lg.danger .tint { background: rgba(190,40,30,.32); }
+.lg .rim { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; padding: 1.25px;
+  background: linear-gradient(var(--ang, 135deg), rgba(255,255,255,.95) 0%, rgba(255,255,255,.25) 22%, rgba(255,255,255,0) 45%, rgba(255,255,255,0) 58%, rgba(255,255,255,.35) 82%, rgba(255,255,255,.7) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.lg .glow { position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 -1px 2px rgba(255,255,255,.18), inset 0 0 14px rgba(255,255,255,.14); }
+.lg .content { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: #fff;
+  font-weight: 600; font-size: 14px; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.35); font-variant-numeric: tabular-nums; }
+.lg .content svg { filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); flex: none; }
+.lg .bars { display: flex; align-items: center; gap: 3px; height: 28px; }
+.lg .bars i { width: 3px; border-radius: 2px; background: #fff; height: 4px; box-shadow: 0 0 2px rgba(0,0,0,.25); }
+.lg .spin { position: absolute; inset: 3px; animation: rot 1s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.lg.drop { transition: transform .26s cubic-bezier(.3,1.5,.5,1), opacity .18s; opacity: 0; pointer-events: none; transform: translate(-50%, -50%) scale(.35); }
+.gl.menu .lg.drop { opacity: 1; pointer-events: auto; transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1); }
+.gl.menu .lg.drop:hover .tint { background: rgba(255,255,255,.16); }
+.lg.drop .content { cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .px .tilebtn, .lg.drop { transition: none; }
+  .lg .spin { animation-duration: 3s; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs id="glassDefs">
+    <!-- static glass glyph filter for the logo tiles -->
+    <filter id="glyphGlass" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.6" result="blur"/>
+      <feSpecularLighting in="blur" surfaceScale="4" specularConstant="1.1" specularExponent="28" lighting-color="#fff" result="spec">
+        <fePointLight x="-40" y="-60" z="140"/>
+      </feSpecularLighting>
+      <feComposite in="spec" in2="SourceAlpha" operator="in" result="specIn"/>
+      <feComposite in="SourceGraphic" in2="specIn" operator="arithmetic" k1="0" k2="1" k3="0.9" k4="0"/>
+    </filter>
+    <filter id="glyphShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#5a1e00" flood-opacity=".45"/>
+    </filter>
+  </defs>
+</svg>
+
+<div class="page">
+  <div class="head">
+    <h1>apollo s2t: drei visuelle Richtungen</h1>
+    <p>Funktion bleibt gleich: schwebender Knopf, Klick öffnet das Menü, F8/F9/F10 nimmt auf. Jede Bühne unten ist ein nachgebauter Desktop. Zieh das Overlay herum und schalte die Zustände um. Der Pegel ist simuliert.</p>
+  </div>
+
+  <section aria-labelledby="h-logo">
+    <h2 id="h-logo">Logo: drei Motive, drei Stile</h2>
+    <div class="logos" id="logos">
+      <div></div><div class="col">8-Bit</div><div class="col">ASCII</div><div class="col">Liquid Glass</div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-px" data-dir="px">
+    <h2 id="h-px">1 · 8-Bit</h2>
+    <p>Pixel-Sonne als Knopf. Beim Sprechen werden die Strahlen länger, daneben läuft ein LED-Pegel. Feste Palette, 3-fach skalierte Pixel, keine weichen Kanten.</p>
+    <div class="stage"></div>
+    <div class="seg" role="group" aria-label="Zustand 8-Bit"></div>
+  </section>
+
+  <section aria-labelledby="h-as" data-dir="as">
+    <h2 id="h-as">2 · ASCII</h2>
+    <p>Ein Terminal-Widget in Bernstein. Die Sonne besteht aus Zeichen, deren Dichte dem Pegel folgt. Das Menü ist eine Liste mit Tastenkürzeln: r, s, m, x.</p>
+    <div class="stage"></div>
+    <div class="seg" role="group" aria-label="Zustand ASCII"></div>
+  </section>
+
+  <section aria-labelledby="h-gl" data-dir="gl">
+    <h2 id="h-gl">3 · Liquid Glass</h2>
+    <p>Echte Lichtbrechung statt Weichzeichner: Der Rand bricht den Hintergrund wie eine dicke Linse, die Mitte vergrößert leicht, die Farbkanäle laufen am Rand minimal auseinander. Zieh das Glas über den Code.</p>
+    <div class="stage"></div>
+    <div class="seg" role="group" aria-label="Zustand Liquid Glass"></div>
+  </section>
+</div>
+
+<template id="desk">
+  <div class="wall"><div class="sunb"></div><div class="hill h1"></div><div class="hill h2"></div><div class="hill h3"></div></div>
+  <div class="win">
+    <div class="bar"><i></i><i></i><i></i><span>apollo_overlay.py · Visual Studio Code</span></div>
+<pre><span class="k">class</span> <span class="f">Orbit</span>(QWidget):
+    CENTER = QPointF(<span class="n">116</span>, <span class="n">84</span>)
+    <span class="c"># Hotkeys bleiben in Apollo tippbar.</span>
+    <span class="k">def</span> <span class="f">paintEvent</span>(self, event):
+        p = QPainter(self)
+        <span class="k">if</span> self.ui.app.recording:
+            bubble = QRectF(x - <span class="n">28</span>, y - <span class="n">18</span>, <span class="n">56</span>, <span class="n">36</span>)
+            p.drawRoundedRect(bubble, <span class="n">16</span>, <span class="n">16</span>)
+        <span class="k">else</span>:
+            paint_logo(p, self.ui.pixmap, rect)
+    <span class="k">def</span> <span class="f">tooltip</span>(self):
+        <span class="k">return</span> <span class="s">"Recovery und Live-Debug"</span>
+</pre>
+  </div>
+  <div class="task"><i></i><i></i><i></i><i></i><span class="clock">10:42</span></div>
+  <div class="anchor"></div>
+</template>
+
+<script>
+"use strict";
+const STATES = [["idle", "Ruhe"], ["menu", "Menü"], ["rec", "Aufnahme F9"], ["busy", "Verarbeitung"], ["done", "Eingefügt"], ["error", "Fehler"]];
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- simulated speech level ---------- */
+const level = { now: 0, hist: new Array(40).fill(0), last: 0 };
+function speech(t) {
+  const syll = Math.max(0, Math.sin(t * 9.1) * .55 + Math.sin(t * 3.7 + 1) * .45);
+  const phrase = Math.sin(t * .9) > -.55 ? 1 : .08;           // short pauses between phrases
+  return Math.min(1, Math.pow(syll, 1.4) * phrase * (.75 + Math.random() * .35));
+}
+function tickLevel(t) {
+  if (t - level.last < 45) return;
+  level.last = t;
+  const v = speech(t / 1000);
+  level.now = level.now + (v - level.now) * (v > level.now ? .7 : .3);
+  level.hist.push(level.now); level.hist.shift();
+}
+const lv = (i, n) => level.hist[level.hist.length - n + i] || 0;
+
+/* ---------- shared vector marks (24-unit grid) ---------- */
+function sunMark(size, rays) {        // rays: array of 12 lengths (0..1) or null for logo
+  let s = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"><circle cx="12" cy="12" r="4.4" fill="currentColor" stroke="none"/>`;
+  for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6, L = rays ? 1.2 + rays[i] * 3.6 : (i % 2 ? 2.4 : 4.2), r0 = 7;
+    s += `<line x1="${(12 + Math.cos(a) * r0).toFixed(2)}" y1="${(12 + Math.sin(a) * r0).toFixed(2)}" x2="${(12 + Math.cos(a) * (r0 + L)).toFixed(2)}" y2="${(12 + Math.sin(a) * (r0 + L)).toFixed(2)}"/>`;
+  }
+  return s + "</svg>";
+}
+const lyreMark = size => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8">
+  <path d="M6.5 6.5C6.5 13 8.5 16.5 12 16.5S17.5 13 17.5 6.5"/><path d="M6.5 6.5C6.5 4.2 4.6 3.6 3.6 4.8"/><path d="M17.5 6.5C17.5 4.2 19.4 3.6 20.4 4.8"/>
+  <path d="M5.6 7.6H18.4"/><path d="M9.6 7.6V14.6M14.4 7.6V14.6" stroke-width="1.2"/><path d="M12 7.6c.9 1.2-.9 2.4 0 3.6s-.9 2.4 0 3.6" stroke-width="1.2"/>
+  <path d="M12 16.5V19.4M8.8 19.6H15.2"/></svg>`;
+const bowMark = size => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9">
+  <path d="M4 15.5C4 7.5 7.6 5 12 5s8 2.5 8 10.5"/><path d="M4 15.5 12 19.5 20 15.5" stroke-width="1.1"/>
+  <path d="M12 21V2.8" stroke-width="2.2"/><path d="M9.2 5.6 12 2.8 14.8 5.6"/></svg>`;
+
+/* ---------- 8-bit helpers ---------- */
+const PAL = { k: "#16161d", K: "#3a3a4c", y: "#ffc021", o: "#ff7a1a", w: "#fff3d1", r: "#ff4b3e", g: "#38c75a", d: "#33333f", b: "#9898ae" };
+const FONT = {
+  A:"010101111101101",C:"011100100100011",E:"111100110100111",F:"111100110100100",K:"101101110101101",N:"110101101101101",O:"010101101101010",
+  S:"011100010001110",T:"111010010010010",U:"101101101101111",Z:"111001010100111",
+  0:"111101101101111",1:"010110010010111",2:"110001010100111",3:"110001010001110",4:"101101111001001",5:"111100110001110",
+  6:"011100111101111",7:"111001010010010",8:"111101111101111",9:"111101111001110",":":"000010000010000"," ":"000000000000000"
+};
+const SPR = {
+  disc: ["......oooo......", ".....oyyyyo.....", "....oyywyyyo....", "....oywyyyyo....", "....oyyyyyyo....", "....oyyyyyyo....", ".....oyyyyo.....", "......oooo......"],
+  lyre: ["................", ".oo..........oo.", "o..o........o..o", "o.yyyyyyyyyyyy.o", "..y.w.w..w.w.y..", "..y.w.w..w.w.y..", "..y.w.w..w.w.y..", "..y.w.w..w.w.y..",
+         "...yw.w..w.wy...", "...yw.w..w.wy...", "....yyyyyyyy....", ".....oyyyyo.....", "......oooo......", ".......yy.......", ".....oooooo.....", "................"],
+  bow:  [".......ww.......", "......wwww......", ".....w.ww.w.....", ".......ww.......", "....yyywwyyy....", "..yy...ww...yy..", ".y.....ww.....y.", ".y.....ww.....y.",
+         "y......ww......y", "y......ww......y", "y......ww......y", ".o.....ww.....o.", "..o....ww....o..", "...o..owwo..o...", ".....o.ww.o.....", ".......oo......."],
+  check: ["........g", ".......gg", "g.....gg.", "gg...gg..", ".gg.gg...", "..ggg....", "...g....."],
+  cross: ["r.....r", ".r...r.", "..r.r..", "...r...", "..r.r..", ".r...r.", "r.....r"],
+  recovery: ["...kkkk..", "..k....k.", ".k..k...k", "kkk.k...k", ".k..kk..k", "........k", ".k.....k.", "..kkkkk..", "........."],
+  settings: [".k.......", "kkkkkkkkk", ".k.......", ".....k...", "kkkkkkkkk", ".....k...", "...k.....", "kkkkkkkkk", "...k....."],
+  models:   ["kkk...kkk", "k.kkkkk.k", "kkk...kkk", ".k.....k.", "..k...k..", "...kkk...", "...k.k...", "...kkk...", "........."],
+  close:    ["k.......k", ".k.....k.", "..k...k..", "...k.k...", "....k....", "...k.k...", "..k...k..", ".k.....k.", "k.......k"]
+};
+function spr(ctx, map, ox, oy, recolor) {
+  map.forEach((row, y) => [...row].forEach((c, x) => { if (c !== ".") { ctx.fillStyle = PAL[(recolor && recolor[c]) || c]; ctx.fillRect(ox + x, oy + y, 1, 1); } }));
+}
+function txt(ctx, str, ox, oy, color) {
+  ctx.fillStyle = color;
+  [...str].forEach((ch, i) => { const g = FONT[ch] || FONT[" "]; for (let b = 0; b < 15; b++) if (g[b] === "1") ctx.fillRect(ox + i * 4 + b % 3, oy + (b / 3 | 0), 1, 1); });
+}
+function pxTile(ctx, w, h, fill, border) {
+  ctx.fillStyle = border; ctx.fillRect(1, 0, w - 2, h); ctx.fillRect(0, 1, w, h - 2);
+  ctx.fillStyle = fill; ctx.fillRect(1, 1, w - 2, h - 2);
+}
+// sun with programmatic rays: lens = 8 lengths (0..3), order N NE E SE S SW W NW
+function pxSun(ctx, ox, oy, lens, recolor) {
+  spr(ctx, SPR.disc, ox, oy + 4, recolor);
+  const ray = (recolor && recolor.y) ? PAL[recolor.y] : PAL.y;
+  ctx.fillStyle = ray;
+  const L = lens.map(v => Math.max(0, Math.min(3, Math.round(v))));
+  for (let k = 0; k < L[0]; k++) ctx.fillRect(ox + 7, oy + 3 - k, 2, 1);
+  for (let k = 0; k < L[4]; k++) ctx.fillRect(ox + 7, oy + 12 + k, 2, 1);
+  for (let k = 0; k < L[6]; k++) ctx.fillRect(ox + 3 - k, oy + 7, 1, 2);
+  for (let k = 0; k < L[2]; k++) ctx.fillRect(ox + 12 + k, oy + 7, 1, 2);
+  for (let k = 0; k < L[7]; k++) ctx.fillRect(ox + 3 - k, oy + 3 - k, 1, 1);
+  for (let k = 0; k < L[1]; k++) ctx.fillRect(ox + 12 + k, oy + 3 - k, 1, 1);
+  for (let k = 0; k < L[3]; k++) ctx.fillRect(ox + 12 + k, oy + 12 + k, 1, 1);
+  for (let k = 0; k < L[5]; k++) ctx.fillRect(ox + 3 - k, oy + 12 + k, 1, 1);
+}
+function pxCanvas(w, h, scale) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  c.style.width = w * scale + "px"; c.style.height = h * scale + "px";
+  const ctx = c.getContext("2d"); ctx.imageSmoothingEnabled = false; return [c, ctx];
+}
+
+/* ---------- Liquid Glass: displacement map + SVG filter ---------- */
+const SVGNS = "http://www.w3.org/2000/svg";
+const mapCanvas = document.createElement("canvas");
+function glassMap(w, h, r, bezel, maxDisp, zoom) {
+  mapCanvas.width = w; mapCanvas.height = h;
+  const ctx = mapCanvas.getContext("2d"), img = ctx.createImageData(w, h), d = img.data;
+  const cx = w / 2, cy = h / 2, hx = w / 2 - r, hy = h / 2 - r;
+  const maxAbs = maxDisp + zoom * Math.max(cx, cy);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const px = x + .5 - cx, py = y + .5 - cy, ax = Math.abs(px), ay = Math.abs(py);
+    const qx = ax - hx, qy = ay - hy;
+    const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
+    const sd = outside + Math.min(Math.max(qx, qy), 0) - r;     // signed distance, <0 inside
+    let dx = 0, dy = 0;
+    if (sd < 0) {
+      let nx, ny;                                                  // outward normal
+      if (qx > 0 && qy > 0) { nx = qx / outside; ny = qy / outside; }
+      else if (qx > qy) { nx = 1; ny = 0; } else { nx = 0; ny = 1; }
+      nx *= Math.sign(px) || 1; ny *= Math.sign(py) || 1;
+      const t = Math.min(1, -sd / bezel);                          // 0 at rim .. 1 inside
+      const height = Math.pow(1 - Math.pow(1 - t, 4), .25);        // convex squircle profile
+      const m = maxDisp * (1 - height);                            // steep rim bends most
+      dx = nx * m - px * zoom; dy = ny * m - py * zoom;            // rim gathers outside light, centre magnifies
+    }
+    const i = (y * w + x) * 4;
+    d[i] = 128 + dx / maxAbs * 127; d[i + 1] = 128 + dy / maxAbs * 127; d[i + 2] = 128; d[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return { url: mapCanvas.toDataURL(), scale: maxAbs * 2 };
+}
+function glassFilter(id) {
+  const defs = document.getElementById("glassDefs");
+  const f = document.createElementNS(SVGNS, "filter");
+  f.setAttribute("id", id); f.setAttribute("filterUnits", "userSpaceOnUse"); f.setAttribute("primitiveUnits", "userSpaceOnUse");
+  f.setAttribute("color-interpolation-filters", "sRGB"); f.setAttribute("x", "0"); f.setAttribute("y", "0");
+  f.innerHTML = `<feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="b"/>
+    <feImage result="m" x="0" y="0" preserveAspectRatio="none"/>
+    <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="dr"/>
+    <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="dg"/>
+    <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="db"/>
+    <feColorMatrix in="dr" type="matrix" values="1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" result="r"/>
+    <feColorMatrix in="dg" type="matrix" values="0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0" result="g"/>
+    <feColorMatrix in="db" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0" result="bb"/>
+    <feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="bb" mode="screen" result="rgb"/>
+    <feColorMatrix in="rgb" type="saturate" values="1.35"/>`;
+  defs.appendChild(f);
+  const img = f.querySelector("feImage"), maps = f.querySelectorAll("feDisplacementMap"), blur = f.querySelector("feGaussianBlur");
+  return {
+    id, frost(on) { blur.setAttribute("stdDeviation", on ? "2.2" : "0.5"); },
+    set(w, h, r) {
+      w = Math.round(w); h = Math.round(h);
+      const bezel = Math.min(r, h / 2, 18) * .95, g = glassMap(w, h, Math.min(r, h / 2, w / 2), bezel, Math.min(16, h * .3), .06);
+      f.setAttribute("width", w); f.setAttribute("height", h);
+      img.setAttribute("width", w); img.setAttribute("height", h); img.setAttribute("href", g.url);
+      [1, .93, .86].forEach((k, i) => maps[i].setAttribute("scale", (g.scale * k).toFixed(2)));
+    }
+  };
+}
+
+/* ---------- logo grid ---------- */
+(function logos() {
+  const grid = document.getElementById("logos");
+  const rows = [
+    ["sun", "Sonne als Wellenform", "Apollo als Sonnengott. Die Strahlen sind zugleich der Pegel."],
+    ["lyre", "Leier, neu gezeichnet", "Bleibt beim bisherigen Motiv. Eine Saite schwingt."],
+    ["bow", "Bogen und Cursor", "Apollo der Bogenschütze. Der Pfeil ist der Text-Cursor und bildet ein A."]
+  ];
+  const ascii = {
+    sun: "   \\  |  /\n    .---.\n-- ( (o) ) --\n    '---'\n   /  |  \\",
+    lyre: " _         _\n( \\_______/ )\n \\ | | | | /\n  || | | ||\n  \\\\_|_|_//\n    \\___/\n    __|__",
+    bow: "      A\n     /|\\\n  .-' | '-.\n /    |    \\\n|     |     |\n \\    |    /\n  '-. | .-'\n     \\|/"
+  };
+  const glassSvg = { sun: sunMark, lyre: lyreMark, bow: bowMark };
+  for (const [key, title, sub] of rows) {
+    const label = document.createElement("div"); label.className = "row";
+    label.innerHTML = `<b>${title}</b><span>${sub}</span>`; grid.appendChild(label);
+    // 8-bit
+    const t1 = document.createElement("div"); t1.className = "tile"; t1.style.background = PAL.k;
+    const [c, ctx] = pxCanvas(24, 24, 4);
+    if (key === "sun") pxSun(ctx, 4, 4, [3, 2, 3, 2, 3, 2, 3, 2]); else spr(ctx, SPR[key], 4, 4);
+    t1.appendChild(c); grid.appendChild(t1);
+    // ASCII
+    const t2 = document.createElement("div"); t2.className = "tile ascii";
+    const pre = document.createElement("pre"); pre.textContent = ascii[key]; t2.appendChild(pre); grid.appendChild(t2);
+    // Glass glyph on warm base
+    const t3 = document.createElement("div"); t3.className = "tile";
+    t3.style.background = "linear-gradient(160deg, #ffcf4a 0%, #ff9a1f 55%, #f0641a 100%)";
+    t3.innerHTML = `<div style="color:rgba(255,255,255,.62);filter:url(#glyphShadow)"><div style="filter:url(#glyphGlass)">${glassSvg[key](64)}</div></div>`;
+    t3.querySelectorAll("svg [stroke-width]").forEach(e => e.setAttribute("stroke-width", (parseFloat(e.getAttribute("stroke-width")) * 1.25).toFixed(2)));
+    grid.appendChild(t3);
+  }
+})();
+
+/* ---------- stage + state wiring ---------- */
+function setupStage(section, start) {
+  const stage = section.querySelector(".stage");
+  stage.appendChild(document.getElementById("desk").content.cloneNode(true));
+  const anchor = stage.querySelector(".anchor");
+  const pos = { x: start[0], y: start[1] };
+  const place = () => { anchor.style.left = pos.x + "px"; anchor.style.top = pos.y + "px"; };
+  place();
+  const api = { stage, anchor, state: "rec", since: performance.now(), onState: () => {}, onClickMain: () => {} };
+  // drag: pointer down on any [data-drag] element, move > 4 px drags, otherwise it is a click
+  stage.addEventListener("pointerdown", e => {
+    const handle = e.target.closest("[data-drag]"); if (!handle) return;
+    const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y; let moved = false;
+    handle.setPointerCapture(e.pointerId); handle.style.cursor = "grabbing";
+    const move = ev => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+      moved = true;
+      pos.x = Math.max(24, Math.min(stage.clientWidth - 24, ox + dx));
+      pos.y = Math.max(24, Math.min(stage.clientHeight - 24, oy + dy)); place();
+    };
+    const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.style.cursor = "";
+      if (!moved) api.onClickMain(); };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+  });
+  const seg = section.querySelector(".seg");
+  const buttons = STATES.map(([key, name]) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = name; b.dataset.state = key;
+    b.addEventListener("click", () => api.set(key)); seg.appendChild(b); return b;
+  });
+  api.set = key => {
+    api.state = key; api.since = performance.now();
+    buttons.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.state === key)));
+    api.onState(key);
+  };
+  api.seconds = () => Math.floor((performance.now() - api.since) / 1000) + 12;
+  api.clock = () => { const s = api.seconds(); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  return api;
+}
+
+/* ---------- 1 · 8-bit ---------- */
+function mount8bit() {
+  const sec = document.querySelector('[data-dir="px"]');
+  const st = setupStage(sec, [300, 130]);
+  const root = document.createElement("div"); root.className = "px"; st.anchor.appendChild(root);
+  const S = 3;
+  let [main, ctx] = pxCanvas(18, 18, S); main.className = "center main"; main.dataset.drag = "";
+  main.setAttribute("role", "button"); main.setAttribute("aria-label", "apollo s2t, Menü öffnen");
+  root.appendChild(main);
+  const tiles = [["recovery", -42, -42, "Recovery und Live-Debug"], ["settings", -62, 0, "Einstellungen"], ["models", -42, 42, "Modelle"], ["close", 62, 0, "Menü schließen"]];
+  const tileEls = tiles.map(([key, x, y, name]) => {
+    const b = document.createElement("button"); b.className = "tilebtn hit"; b.type = "button"; b.setAttribute("aria-label", name); b.title = name;
+    b.style.setProperty("--x", x + "px"); b.style.setProperty("--y", y + "px");
+    const [c, cx] = pxCanvas(13, 13, S);
+    const draw = hover => { cx.clearRect(0, 0, 13, 13); pxTile(cx, 13, 13, hover ? PAL.y : PAL.w, PAL.k); spr(cx, SPR[key], 2, 2); };
+    draw(false); b.onmouseenter = () => draw(true); b.onmouseleave = () => draw(false);
+    if (key === "close") b.onclick = () => st.set("idle");
+    b.appendChild(c); root.appendChild(b); return b;
+  });
+  const size = { idle: [18, 18], menu: [18, 18], busy: [18, 18], rec: [82, 18], done: [32, 18], error: [36, 18] };
+  st.onState = key => { root.classList.toggle("menu", key === "menu"); const [w, h] = size[key]; main.width = w; main.height = h; main.style.width = w * S + "px"; main.style.height = h * S + "px"; ctx.imageSmoothingEnabled = false; };
+  st.onClickMain = () => st.set(st.state === "menu" ? "idle" : "menu");
+  const LED = ["g", "g", "g", "y", "y", "r"];
+  st.frame = t => {
+    const [w, h] = [main.width, main.height]; ctx.clearRect(0, 0, w, h);
+    const s = st.state;
+    if (s === "idle" || s === "menu") { pxTile(ctx, w, h, PAL.k, PAL.K); pxSun(ctx, 1, 1, [2, 2, 2, 2, 2, 2, 2, 2]); }
+    if (s === "busy") {
+      pxTile(ctx, w, h, PAL.k, PAL.K);
+      const f = Math.floor(t / 160) % 2;
+      pxSun(ctx, 1, 1, f ? [3, 0, 3, 0, 3, 0, 3, 0] : [0, 3, 0, 3, 0, 3, 0, 3], { y: "b", o: "K", w: "b" });
+    }
+    if (s === "rec") {
+      pxTile(ctx, w, h, PAL.k, PAL.K);
+      pxSun(ctx, 1, 1, [0, 1, 2, 3, 4, 5, 6, 7].map(i => lv(39 - i * 3, 40) * 4), { o: "r" });
+      for (let c = 0; c < 14; c++) {
+        const v = lv(26 + c, 40), on = Math.round(v * 6.4);
+        for (let seg = 0; seg < 6; seg++) { ctx.fillStyle = seg < on ? PAL[LED[seg]] : PAL.d; ctx.fillRect(19 + c * 3, 14 - seg * 2, 2, 1); }
+      }
+      txt(ctx, "F9", 63, 3, PAL.y); txt(ctx, st.clock(), 63, 10, PAL.w);
+    }
+    if (s === "done") { pxTile(ctx, w, h, PAL.k, PAL.g); spr(ctx, SPR.check, 4, 5); txt(ctx, "OK", 18, 6, PAL.w); }
+    if (s === "error") { pxTile(ctx, w, h, PAL.k, PAL.r); spr(ctx, SPR.cross, 4, 5); txt(ctx, "NETZ", 15, 3, PAL.w); txt(ctx, "AUS", 15, 10, PAL.r); }
+  };
+  st.set("rec");
+  return st;
+}
+
+/* ---------- 2 · ASCII ---------- */
+function mountAscii() {
+  const sec = document.querySelector('[data-dir="as"]');
+  const st = setupStage(sec, [300, 130]);
+  const box = document.createElement("div"); box.className = "as center"; box.dataset.drag = "";
+  box.innerHTML = `<pre class="badge" aria-label="apollo s2t"></pre><pre class="side" aria-live="polite"></pre>`;
+  st.anchor.appendChild(box); st.stage.tabIndex = 0;
+  const badge = box.querySelector(".badge"), side = box.querySelector(".side");
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const V = [" ", ".", ":", "|"], H = [" ", ".", "-", "="], D1 = [" ", ".", "\\", "\\"], D2 = [" ", ".", "/", "/"];
+  const sunText = (r, core) => {   // r: 8 levels 0..3, order N NE E SE S SW W NW
+    return ` ${D1[r[7]]} ${V[r[0]]} ${D2[r[1]]} \n${H[r[6]]}( ${core} )${H[r[2]]}\n ${D2[r[5]]} ${V[r[4]]} ${D1[r[3]]} `;
+  };
+  const menuItems = [["r", "Recovery"], ["s", "Einstellungen"], ["m", "Modelle"], ["x", "Schließen"]];
+  st.onState = key => {
+    box.classList.toggle("wide", key !== "idle");
+    if (key === "menu") {
+      side.innerHTML = menuItems.map(([k, n]) => `<button type="button" class="opt" data-k="${k}"><span class="dim">${k}</span>  ${n}</button>`).join("");
+      side.querySelectorAll(".opt").forEach(b => b.addEventListener("pointerdown", e => e.stopPropagation()));
+      side.querySelector('[data-k="x"]').onclick = () => st.set("idle");
+    }
+  };
+  st.stage.addEventListener("keydown", e => { if (st.state === "menu" && e.key === "x") st.set("idle"); });
+  st.onClickMain = () => st.set(st.state === "menu" ? "idle" : "menu");
+  const spin = ["|", "/", "-", "\\"];
+  st.frame = t => {
+    const s = st.state;
+    let r = [3, 2, 3, 2, 3, 2, 3, 2], core = "o", cls = "";
+    if (s === "rec") { r = [0, 1, 2, 3, 4, 5, 6, 7].map(i => Math.min(3, Math.round(lv(39 - i * 2, 40) * 4))); const n = level.now; core = n > .65 ? "@" : n > .3 ? "O" : "o"; }
+    if (s === "busy") { r = [1, 1, 1, 1, 1, 1, 1, 1]; core = spin[Math.floor(t / 120) % 4]; }
+    if (s === "done") { core = "*"; cls = "grn"; }
+    if (s === "error") { core = "!"; r = [1, 0, 1, 0, 1, 0, 1, 0]; cls = "red"; }
+    badge.className = "badge " + cls; badge.textContent = sunText(r, core);
+    if (s === "rec") {
+      let a = "", b = "", c = "";
+      for (let i = 0; i < 22; i++) { const q = Math.min(4, Math.round(lv(18 + i, 40) * 5)); a += [" ", " ", " ", ".", "|"][q]; b += ["-", "+", "|", "|", "|"][q]; c += [" ", " ", " ", "'", "|"][q]; }
+      side.innerHTML = `${a}  F9\n${b}  ${st.clock().padStart(5)}\n${c}  <span class="dim">Bereinigen</span>`;
+    } else if (s === "busy") {
+      const p = Math.floor(t / 90) % 16, bar = Array.from({ length: 12 }, (_, i) => Math.abs(i - (p < 8 ? p : 16 - p) * 1.5) < 2 ? "=" : " ").join("");
+      side.innerHTML = `transkribiere${".".repeat(1 + Math.floor(t / 400) % 3).padEnd(3)}\n<span class="dim">mai-transcribe-2</span>\n[${bar}]`;
+    } else if (s === "done") side.innerHTML = `<span class="grn">[ok]</span> eingefügt\n<span class="dim">214 Zeichen</span>\n<span class="dim">-> VS Code</span>`;
+    else if (s === "error") side.innerHTML = `<span class="red">[!!]</span> kein Netz\n<span class="dim">Aufnahme gesichert</span>\n<span class="dim">r = erneut senden</span>`;
+  };
+  st.set("rec");
+  return st;
+}
+
+/* ---------- 3 · Liquid Glass ---------- */
+function mountGlass() {
+  const sec = document.querySelector('[data-dir="gl"]');
+  const st = setupStage(sec, [250, 118]);
+  const root = document.createElement("div"); root.className = "gl"; st.anchor.appendChild(root);
+  const make = (cls, filter) => {
+    const el = document.createElement("div"); el.className = "lg " + cls;
+    el.innerHTML = `<div class="tint"></div><div class="content"></div><div class="glow"></div><div class="rim"></div>`;
+    el.style.backdropFilter = el.style.webkitBackdropFilter = `url(#${filter.id})`;
+    root.appendChild(el); return el;
+  };
+  const icons = {
+    recovery: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/></svg>`,
+    settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="9" cy="6" r="2" fill="#fff"/><circle cx="16" cy="12" r="2" fill="#fff"/><circle cx="7" cy="18" r="2" fill="#fff"/></svg>`,
+    models: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.5 6h7M7.2 8.2l3.6 7.6M16.8 8.2l-3.6 7.6"/></svg>`,
+    close: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>`
+  };
+  const fDrop = glassFilter("lgDrop"); fDrop.set(42, 42, 21);
+  [["recovery", -46, -46, "Recovery und Live-Debug"], ["settings", -66, 0, "Einstellungen"], ["models", -46, 46, "Modelle"], ["close", 66, 0, "Menü schließen"]].forEach(([k, x, y, name]) => {
+    const d = make("drop", fDrop); d.style.width = d.style.height = "42px";
+    d.style.setProperty("--x", x + "px"); d.style.setProperty("--y", y + "px");
+    d.querySelector(".content").innerHTML = `<span class="hit" role="button" tabindex="0" aria-label="${name}" title="${name}" style="display:grid;place-items:center;width:42px;height:42px">${icons[k]}</span>`;
+    if (k === "close") d.querySelector(".hit").onclick = () => st.set("idle");
+  });
+  const fMain = glassFilter("lgMain");
+  const main = make("main", fMain); main.dataset.drag = ""; main.setAttribute("role", "button"); main.setAttribute("aria-label", "apollo s2t, Menü öffnen");
+  const content = main.querySelector(".content");
+  const dims = { idle: [58, 58], menu: [58, 58], busy: [58, 58], rec: [236, 58], done: [214, 48], error: [262, 48] };
+  let cur = [58, 58], anim = null;
+  const apply = (w, h) => { main.style.width = w + "px"; main.style.height = h + "px"; fMain.set(w, h, h / 2); };
+  apply(...cur);
+  const morph = to => {
+    const from = cur.slice(), t0 = performance.now(), dur = reduced ? 1 : 300;
+    cancelAnimationFrame(anim);
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);   // ease-out with a small overshoot
+      cur = [from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e];
+      apply(Math.max(40, cur[0]), Math.max(40, cur[1]));
+      if (k < 1) anim = requestAnimationFrame(step); else { cur = to.slice(); apply(...cur); }
+    };
+    anim = requestAnimationFrame(step);
+  };
+  let bars = null, sun = null;
+  st.onState = key => {
+    root.classList.toggle("menu", key === "menu");
+    main.classList.toggle("regular", ["rec", "done", "error"].includes(key));
+    main.classList.toggle("danger", key === "error");
+    fMain.frost(["done", "error"].includes(key));
+    morph(dims[key]);
+    bars = sun = null;
+    if (key === "idle" || key === "menu") content.innerHTML = sunMark(28);
+    if (key === "busy") content.innerHTML = sunMark(24) + `<svg class="spin" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" fill="none" stroke="rgba(255,255,255,.9)" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="34 120"/></svg>`;
+    if (key === "rec") {
+      content.innerHTML = `<span class="sun"></span><span class="bars">${"<i></i>".repeat(20)}</span><span class="tm"></span>`;
+      bars = [...content.querySelectorAll(".bars i")]; sun = content.querySelector(".sun");
+    }
+    if (key === "done") content.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg><span>214 Zeichen eingefügt</span>`;
+    if (key === "error") content.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M12 7v6M12 17v.5"/><circle cx="12" cy="12" r="9.5"/></svg><span>Kein Netz · Aufnahme gesichert</span>`;
+  };
+  st.onClickMain = () => st.set(st.state === "menu" ? "idle" : "menu");
+  st.frame = () => {
+    if (st.state !== "rec" || !bars) return;
+    bars.forEach((b, i) => { const v = lv(20 + i, 40); b.style.height = (4 + v * 24).toFixed(1) + "px"; });
+    sun.innerHTML = sunMark(26, Array.from({ length: 12 }, (_, i) => lv(39 - i * 2, 40)));
+    content.querySelector(".tm").textContent = st.clock();
+  };
+  st.set("rec");
+  return st;
+}
+
+const stages = [mount8bit(), mountAscii(), mountGlass()];
+// Screenshot hooks: ?state=menu sets every stage, ?demo fills the level history.
+const qs = new URLSearchParams(location.search);
+if (qs.has("demo")) { level.hist = level.hist.map((_, i) => speech(i * .045 + .5)); level.now = .7; level.last = Infinity; }
+if (qs.get("state")) stages.forEach(s => s.set(qs.get("state")));
+function loop(t) { tickLevel(t); stages.forEach(s => s.frame && s.frame(t)); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
