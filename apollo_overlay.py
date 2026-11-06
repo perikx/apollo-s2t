@@ -11,7 +11,8 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
                               QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
-from apollo_design import (qt_app, apply_material, glass_menu, Shell, label, button, vector, icon)
+from apollo_design import (qt_app, apply_material, glyph_button, GlassMenu, Shell, label, button, vector)
+from apollo_glass import Backdrop, paint_glass
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
@@ -29,48 +30,24 @@ Notes for you; F10 does not send them. Describe the project below.
 ## Conventions
 """
 
-MATERIALS = {
-    "clear": {
-        "orb": QColor(255, 255, 255, 18),
-        "border": QColor(255, 255, 255, 140),
-        "drop": QColor(255, 255, 255, 30),
-        "drop_border": QColor(255, 255, 255, 115),
-        "ink": "#232323",
-    },
-    "light": {
-        "orb": QColor(250, 250, 248, 222),
-        "border": QColor(255, 255, 255, 238),
-        "drop": QColor(246, 246, 243, 238),
-        "drop_border": QColor(255, 255, 255, 230),
-        "ink": "#292929",
-    },
-    "dark": {
-        "orb": QColor(28, 28, 30, 222),
-        "border": QColor(255, 255, 255, 55),
-        "drop": QColor(38, 38, 40, 238),
-        "drop_border": QColor(255, 255, 255, 50),
-        "ink": "#fafafa",
-    },
-}
+# Icon color on the glass of each material.
+MATERIALS = {"clear": {"ink": "#232323"}, "light": {"ink": "#292929"}, "dark": {"ink": "#fafafa"}}
 
 SUN = "#ff8a00"
 
 
-def paint_sun(painter, center, size, color=SUN, halo=False):
-    """Draw the new Apollo sun mark. A light halo keeps it visible on clear glass."""
+def paint_sun(painter, center, size, color=SUN):
+    """Draw the Apollo sun mark with the soft warm shadow of the glass prototype."""
     painter.save(); painter.translate(center.x()-size/2, center.y()-size/2); painter.scale(size/24.0, size/24.0)
     rays = [(i*math.pi/6-math.pi/2, 2.4 if i % 2 else 4.2) for i in range(12)]
-    if halo:
-        painter.setPen(QPen(QColor(255, 255, 255, 160), 5.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    unit = 24.0/size  # one screen pixel in mark units
+    for offset, width, ink in ((unit, 2.1, QColor(70, 25, 0, 80)), (0, 2.1, QColor(color))):
+        painter.setPen(QPen(ink, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         for angle, length in rays:
-            painter.drawLine(QPointF(12+math.cos(angle)*7, 12+math.sin(angle)*7),
-                             QPointF(12+math.cos(angle)*(7+length), 12+math.sin(angle)*(7+length)))
-    painter.setPen(QPen(QColor(color), 2.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    for angle, length in rays:
-        painter.drawLine(QPointF(12+math.cos(angle)*7, 12+math.sin(angle)*7),
-                         QPointF(12+math.cos(angle)*(7+length), 12+math.sin(angle)*(7+length)))
-    painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(color))
-    painter.drawEllipse(QPointF(12, 12), 4.4, 4.4)
+            painter.drawLine(QPointF(12+math.cos(angle)*7, 12+offset+math.sin(angle)*7),
+                             QPointF(12+math.cos(angle)*(7+length), 12+offset+math.sin(angle)*(7+length)))
+        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(ink)
+        painter.drawEllipse(QPointF(12, 12+offset), 4.4+(width-2.1)/2, 4.4+(width-2.1)/2)
     painter.restore()
 
 
@@ -120,6 +97,7 @@ class Orbit(QWidget):
         self.hover_animation = QVariantAnimation(self); self.hover_animation.setDuration(100)
         self.hover_animation.valueChanged.connect(self.hover_frame)
         self.setMouseTracking(True)
+        self.glass = Backdrop(self)
     def menu_frame(self, value): self.menu_progress = float(value); self.update()
     def hover_frame(self, value): self.hover_progress = float(value); self.update()
     def animate_menu(self):
@@ -133,7 +111,7 @@ class Orbit(QWidget):
     def leaveEvent(self, event): self.hover(None); super().leaveEvent(event)
     def contextMenuEvent(self, event):
         if self.hit(QPointF(event.pos())) != "logo": return
-        self.context_menu = glass_menu(QMenu(self))
+        self.context_menu = GlassMenu(self)
         self.context_menu.addAction(t("Hide in tray"), self.ui.hide)
         self.context_menu.addAction(t("Quit"), self.ui.on_quit)
         handle = int(self.context_menu.winId()); self.ui.app.ui_windows.add(handle)
@@ -171,6 +149,7 @@ class Orbit(QWidget):
                 self.moved = True
                 self.ui.x, self.ui.y = self.drag[1]+delta.x(), self.drag[2]+delta.y()
                 self.move(round(self.ui.x-self.CENTER.x()), round(self.ui.y-self.CENTER.y()))
+                if self.glass.refresh(.03): self.update()
     def mouseReleaseEvent(self, event):
         self.drag = None
         if self.moved:
@@ -197,8 +176,8 @@ class Orbit(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         for spread, alpha in ((7, 12), (4, 20), (2, 28)):
             p.setBrush(QColor(0, 0, 0, alpha))
-            p.drawEllipse(orb.adjusted(-spread, -spread+2, spread, spread+2))
-        p.setPen(QPen(material["border"], 1.2)); p.setBrush(material["orb"]); p.drawEllipse(orb)
+            p.drawEllipse(orb.adjusted(-spread*.6, 3, spread*.6, spread+5))
+        paint_glass(p, orb, 29, self.glass, material_name)
         if self.ui.app.recording:
             p.setPen(QPen(QColor(SUN), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             for i in range(11):
@@ -206,7 +185,7 @@ class Orbit(QWidget):
                 x = center.x()+(i-5)*4.2; h = 4+strength*30
                 p.drawLine(QPointF(x, center.y()-h/2), QPointF(x, center.y()+h/2))
         else:
-            paint_sun(p, center, 34, SUN, halo=material_name == "clear")
+            paint_sun(p, center, 34, SUN)
             if self.hovered == "logo" and self.hover_progress:
                 hover = QColor(material["ink"]); hover.setAlpha(round(110*self.hover_progress))
                 p.setPen(QPen(hover, 1)); p.setBrush(Qt.BrushStyle.NoBrush)
@@ -222,10 +201,14 @@ class Orbit(QWidget):
             for action, target in self.ACTIONS.items():
                 c = QPointF(center.x()+(target.x()-center.x())*self.menu_progress,
                             center.y()+(target.y()-center.y())*self.menu_progress)
-                drop = QColor(material["drop"])
-                if self.hovered == action: drop = drop.lighter(112)
-                p.setPen(QPen(material["drop_border"], 1)); p.setBrush(drop)
-                p.drawEllipse(QRectF(c.x()-21, c.y()-21, 42, 42))
+                drop = QRectF(c.x()-21, c.y()-21, 42, 42)
+                p.setPen(Qt.PenStyle.NoPen)
+                for spread, alpha in ((6, 10), (3, 18), (1, 24)):  # soft shadow below, as in the prototype
+                    p.setBrush(QColor(0, 0, 0, alpha)); p.drawEllipse(drop.adjusted(-spread*.6, 3, spread*.6, spread+5))
+                paint_glass(p, drop, 21, self.glass, material_name)
+                if self.hovered == action:
+                    hover = QColor(material["ink"]); hover.setAlpha(28); p.setPen(Qt.PenStyle.NoPen); p.setBrush(hover)
+                    p.drawEllipse(QRectF(c.x()-21, c.y()-21, 42, 42))
                 vector(p, action, QRectF(c.x()-10, c.y()-10, 20, 20), material["ink"])
         p.end()
 
@@ -251,7 +234,7 @@ class FloatingUI:
         # The tray is the way back when the floating logo is hidden.
         self.tray = QSystemTrayIcon(self.icon, self.root)
         self.tray.setToolTip("apollo s2t")
-        self.tray_menu = glass_menu(QMenu()); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
+        self.tray_menu = GlassMenu(); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
         show.triggered.connect(lambda: app.open_panel()); quit_.triggered.connect(lambda: on_quit())
         self.tray_menu.aboutToShow.connect(lambda: (show.setText(t("Show apollo s2t")), quit_.setText(t("Quit"))))
         self.tray.setContextMenu(self.tray_menu)
@@ -309,6 +292,8 @@ class FloatingUI:
         if getattr(self, "was_recording", False) != self.app.recording:
             self.was_recording = self.app.recording; self.place(); self.orb.update()
         busy = self.app.recording or self.app._busy_recordings
+        moving = self.orb.menu_animation.state() == self.orb.menu_animation.State.Running
+        if self.orb.isVisible() and self.orb.glass.refresh(.03 if busy or moving else .25): self.orb.update()
         if busy: self.orb.update()
         want = 33 if busy else 100  # animate fast only while recording or processing
         if self.timer.interval() != want: self.timer.setInterval(want)
@@ -338,7 +323,7 @@ class FloatingUI:
             self.nav_buttons = {}
             for name, text in (("recovery", "Recovery"), ("settings", "Einstellungen"), ("models", "Modelle")):
                 b = button(text, lambda checked=False, p=name: self.open_page(p))
-                b.setObjectName("nav"); b.setCheckable(True); b.setIcon(icon(name, "#fafafa"))
+                b.setObjectName("nav"); b.setCheckable(True); glyph_button(b, name)
                 nav.addWidget(b); self.nav_buttons[name] = b
             from apollo import APP_NAME, APP_VERSION
             nav.addStretch(); nav.addWidget(label(f"{APP_NAME}\nVersion {APP_VERSION}", "muted")); row.addWidget(sidebar)

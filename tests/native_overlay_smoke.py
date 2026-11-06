@@ -236,13 +236,16 @@ for language, settings_title in (("en", "Settings"), ("zh", "设置"), ("de", "E
     ui.open_page("recovery"); assert "Wirklich wichtig" in ui.preview_text.toPlainText()
     screenshot(f"recovery-{language}.png", ui.dialog)
 # Panels follow the overlay material at once: the saved choice restyles the open window.
-for material, dark in (("dark", True), ("clear", False), ("light", False)):
+# The window is liquid glass: excluded from capture, so it can show the desktop behind it.
+lightness = {}
+for material in ("dark", "clear", "light"):
     ui.open_page("settings"); ui.overlay_material.value = material; ui.save_settings()
     assert app.cfg["overlay"]["material"] == material
-    qt_app().processEvents(); surface = ui.dialog.grab().toImage().pixelColor(ui.dialog.width()-14, ui.dialog.height()//2)
-    assert (surface.lightness() < 80) == dark and surface.alpha() < 255, (material, surface.name(), surface.alpha())
+    qt_app().processEvents(); assert ui.dialog.glass.excluded and ui.dialog.glass.image(8) is not None
+    lightness[material] = ui.dialog.grab().toImage().pixelColor(ui.dialog.width()-14, ui.dialog.height()//2).lightness()
     screenshot(f"settings-{material}.png", ui.dialog)
     ui.open_page("recovery"); screenshot(f"recovery-{material}.png", ui.dialog)
+assert lightness["dark"] < lightness["light"], lightness
 ui.collapse()
 for _ in range(100):
     if ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped: break
@@ -258,7 +261,7 @@ with patch.object(ui.orb, "update") as redraw:
 event = types.SimpleNamespace(pos=lambda: ui.orb.CENTER.toPoint(), globalPos=lambda: ui.orb.mapToGlobal(ui.orb.CENTER.toPoint()), accept=lambda: None)
 ui.orb.contextMenuEvent(event); qt_app().processEvents()
 assert ui.orb.context_menu.isVisible() and ui.orb.context_menu.actions()[0].text() == "Im Tray ausblenden"
-assert ui.orb.context_menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+assert isinstance(ui.orb.context_menu, apollo_overlay.GlassMenu) and ui.orb.context_menu.glass.excluded
 screenshot("context-menu.png", ui.orb.context_menu)
 ui.orb.context_menu.actions()[0].trigger(); ui.orb.context_menu.close()
 assert not ui.visible and not app.cfg["overlay"]["visible"] and not ui.orb.isVisible()
@@ -266,7 +269,7 @@ app.open_panel(); ui.tick(); assert ui.visible and ui.orb.isVisible() and app.cf
 # Tray: localized Show / Quit; Show brings a hidden logo back.
 assert ui.tray.isVisible()
 menu = ui.tray.contextMenu(); menu.aboutToShow.emit()
-assert menu.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+assert isinstance(menu, apollo_overlay.GlassMenu)
 assert [action.text() for action in menu.actions()] == ["apollo s2t öffnen", "Beenden"]
 ui.hide(); menu.actions()[0].trigger(); ui.tick(); assert ui.visible and ui.expanded and ui.orb.isVisible()
 ui.hide(); ui.tray.activated.emit(apollo_overlay.QSystemTrayIcon.ActivationReason.Trigger); ui.tick(); assert ui.visible and ui.orb.isVisible()

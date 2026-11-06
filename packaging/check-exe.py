@@ -21,7 +21,7 @@ exe = root / 'dist/apollo.exe'
 archive = CArchiveReader(str(exe))
 pyz = next(name for name in archive.toc if name.endswith('.pyz'))
 modules = archive.open_embedded_archive(pyz).toc
-assert all(name in modules for name in ('apollo_overlay', 'apollo_models', 'apollo_recovery', 'apollo_design', 'apollo_widgets', 'apollo_terminal'))
+assert all(name in modules for name in ('apollo_overlay', 'apollo_models', 'apollo_recovery', 'apollo_design', 'apollo_glass', 'apollo_widgets', 'apollo_terminal'))
 assert 'config.json' not in archive.toc
 assert not any(Path(name).name.lower() == 'icuuc.dll' for name in archive.toc), 'Qt must use native Windows ICU'
 import hashlib

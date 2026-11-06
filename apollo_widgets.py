@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QLineEdit, QLi
                               QListWidgetItem, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
                               QScrollArea, QSizePolicy)
 
-from apollo_design import label, icon, theme
+from apollo_design import label, icon, theme, glyph_button
 from apollo_models import discover_catalog, audio_price, curated, load_stats, model_note, price_text, STT
 from apollo_i18n import t
 
@@ -77,7 +77,7 @@ class Choice(QWidget):
         self.translate = translate
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
         self.button = QPushButton(t(options.get(value, str(value))) if translate else options.get(value, str(value)))
-        self.button.setAutoDefault(False); self.button.setMinimumHeight(34); self.button.setIcon(icon("chevron", "#fafafa"))
+        self.button.setAutoDefault(False); self.button.setMinimumHeight(34); glyph_button(self.button, "chevron")
         layout.addWidget(self.button)
         self.items = QListWidget()
         self.refresh_options()
@@ -194,8 +194,8 @@ class ModelButton(QPushButton):
         super().paintEvent(event)
         p = QPainter(self); p.setFont(self.font())
         info = self.field.catalog.details(self.field.kind, self.field.value)
-        paint_model(p, self.rect().adjusted(10, 0, -30, 0), info["name"], price_text(info["price"]) if self.field.value else t("Off"), "#fafafa", "#d6d6d3")
-        icon("chevron", "#fafafa").paint(p, self.width()-24, (self.height()-16)//2, 16, 16); p.end()
+        paint_model(p, self.rect().adjusted(10, 0, -30, 0), info["name"], price_text(info["price"]) if self.field.value else t("Off"))
+        icon("chevron").paint(p, self.width()-24, (self.height()-16)//2, 16, 16); p.end()
 
 
 class ModelPicker(QWidget):
