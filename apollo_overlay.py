@@ -7,12 +7,11 @@ import queue
 import threading
 import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPainterPath
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
                               QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
-from apollo_design import (qt_app, logo_path, logo_pixmap, Shell, ACCENT,
-                           label, button, vector, icon, paint_logo)
+from apollo_design import (qt_app, Shell, label, button, vector, icon)
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
@@ -54,6 +53,37 @@ MATERIALS = {
     },
 }
 
+SUN = "#ff8a00"
+
+
+def paint_sun(painter, center, size, color=SUN, halo=False):
+    """Draw the new Apollo sun mark. A light halo keeps it visible on clear glass."""
+    painter.save(); painter.translate(center.x()-size/2, center.y()-size/2); painter.scale(size/24.0, size/24.0)
+    rays = [(i*math.pi/6-math.pi/2, 2.4 if i % 2 else 4.2) for i in range(12)]
+    if halo:
+        painter.setPen(QPen(QColor(255, 255, 255, 160), 5.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        for angle, length in rays:
+            painter.drawLine(QPointF(12+math.cos(angle)*7, 12+math.sin(angle)*7),
+                             QPointF(12+math.cos(angle)*(7+length), 12+math.sin(angle)*(7+length)))
+    painter.setPen(QPen(QColor(color), 2.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    for angle, length in rays:
+        painter.drawLine(QPointF(12+math.cos(angle)*7, 12+math.sin(angle)*7),
+                         QPointF(12+math.cos(angle)*(7+length), 12+math.sin(angle)*(7+length)))
+    painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(color))
+    painter.drawEllipse(QPointF(12, 12), 4.4, 4.4)
+    painter.restore()
+
+
+def sun_pixmap(size=64):
+    pix = QPixmap(size, size); pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    paint_sun(painter, QPointF(size/2, size/2), size*.78)
+    painter.end(); return pix
+
+
+def sun_icon(size=64):
+    return QIcon(sun_pixmap(size))
+
 class DebugLog(logging.Handler):
     """Only Apollo's safe diagnostics, bounded in RAM; no response bodies/tracebacks."""
     def __init__(self):
@@ -67,9 +97,9 @@ class DebugLog(logging.Handler):
         self.pending.put_nowait(line)
 
 class Orbit(QWidget):
-    CENTER = QPointF(116, 84)
-    ACTIONS = {"recovery": QPointF(74, 42), "settings": QPointF(56, 84),
-               "models": QPointF(74, 126), "close": QPointF(176, 84)}
+    CENTER = QPointF(105, 105)
+    ACTIONS = {"recovery": QPointF(51, 51), "settings": QPointF(29, 105),
+               "models": QPointF(51, 159), "close": QPointF(181, 105)}
     CAPTIONS = {"logo": "apollo s2t · Menü öffnen", "recovery": "Recovery und Live-Debug",
                 "settings": "Einstellungen", "models": "Modelle", "close": "Menü schließen"}
     def __init__(self, ui):
@@ -80,7 +110,7 @@ class Orbit(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setWindowTitle("apollo s2t"); self.setAccessibleName(t("apollo s2t · schwebendes Menü"))
-        self.resize(200, 168)
+        self.resize(210, 210)
         self.drag = None; self.pressed = None; self.moved = False
         self.wave = [0.] * 27
         self.menu_progress = 0.; self.hover_progress = 0.; self.hovered = None
@@ -111,10 +141,10 @@ class Orbit(QWidget):
         self.context_menu.aboutToHide.connect(self.context_menu.deleteLater)
         self.context_menu.popup(event.globalPos()); event.accept()
     def hit(self, point):
-        if math.hypot(point.x()-self.CENTER.x(), point.y()-self.CENTER.y()) <= 26: return "logo"
+        if math.hypot(point.x()-self.CENTER.x(), point.y()-self.CENTER.y()) <= 30: return "logo"
         if self.ui.expanded:
             for action, center in self.ACTIONS.items():
-                if math.hypot(point.x()-center.x(), point.y()-center.y()) <= 16: return action
+                if math.hypot(point.x()-center.x(), point.y()-center.y()) <= 22: return action
     def event(self, event):
         if event.type() == QEvent.Type.ToolTip:
             action = self.hit(event.pos())
@@ -160,51 +190,50 @@ class Orbit(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
-        rect = QRectF(self.CENTER.x()-22, self.CENTER.y()-22, 44, 44)
-        material = MATERIALS.get(self.ui.app.cfg["overlay"].get("material", "light"), MATERIALS["light"])
-        glass = rect.adjusted(-6, -6, 6, 6)
+        center = self.CENTER
+        orb = QRectF(center.x()-29, center.y()-29, 58, 58)
+        material_name = self.ui.app.cfg["overlay"].get("material", "light")
+        material = MATERIALS.get(material_name, MATERIALS["light"])
         p.setPen(Qt.PenStyle.NoPen)
-        for spread, alpha in ((6, 14), (4, 22), (2, 30)):
+        for spread, alpha in ((7, 12), (4, 20), (2, 28)):
             p.setBrush(QColor(0, 0, 0, alpha))
-            p.drawEllipse(glass.adjusted(-spread, -spread+2, spread, spread+2))
-        p.setPen(QPen(material["border"], 1.2)); p.setBrush(material["orb"]); p.drawEllipse(glass)
+            p.drawEllipse(orb.adjusted(-spread, -spread+2, spread, spread+2))
+        p.setPen(QPen(material["border"], 1.2)); p.setBrush(material["orb"]); p.drawEllipse(orb)
         if self.ui.app.recording:
-            bubble = QRectF(self.CENTER.x()-28, self.CENTER.y()-18, 56, 36)
-            p.setPen(QPen(material["drop_border"], 1)); p.setBrush(material["drop"]); p.drawRoundedRect(bubble, 16, 16)
-            tail = QPainterPath(); tail.moveTo(self.CENTER.x()-4, bubble.bottom()-1)
-            tail.lineTo(self.CENTER.x()-4, bubble.bottom()+5); tail.lineTo(self.CENTER.x()+3, bubble.bottom()-1)
-            p.setPen(Qt.PenStyle.NoPen); p.drawPath(tail)
-            p.setPen(QPen(QColor(material["ink"]), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor(SUN), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             for i in range(11):
                 strength = max(self.wave[i*2:i*2+3], default=0)
-                x = self.CENTER.x()+(i-5)*4; h = 3+strength*23
-                p.drawLine(QPointF(x, self.CENTER.y()-h/2), QPointF(x, self.CENTER.y()+h/2))
+                x = center.x()+(i-5)*4.2; h = 4+strength*30
+                p.drawLine(QPointF(x, center.y()-h/2), QPointF(x, center.y()+h/2))
         else:
-            paint_logo(p, self.ui.pixmap, rect)
+            paint_sun(p, center, 34, SUN, halo=material_name == "clear")
             if self.hovered == "logo" and self.hover_progress:
                 hover = QColor(material["ink"]); hover.setAlpha(round(110*self.hover_progress))
-                p.setPen(QPen(hover, 1))
-                p.setBrush(Qt.BrushStyle.NoBrush); p.drawEllipse(glass.adjusted(-1, -1, 1, 1))
+                p.setPen(QPen(hover, 1)); p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawEllipse(orb.adjusted(-2, -2, 2, 2))
             if self.ui.app._busy_recordings:
-                p.setPen(QPen(QColor(ACCENT), 2)); p.setBrush(Qt.BrushStyle.NoBrush)
-                p.drawArc(rect.adjusted(-3, -3, 3, 3), -self.ui.tick_count*7*16, 110*16)
+                p.setPen(QPen(QColor(SUN), 2.4)); p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawArc(orb.adjusted(-4, -4, 4, 4), -self.ui.tick_count*7*16, 110*16)
             elif self.ui.status != "Ready":
-                p.setPen(QPen(QColor("#eeedeb"), 1)); p.setBrush(QColor(ACCENT)); p.drawEllipse(rect.adjusted(33, 0, 0, -33))
+                p.setPen(QPen(QColor("#eeedeb"), 1)); p.setBrush(QColor(SUN))
+                p.drawEllipse(QPointF(orb.right()-2, orb.top()+2), 4.5, 4.5)
         if self.ui.expanded or self.menu_progress > 0:
             p.setOpacity(self.menu_progress)
-            for action, c in self.ACTIONS.items():
+            for action, target in self.ACTIONS.items():
+                c = QPointF(center.x()+(target.x()-center.x())*self.menu_progress,
+                            center.y()+(target.y()-center.y())*self.menu_progress)
                 drop = QColor(material["drop"])
                 if self.hovered == action: drop = drop.lighter(112)
                 p.setPen(QPen(material["drop_border"], 1)); p.setBrush(drop)
-                p.drawEllipse(QRectF(c.x()-16, c.y()-16, 32, 32))
-                vector(p, action, QRectF(c.x()-9, c.y()-9, 18, 18), material["ink"])
+                p.drawEllipse(QRectF(c.x()-21, c.y()-21, 42, 42))
+                vector(p, action, QRectF(c.x()-10, c.y()-10, 20, 20), material["ink"])
         p.end()
 
 class FloatingUI:
     def __init__(self, app, on_quit):
         self.app, self.on_quit = app, on_quit
         set_language(app.cfg["ui_language"])
-        self.root = qt_app(); self.pixmap = logo_pixmap(logo_path(app.base_dir))
+        self.root = qt_app(); self.icon = sun_icon(); self.pixmap = sun_pixmap(64); self.root.setWindowIcon(self.icon)
         self.catalog = ModelCatalog(); self.events = app.ui_events
         self.expanded = False; self.visible = app.cfg["overlay"]["visible"]
         self.dialog = None; self.page = None; self.status = "Ready"; self.tick_count = 0
@@ -212,7 +241,7 @@ class FloatingUI:
         self.debug_lines = deque(maxlen=300); self.debug_revision = 0
         self.last_samples = 0; self.sample_at = time.monotonic()
         self.root.aboutToQuit.connect(self.detach_debug)
-        self.orb = Orbit(self)
+        self.orb = Orbit(self); self.orb.setWindowIcon(self.icon)
         screen = self.root.primaryScreen().availableGeometry()
         self.x = app.cfg["overlay"]["x"]; self.y = app.cfg["overlay"]["y"]
         if self.x is None: self.x = screen.right()-100
@@ -220,7 +249,7 @@ class FloatingUI:
         self.place()
         if self.visible: self.orb.show()
         # The tray is the way back when the floating logo is hidden.
-        self.tray = QSystemTrayIcon(QIcon(str(logo_path(app.base_dir).with_name("apollo.ico"))), self.root)
+        self.tray = QSystemTrayIcon(self.icon, self.root)
         self.tray.setToolTip("apollo s2t")
         self.tray_menu = QMenu(); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
         show.triggered.connect(lambda: app.open_panel()); quit_.triggered.connect(lambda: on_quit())
@@ -234,10 +263,9 @@ class FloatingUI:
         screen = self.root.screenAt(QPoint(round(self.x), round(self.y))) or self.root.primaryScreen()
         return screen.availableGeometry()
     def place(self):
-        rect = self.bounds(); left = 76 if self.expanded else 32; right = 80 if self.expanded else 32
-        self.x = max(rect.left()+left, min(rect.right()-right, self.x))
-        top = bottom = 60 if self.expanded else 32
-        self.y = max(rect.top()+top, min(rect.bottom()-bottom, self.y))
+        rect = self.bounds(); margin = 98 if self.expanded else 40
+        self.x = max(rect.left()+margin, min(rect.right()-margin, self.x))
+        self.y = max(rect.top()+margin, min(rect.bottom()-margin, self.y))
         self.orb.move(round(self.x-self.orb.CENTER.x()), round(self.y-self.orb.CENTER.y()))
     def persist_position(self):
         try: self.app.update_preferences({"overlay": {"visible": self.visible, "x": self.x, "y": self.y}})

@@ -63,7 +63,7 @@ for _ in range(100):
     if ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped: break
     QTest.qWait(20)
 assert ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped
-assert ui.orb.size().width() == 200 and ui.orb.size().height() == 168
+assert ui.orb.size().width() == 210 and ui.orb.size().height() == 210
 screenshot("overlay.png", ui.orb)
 click("recovery"); assert ui.page == "recovery"
 assert "M · Bereinigen" in ui.recovery_list.item(0).text()
