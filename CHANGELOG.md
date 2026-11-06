@@ -3,6 +3,14 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Recovery
+- Send a failed transcription again automatically after network errors, HTTP 429, HTTP 5xx or an incomplete response.
+  The attempts start after 5, 15, 30, 60 and 120 seconds, then every 120 seconds, for up to 30 minutes.
+- Insert a retried result like a normal dictation within 60 seconds of the recording. Copy a later result to the clipboard.
+- Keep recordings that wait for a retry in the cache. Quit, explicit recovery and delete stop the pending retry.
+
 ## [0.4.9] - 2026-10-26
 
 ### Recording and recovery
