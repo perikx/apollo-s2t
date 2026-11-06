@@ -36,7 +36,8 @@
   "overlay": {
     "visible": true,
     "x": null,
-    "y": null
+    "y": null,
+    "material": "light"
   },
   "recovery_cache": {
     "minutes": 15

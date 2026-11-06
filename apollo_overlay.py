@@ -30,6 +30,30 @@ Notes for you; F10 does not send them. Describe the project below.
 ## Conventions
 """
 
+MATERIALS = {
+    "clear": {
+        "orb": QColor(255, 255, 255, 18),
+        "border": QColor(255, 255, 255, 140),
+        "drop": QColor(255, 255, 255, 30),
+        "drop_border": QColor(255, 255, 255, 115),
+        "ink": "#232323",
+    },
+    "light": {
+        "orb": QColor(250, 250, 248, 222),
+        "border": QColor(255, 255, 255, 238),
+        "drop": QColor(246, 246, 243, 238),
+        "drop_border": QColor(255, 255, 255, 230),
+        "ink": "#292929",
+    },
+    "dark": {
+        "orb": QColor(28, 28, 30, 222),
+        "border": QColor(255, 255, 255, 55),
+        "drop": QColor(38, 38, 40, 238),
+        "drop_border": QColor(255, 255, 255, 50),
+        "ink": "#fafafa",
+    },
+}
+
 class DebugLog(logging.Handler):
     """Only Apollo's safe diagnostics, bounded in RAM; no response bodies/tracebacks."""
     def __init__(self):
@@ -137,13 +161,20 @@ class Orbit(QWidget):
         p = QPainter(self)
         p.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
         rect = QRectF(self.CENTER.x()-22, self.CENTER.y()-22, 44, 44)
+        material = MATERIALS.get(self.ui.app.cfg["overlay"].get("material", "light"), MATERIALS["light"])
+        glass = rect.adjusted(-6, -6, 6, 6)
+        p.setPen(Qt.PenStyle.NoPen)
+        for spread, alpha in ((6, 14), (4, 22), (2, 30)):
+            p.setBrush(QColor(0, 0, 0, alpha))
+            p.drawEllipse(glass.adjusted(-spread, -spread+2, spread, spread+2))
+        p.setPen(QPen(material["border"], 1.2)); p.setBrush(material["orb"]); p.drawEllipse(glass)
         if self.ui.app.recording:
             bubble = QRectF(self.CENTER.x()-28, self.CENTER.y()-18, 56, 36)
-            p.setPen(QPen(QColor("#777774"), 1)); p.setBrush(QColor("#232323")); p.drawRoundedRect(bubble, 16, 16)
+            p.setPen(QPen(material["drop_border"], 1)); p.setBrush(material["drop"]); p.drawRoundedRect(bubble, 16, 16)
             tail = QPainterPath(); tail.moveTo(self.CENTER.x()-4, bubble.bottom()-1)
             tail.lineTo(self.CENTER.x()-4, bubble.bottom()+5); tail.lineTo(self.CENTER.x()+3, bubble.bottom()-1)
             p.setPen(Qt.PenStyle.NoPen); p.drawPath(tail)
-            p.setPen(QPen(QColor("#fafafa"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor(material["ink"]), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             for i in range(11):
                 strength = max(self.wave[i*2:i*2+3], default=0)
                 x = self.CENTER.x()+(i-5)*4; h = 3+strength*23
@@ -151,8 +182,9 @@ class Orbit(QWidget):
         else:
             paint_logo(p, self.ui.pixmap, rect)
             if self.hovered == "logo" and self.hover_progress:
-                p.setPen(QPen(QColor(35, 35, 35, round(110*self.hover_progress)), 1))
-                p.setBrush(Qt.BrushStyle.NoBrush); p.drawEllipse(rect.adjusted(-1, -1, 1, 1))
+                hover = QColor(material["ink"]); hover.setAlpha(round(110*self.hover_progress))
+                p.setPen(QPen(hover, 1))
+                p.setBrush(Qt.BrushStyle.NoBrush); p.drawEllipse(glass.adjusted(-1, -1, 1, 1))
             if self.ui.app._busy_recordings:
                 p.setPen(QPen(QColor(ACCENT), 2)); p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawArc(rect.adjusted(-3, -3, 3, 3), -self.ui.tick_count*7*16, 110*16)
@@ -161,10 +193,11 @@ class Orbit(QWidget):
         if self.ui.expanded or self.menu_progress > 0:
             p.setOpacity(self.menu_progress)
             for action, c in self.ACTIONS.items():
-                shade = round(238-20*self.hover_progress) if self.hovered == action else 238
-                p.setPen(Qt.PenStyle.NoPen); p.setBrush(QColor(shade, shade, shade))
+                drop = QColor(material["drop"])
+                if self.hovered == action: drop = drop.lighter(112)
+                p.setPen(QPen(material["drop_border"], 1)); p.setBrush(drop)
                 p.drawEllipse(QRectF(c.x()-16, c.y()-16, 32, 32))
-                vector(p, action, QRectF(c.x()-9, c.y()-9, 18, 18), "#292929")
+                vector(p, action, QRectF(c.x()-9, c.y()-9, 18, 18), material["ink"])
         p.end()
 
 class FloatingUI:
@@ -329,6 +362,11 @@ class FloatingUI:
         self.api_status = label("Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.", "muted", True); account.addWidget(self.api_status)
         interface = self.card(layout, "Sprache der Oberfläche")
         self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
+        material = self.card(layout, "Overlay-Material")
+        self.overlay_material = Choice({"clear": "Klar", "light": "Milchig hell", "dark": "Milchig dunkel"},
+                                       cfg["overlay"].get("material", "light"))
+        material.addWidget(self.overlay_material)
+        material.addWidget(label("Milchig hell ist der Standard.", "muted", True))
         recording = self.card(layout, "Maximale Aufnahmelänge (Minuten)")
         self.record_minutes = QLineEdit(str(cfg["recording"]["max_minutes"]))
         self.record_minutes.setAccessibleName(t("Maximale Aufnahmelänge (Minuten)"))
@@ -437,10 +475,12 @@ class FloatingUI:
             self.app.update_preferences({"hotkeys": {k:v.value for k,v in self.key_fields.items()}, "hotkey_mode": self.key_mode.value,
                 "recording": {"max_minutes": record_minutes},
                 "hotkeys_in_fullscreen": self.fullscreen_keys.isChecked(), "auto_update": self.auto_update.isChecked(), "ui_language": self.interface_language.value,
+                "overlay": {"material": self.overlay_material.value},
                 "openrouter_stt": {"vocabulary": [line.strip() for line in self.vocabulary.toPlainText().splitlines() if line.strip()]},
                 "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
             self.app.prune_recovery(); self.result.setObjectName("muted")
             set_language(self.app.cfg["ui_language"])
+            self.orb.update()
             for name, b in self.nav_buttons.items(): b.setText(t({"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle"}[name]))
             if previous_language != self.app.cfg["ui_language"]:
                 self.open_page("settings")

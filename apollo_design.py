@@ -98,7 +98,7 @@ def vector(painter, kind, rect, color=TEXT):
     elif kind == "settings":
         for y, x in ((6, 9), (12, 16), (18, 7)):
             painter.drawLine(QPointF(3, y), QPointF(21, y))
-            painter.setBrush(QColor("#2b2b29")); painter.drawEllipse(QRectF(x-2, y-2, 4, 4)); painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setBrush(QColor(color)); painter.drawEllipse(QRectF(x-2, y-2, 4, 4)); painter.setBrush(Qt.BrushStyle.NoBrush)
     elif kind == "models":
         for x, y in ((6, 6), (18, 6), (12, 18)):
             painter.drawEllipse(QRectF(x-2.5, y-2.5, 5, 5))

@@ -28,7 +28,7 @@ DEFAULTS = {
     "insertion": {"restore_clipboard": True},
     "beep": True,
     "auto_update": True,  # install new GitHub releases and restart when idle
-    "overlay": {"visible": True, "x": None, "y": None},
+    "overlay": {"visible": True, "x": None, "y": None, "material": "light"},
     "recovery_cache": {"minutes": 15},
 }
 
@@ -113,6 +113,8 @@ def validate_config(cfg):
     _number(cache["minutes"], "recovery_cache.minutes", 5, 60, True)
     if type(cfg["overlay"]["visible"]) is not bool:
         raise ConfigError("overlay.visible must be true or false.")
+    if cfg["overlay"].get("material") not in ("clear", "light", "dark"):
+        raise ConfigError("overlay.material must be clear, light or dark.")
     for axis in ("x", "y"):
         if cfg["overlay"][axis] is not None:
             _number(cfg["overlay"][axis], "overlay." + axis, -100000, 100000, True)
