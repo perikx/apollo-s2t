@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>apollo s2t · Liquid Glass</title>
+<style>
+@font-face { font-family: "Figtree"; src: url(../../assets/fonts/Figtree.ttf) format("truetype"); font-weight: 300 900; }
+:root { --fg: var(--foreground, #18181b); --mut: var(--muted-foreground, #6b6b70); --line: var(--border, #d9d9d6);
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace; --sun: #ff8a00; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Figtree", var(--font-sans, sans-serif); color: var(--fg); }
+.page { display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 22px; font-weight: 600; line-height: 1.2; margin: 0; }
+h2 { font-size: 18px; font-weight: 600; line-height: 1.25; margin: 0; }
+p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--mut); max-width: 70ch; }
+section, .head { display: flex; flex-direction: column; gap: 12px; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+figcaption { font-size: 13px; line-height: 1.4; color: var(--mut); text-align: center; }
+figcaption b { color: var(--fg); font-weight: 600; display: block; }
+.swatch { position: relative; height: 150px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.slot { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+
+/* ---------- backgrounds ---------- */
+.fill { position: absolute; inset: 0; overflow: hidden; }
+.photo { background: linear-gradient(180deg, #8fc3e8 0%, #f4c58b 62%, #e48a55 100%); }
+.photo .disc { position: absolute; width: 120px; height: 120px; border-radius: 50%; right: 70px; top: 110px; background: #ffe7a6; }
+.photo .hill { position: absolute; border-radius: 50% 50% 0 0; }
+.photo .h1 { width: 520px; height: 220px; right: -160px; bottom: -90px; background: #3d6b55; }
+.photo .h2 { width: 420px; height: 170px; right: 120px; bottom: -100px; background: #24463a; }
+.video { background: #0b5560; }
+.video .pan { position: absolute; top: 0; left: 0; width: 200%; height: 100%; display: flex; animation: pan 16s linear infinite; }
+.video .half { position: relative; width: 50%; height: 100%;
+  background: repeating-linear-gradient(115deg, #0e7c86 0 18px, #16a8ad 18px 30px, #0b5560 30px 46px); }
+.video .fl { position: absolute; border-radius: 50%; box-shadow: inset 0 0 0 10px rgba(255,255,255,.18); }
+.video .fl::after { content: ""; position: absolute; inset: 34%; border-radius: 50%; background: #2a1a10; box-shadow: 0 0 0 6px #ffd23f; }
+.video .word { position: absolute; font: 800 46px/1 "Figtree", var(--font-sans, sans-serif); color: #fff; letter-spacing: 2px; }
+@keyframes pan { to { transform: translateX(-50%); } }
+.code { background: #1e1e22; }
+.code pre, pre.codetxt { margin: 0; padding: 12px 16px; font: 12.5px/1.6 var(--mono); color: #d6d6dc; }
+.doc { background: #fbfbfa; color: #2a2a2e; padding: 16px 24px; font: 14px/1.65 Georgia, serif; }
+.doc h3 { margin: 0 0 8px; font: 600 18px/1.3 Georgia, serif; }
+.k { color: #ff8f6b; } .f { color: #7cc4ff; } .s { color: #a8e07c; } .c { color: #7b7b86; } .n { color: #f5c76a; }
+
+/* ---------- stage ---------- */
+.stage { position: relative; height: 300px; border-radius: 12px; overflow: hidden; user-select: none; touch-action: none; border: 1px solid var(--line); }
+.stage > .fill { display: none; }
+.stage.v-video > .video, .stage.v-photo > .photo, .stage.v-code > .photo, .stage.v-doc > .photo { display: block; }
+.stage .win { position: absolute; left: 16px; top: 16px; width: 64%; bottom: 56px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); overflow: hidden; display: none; }
+.stage .win .tb { height: 28px; display: flex; align-items: center; padding: 0 12px; font-size: 12px; }
+.stage .win.code .tb { background: #2b2b30; color: #b9b9c0; } .stage .win.doc .tb { background: #e9e9e6; color: #444; }
+.stage .win.doc { padding: 0; }
+.stage.v-code .win.code, .stage.v-doc .win.doc { display: block; }
+.stage .task { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: rgba(24,24,28,.9); display: flex; align-items: center; justify-content: center; gap: 8px; }
+.stage .task i { width: 24px; height: 24px; border-radius: 6px; background: #4a4a52; }
+.stage .task i:nth-child(2) { background: #3b82c4; } .stage .task i:nth-child(3) { background: #d9822b; } .stage .task i:nth-child(4) { background: #2f9e6e; }
+.stage .task span { position: absolute; right: 16px; color: #e6e6ea; font-size: 12px; font-variant-numeric: tabular-nums; }
+.anchor { position: absolute; width: 0; height: 0; }
+.controls { display: flex; flex-direction: column; gap: 8px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.seg .lbl { font-size: 13px; color: var(--mut); width: 88px; }
+.seg button { font: 500 13px/1 "Figtree", var(--font-sans, sans-serif); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: background-color .12s, color .12s; }
+.seg button:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--background, #fff); border-color: var(--fg); }
+.seg button:focus-visible, .drop:focus-visible { outline: 2px solid var(--ring, #3b82f6); outline-offset: 2px; }
+
+/* ---------- glass object ---------- */
+.gobj { position: absolute; pointer-events: none; }
+.gobj canvas, .gobj .lens, .gobj .gcontent { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.gobj .lens { -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+.gobj .tint { position: absolute; inset: 0; transition: background-color .2s; }
+.gcontent > * { pointer-events: auto; }
+.mainglyph { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; gap: 8px;
+  cursor: grab; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.sunmark { color: var(--sun); display: block; filter: drop-shadow(0 1px 1.5px rgba(70,25,0,.45)); }
+.ico { display: block; }
+.g-light .ico, .g-light .txt { color: #fff; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.45)); }
+.g-dark .ico, .g-dark .txt { color: #1c1c1e; filter: drop-shadow(0 0 1.5px rgba(255,255,255,.8)); }
+.drop { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; padding: 0; border: 0; background: none; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer; }
+.spin { position: absolute; inset: 3px; animation: rot 1s linear infinite; }
+.bars { display: flex; align-items: center; gap: 3px; height: 34px; }
+.bars i { width: 3px; height: 4px; border-radius: 2px; background: var(--sun); box-shadow: 0 1px 1.5px rgba(70,25,0,.4); }
+.ring { position: absolute; inset: 3px; transform: rotate(-90deg); }
+.dot { position: absolute; right: 9px; top: 9px; width: 9px; height: 9px; border-radius: 50%; background: #ff4b3e; box-shadow: 0 0 0 1.5px rgba(255,255,255,.85); }
+.gobj.dropg { transform-origin: 50% 50%; will-change: transform, opacity; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .video .pan { animation: none; } .spin { animation-duration: 3s; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="defs"></defs></svg>
+
+<template id="tpl-video">
+  <div class="fill video" data-tone="dark"><div class="pan">
+    <div class="half"><div class="fl" style="width:150px;height:150px;left:-30px;top:120px;background:#e2493a"></div><div class="fl" style="width:110px;height:110px;left:150px;top:-20px;background:#f3efe6"></div>
+      <div class="fl" style="width:130px;height:130px;left:300px;top:150px;background:#f08a24"></div><div class="word" style="left:190px;top:120px">apollo</div>
+      <div class="fl" style="width:90px;height:90px;left:470px;top:40px;background:#e2493a"></div></div>
+    <div class="half"><div class="fl" style="width:150px;height:150px;left:-30px;top:120px;background:#e2493a"></div><div class="fl" style="width:110px;height:110px;left:150px;top:-20px;background:#f3efe6"></div>
+      <div class="fl" style="width:130px;height:130px;left:300px;top:150px;background:#f08a24"></div><div class="word" style="left:190px;top:120px">apollo</div>
+      <div class="fl" style="width:90px;height:90px;left:470px;top:40px;background:#e2493a"></div></div>
+  </div></div>
+</template>
+
+<div class="page">
+  <div class="head">
+    <h1>apollo s2t: Liquid Glass</h1>
+    <p>Eine feste Größe für alle Zustände. Bei der Aufnahme laufen Stimmbalken wie im heutigen Overlay. Darunter läuft ein simuliertes Video, damit du die Brechung in Bewegung siehst.</p>
+  </div>
+
+  <section aria-labelledby="h-mat">
+    <h2 id="h-mat">Material: klar oder milchig</h2>
+    <div class="trio" id="materials"></div>
+  </section>
+
+  <section aria-labelledby="h-ov">
+    <h2 id="h-ov">Overlay</h2>
+    <p>Klick auf die Sonne öffnet das Menü. Die Tropfen gleiten aus dem Glas und halten Abstand. „Fehler“ zeigt die automatische Wiederherstellung: neuer Versuch, Verarbeitung, eingefügt.</p>
+    <div class="stage v-video" id="stage">
+      <div class="fill photo" data-tone="light"><div class="disc"></div><div class="hill h1"></div><div class="hill h2"></div></div>
+      <div class="win code" data-tone="dark"><div class="tb">apollo_overlay.py · Visual Studio Code</div>
+<pre class="codetxt"><span class="k">class</span> <span class="f">Orbit</span>(QWidget):
+    CENTER = QPointF(<span class="n">116</span>, <span class="n">84</span>)
+    <span class="c"># Hotkeys bleiben in Apollo tippbar.</span>
+    <span class="k">def</span> <span class="f">paintEvent</span>(self, event):
+        p = QPainter(self)
+        <span class="k">if</span> self.ui.app.recording:
+            bubble = QRectF(x - <span class="n">28</span>, y - <span class="n">18</span>, <span class="n">56</span>, <span class="n">36</span>)
+            p.drawRoundedRect(bubble, <span class="n">16</span>, <span class="n">16</span>)
+        <span class="k">else</span>:
+            paint_logo(p, self.ui.pixmap, rect)</pre></div>
+      <div class="win doc" data-tone="light"><div class="tb">Angebot Q4.docx · Word</div><div class="doc"><h3>Angebot für das vierte Quartal</h3>Sehr geehrte Frau Albers, vielen Dank für das Gespräch am Dienstag. Wie besprochen erhalten Sie anbei unser Angebot für die Wartung der drei Standorte. Die Preise gelten bis zum 31.12.2026.</div></div>
+      <div class="task" data-tone="dark"><i></i><i></i><i></i><i></i><span>10:42</span></div>
+      <div class="anchor"></div>
+    </div>
+    <div class="controls">
+      <div class="seg" id="seg-mat" role="group" aria-label="Material"><span class="lbl">Material</span></div>
+      <div class="seg" id="seg-state" role="group" aria-label="Zustand"><span class="lbl">Zustand</span></div>
+      <div class="seg" id="seg-view" role="group" aria-label="Hintergrund"><span class="lbl">Hintergrund</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-icon">
+    <h2 id="h-icon">App-Symbol</h2>
+    <div class="trio" id="icons"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const SVGNS = "http://www.w3.org/2000/svg";
+
+/* ---------- simulated speech level ---------- */
+const level = { now: 0, hist: new Array(40).fill(0), last: 0 };
+function speech(t) {
+  const syll = Math.max(0, Math.sin(t * 9.1) * .55 + Math.sin(t * 3.7 + 1) * .45);
+  return Math.min(1, Math.pow(syll, 1.4) * (Math.sin(t * .9) > -.55 ? 1 : .08) * (.75 + Math.random() * .35));
+}
+function tickLevel(t) {
+  if (t - level.last < 45) return;
+  level.last = t;
+  const v = speech(t / 1000);
+  level.now += (v - level.now) * (v > level.now ? .7 : .3);
+  level.hist.push(level.now); level.hist.shift();
+}
+const lv = i => level.hist[i] || 0;
+// voice bars: 7 bars, the newest level in the middle, older levels mirrored outwards
+const barsHTML = () => `<span class="bars">${"<i></i>".repeat(7)}</span>`;
+function setBars(bars) { bars.forEach((b, i) => { const v = lv(39 - Math.abs(i - 3) * 2); b.style.height = (4 + v * 30).toFixed(1) + "px"; }); }
+
+function sunMark(size, rays, core = 0) {
+  let s = `<svg class="sunmark" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.1"><circle cx="12" cy="12" r="${(4.4 + core * .9).toFixed(2)}" fill="currentColor" stroke="none"/>`;
+  for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6 - Math.PI / 2, L = rays ? .9 + rays[i] * 3.6 : (i % 2 ? 2.4 : 4.2);
+    s += `<line x1="${(12 + Math.cos(a) * 7).toFixed(2)}" y1="${(12 + Math.sin(a) * 7).toFixed(2)}" x2="${(12 + Math.cos(a) * (7 + L)).toFixed(2)}" y2="${(12 + Math.sin(a) * (7 + L)).toFixed(2)}"/>`;
+  }
+  return s + "</svg>";
+}
+
+/* ---------- materials ---------- */
+const MATERIALS = {
+  clear: { name: "Klar", blur: .5, tint: "rgba(255,255,255,.03)", disp: 16, bezel: 20, zoom: .06, sat: 1.3, glyph: "auto" },
+  light: { name: "Milchig hell", blur: 4, tint: "rgba(255,255,255,.30)", disp: 14, bezel: 22, zoom: .05, sat: 1.15, glyph: "dark" },
+  dark:  { name: "Milchig dunkel", blur: 4, tint: "rgba(0,0,0,.25)", disp: 14, bezel: 22, zoom: .05, sat: 1.15, glyph: "light" }
+};
+
+/* ---------- springs (stiffness 150, damping 16, as in the liquid-dom video controls) ---------- */
+const sp = v => ({ v, t: v, vel: 0 });
+function stepSpring(s, dt, k = 150, c = 16) {
+  if (reduced) { s.v = s.t; s.vel = 0; return false; }
+  const a = -k * (s.v - s.t) - c * s.vel; s.vel += a * dt; s.v += s.vel * dt;
+  if (Math.abs(s.v - s.t) < .02 && Math.abs(s.vel) < .02) { s.v = s.t; s.vel = 0; return false; }
+  return true;
+}
+
+/* ---------- signed distance field of the whole glass: smooth union of all shapes ---------- */
+const K = 18;                       // merge distance: shapes closer than this flow together
+let NCX = 0, NCY = 0;               // centre of the nearest shape, set by sdf()
+function smin(a, b, k) { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * .25; }
+function sdf(shapes, x, y) {
+  let d = 1e9, best = 1e9;
+  for (const s of shapes) {
+    const r = s.r.v; if (r < .5) continue;
+    const px = x - s.x.v, py = y - s.y.v; let ds;
+    if (s.box) {
+      const hw = s.w.v / 2, hh = s.h.v / 2, rr = Math.min(r, hw, hh), qx = Math.abs(px) - (hw - rr), qy = Math.abs(py) - (hh - rr);
+      ds = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - rr;
+    } else ds = Math.hypot(px, py) - r;
+    if (ds < best) { best = ds; NCX = s.x.v; NCY = s.y.v; }
+    d = d === 1e9 ? ds : smin(d, ds, K);
+  }
+  return d;
+}
+
+/* ---------- glass object: refraction map, mask, rim light and shadow from one SDF ---------- */
+let gid = 0;
+class Glass {
+  constructor(host, W, H, shapes, mat) {
+    this.W = W; this.H = H; this.shapes = shapes; this.id = "g" + (gid++);
+    this.el = document.createElement("div"); this.el.className = "gobj";
+    Object.assign(this.el.style, { width: W + "px", height: H + "px", left: -W / 2 + "px", top: -H / 2 + "px" });
+    this.el.innerHTML = `<canvas class="gshadow"></canvas><div class="lens"><div class="tint"></div></div><canvas class="gspec"></canvas><div class="gcontent"></div>`;
+    host.appendChild(this.el);
+    [this.shadow, this.spec] = this.el.querySelectorAll("canvas");
+    this.lens = this.el.querySelector(".lens"); this.tint = this.el.querySelector(".tint"); this.content = this.el.querySelector(".gcontent");
+    this.dpr = Math.min(2, devicePixelRatio || 1);
+    this.shadow.width = W; this.shadow.height = H; this.spec.width = W * this.dpr; this.spec.height = H * this.dpr;
+    this.map = document.createElement("canvas"); this.map.width = W; this.map.height = H;
+    this.mask = document.createElement("canvas"); this.mask.width = W; this.mask.height = H;
+    const f = document.createElementNS(SVGNS, "filter");
+    f.setAttribute("id", this.id); f.setAttribute("filterUnits", "userSpaceOnUse"); f.setAttribute("primitiveUnits", "userSpaceOnUse");
+    f.setAttribute("color-interpolation-filters", "sRGB"); f.setAttribute("x", 0); f.setAttribute("y", 0); f.setAttribute("width", W); f.setAttribute("height", H);
+    f.innerHTML = `<feGaussianBlur in="SourceGraphic" stdDeviation="0.5" result="b"/>
+      <feImage result="m" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"/>
+      <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="dr"/>
+      <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="dg"/>
+      <feDisplacementMap in="b" in2="m" xChannelSelector="R" yChannelSelector="G" result="db"/>
+      <feColorMatrix in="dr" type="matrix" values="1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0" result="r"/>
+      <feColorMatrix in="dg" type="matrix" values="0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 1 0" result="g"/>
+      <feColorMatrix in="db" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 1 0" result="bb"/>
+      <feBlend in="r" in2="g" mode="screen" result="rg"/><feBlend in="rg" in2="bb" mode="screen" result="rgb"/>
+      <feColorMatrix in="rgb" type="saturate" values="1.3"/>`;
+    document.getElementById("defs").appendChild(f);
+    this.f = f; this.feImage = f.querySelector("feImage"); this.maps = f.querySelectorAll("feDisplacementMap");
+    this.blurEl = f.querySelector("feGaussianBlur"); this.satEl = f.querySelector('feColorMatrix[type="saturate"]');
+    this.lens.style.backdropFilter = this.lens.style.webkitBackdropFilter = `url(#${this.id})`;
+    this.setMaterial(mat);
+  }
+  setMaterial(m, tintOverride) {
+    this.m = m; this.blurEl.setAttribute("stdDeviation", m.blur); this.satEl.setAttribute("values", m.sat);
+    this.tint.style.background = tintOverride || m.tint; this.dirty = true;
+  }
+  render() {
+    const { W, H, shapes, m } = this, cx = W / 2, cy = H / 2;
+    const mctx = this.map.getContext("2d"), kctx = this.mask.getContext("2d");
+    const mi = mctx.createImageData(W, H), ki = kctx.createImageData(W, H), md = mi.data, kd = ki.data;
+    const maxAbs = m.disp + m.zoom * Math.max(cx, cy);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const X = x + .5 - cx, Y = y + .5 - cy, d = sdf(shapes, X, Y), ccx = NCX, ccy = NCY, i = (y * W + x) * 4;
+      let dx = 0, dy = 0;
+      if (d < 0) {
+        const t = Math.min(1, -d / m.bezel);
+        if (t < 1) {
+          let nx = sdf(shapes, X + .5, Y) - d, ny = sdf(shapes, X, Y + .5) - d; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+          const mm = m.disp * (1 - Math.pow(1 - Math.pow(1 - t, 4), .25));   // convex squircle bezel: steep rim bends most
+          dx = nx * mm; dy = ny * mm;
+        }
+        dx -= (X - ccx) * m.zoom; dy -= (Y - ccy) * m.zoom;                 // slight magnification towards each shape centre
+      }
+      md[i] = 128 + dx / maxAbs * 127; md[i + 1] = 128 + dy / maxAbs * 127; md[i + 2] = 128; md[i + 3] = 255;
+      kd[i] = kd[i + 1] = kd[i + 2] = 255; kd[i + 3] = Math.max(0, Math.min(1, .5 - d)) * 255;
+    }
+    mctx.putImageData(mi, 0, 0); kctx.putImageData(ki, 0, 0);
+    this.feImage.setAttribute("href", this.map.toDataURL());
+    [1, .93, .86].forEach((k, j) => this.maps[j].setAttribute("scale", (maxAbs * 2 * k).toFixed(2)));
+    const murl = `url(${this.mask.toDataURL()})`; this.lens.style.webkitMaskImage = this.lens.style.maskImage = murl;
+    // rim light: bright edge facing the light at top left, weaker edge opposite, soft inner bevel
+    const s = this.dpr, SW = W * s, SH = H * s, sctx = this.spec.getContext("2d"), si = sctx.createImageData(SW, SH), sd = si.data;
+    const Lx = -.51, Ly = -.86;
+    for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+      const X = (x + .5) / s - cx, Y = (y + .5) / s - cy, d = sdf(shapes, X, Y);
+      if (d > .6 || d < -7) continue;
+      let nx = sdf(shapes, X + .5, Y) - d, ny = sdf(shapes, X, Y + .5) - d; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+      const facing = Math.max(0, nx * Lx + ny * Ly), back = Math.max(0, -(nx * Lx + ny * Ly));
+      const rim = Math.max(0, 1 - Math.abs(d + .7) / 1.1) * (.28 + .72 * facing + .4 * back);
+      const bevel = d < -1 ? Math.exp((d + 1) / 2.5) * .22 * facing : 0;
+      const a = Math.min(1, rim * .95 + bevel), i = (y * SW + x) * 4;
+      sd[i] = sd[i + 1] = sd[i + 2] = 255; sd[i + 3] = a * 255;
+    }
+    sctx.putImageData(si, 0, 0);
+    // shadow only outside the glass, so clear glass stays clear
+    const hctx = this.shadow.getContext("2d"); hctx.clearRect(0, 0, W, H);
+    hctx.filter = "blur(10px)"; hctx.drawImage(this.mask, 0, 7); hctx.filter = "none";
+    hctx.globalCompositeOperation = "source-in"; hctx.fillStyle = "rgba(0,0,0,.24)"; hctx.fillRect(0, 0, W, H);
+    hctx.globalCompositeOperation = "destination-out"; hctx.drawImage(this.mask, 0, 0); hctx.globalCompositeOperation = "source-over";
+    this.dirty = false;
+  }
+  update(dt) {
+    let moving = false;
+    for (let sub = 0; sub < 2; sub++)      // two half steps keep the spring stable at 30 fps
+      for (const s of this.shapes) for (const key of ["x", "y", "r", "w", "h"]) if (s[key] && stepSpring(s[key], dt / 2)) moving = true;
+    if (moving || this.dirty) this.render();
+    return moving;
+  }
+}
+const toneAt = (el) => { const r = el.getBoundingClientRect(); const hit = document.elementsFromPoint(r.left, r.top).find(e => e.dataset && e.dataset.tone); return hit ? hit.dataset.tone : "light"; };
+const glyphClass = (m, tone) => "g-" + (m.glyph === "auto" ? (tone === "dark" ? "light" : "dark") : m.glyph);
+const glasses = [];
+
+/* ---------- material comparison: same live recording orb over moving video ---------- */
+(function materials() {
+  const host = document.getElementById("materials");
+  for (const [key, cap] of [["clear", "Volle Brechung, kaum Tönung"], ["light", "Weiß getönt, 4 px Unschärfe"], ["dark", "Wie die liquid-dom-Video-Controls"]]) {
+    const m = MATERIALS[key], fig = document.createElement("figure");
+    fig.innerHTML = `<div class="swatch">${document.getElementById("tpl-video").innerHTML}<div class="slot"></div></div><figcaption><b>${m.name}</b>${cap}</figcaption>`;
+    host.appendChild(fig);
+    const g = new Glass(fig.querySelector(".slot"), 106, 106, [{ box: true, x: sp(0), y: sp(0), w: sp(58), h: sp(58), r: sp(29) }], m);
+    g.content.innerHTML = `<div class="mainglyph" style="width:58px;height:58px;cursor:default">${barsHTML()}</div>`;
+    const bars = [...g.content.querySelectorAll(".bars i")];
+    g.frame = () => setBars(bars);
+    glasses.push(g);
+  }
+})();
+
+/* ---------- interactive overlay ---------- */
+const STATES = [["idle", "Ruhe"], ["menu", "Menü"], ["rec", "Aufnahme F9"], ["busy", "Verarbeitung"], ["done", "Eingefügt"], ["retry", "Fehler"]];
+const VIEWS = [["video", "Video"], ["code", "Code"], ["doc", "Dokument"], ["photo", "Bild"]];
+// Droplets sit on a circle of radius 76 around the orb: 18 px gap to the orb, at least 12 px between droplets.
+const R_MENU = 76;
+const DROPS = [["recovery", 135, "Recovery und Live-Debug"], ["settings", 180, "Einstellungen"], ["models", 225, "Modelle"], ["close", 0, "Menü schließen"]]
+  .map(([k, deg, name]) => [k, Math.round(Math.cos(deg * Math.PI / 180) * R_MENU), Math.round(-Math.sin(deg * Math.PI / 180) * R_MENU), name]);
+const ICONS = {
+  recovery: `<svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/></svg>`,
+  settings: `<svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="7" cy="18" r="2" fill="currentColor"/></svg>`,
+  models: `<svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.5 6h7M7.2 8.2l3.6 7.6M16.8 8.2l-3.6 7.6"/></svg>`,
+  close: `<svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>`
+};
+const stage = document.getElementById("stage"), anchor = stage.querySelector(".anchor");
+stage.insertAdjacentHTML("afterbegin", document.getElementById("tpl-video").innerHTML);
+
+// Each droplet is its own glass with a fixed refraction map. Opening only animates transform and opacity.
+const drops = DROPS.map(([k, x, y, name]) => {
+  const g = new Glass(anchor, 90, 90, [{ x: sp(0), y: sp(0), r: sp(21) }], MATERIALS.dark);
+  g.el.classList.add("dropg");
+  g.content.innerHTML = `<button type="button" class="drop" data-k="${k}" aria-label="${name}" title="${name}">${ICONS[k]}</button>`;
+  glasses.push(g);
+  return { g, k, x, y, p: sp(0), s: sp(1), btn: g.content.firstChild };
+});
+const ov = new Glass(anchor, 106, 106, [{ box: true, x: sp(0), y: sp(0), w: sp(58), h: sp(58), r: sp(29) }], MATERIALS.dark);
+glasses.push(ov);
+ov.content.innerHTML = `<div class="mainglyph" data-drag role="button" tabindex="0" style="width:58px;height:58px"></div>`;
+const glyph = ov.content.firstChild;
+let state = "rec", since = performance.now(), mat = "dark", timers = [], bars = [], tone = "dark", ring = null;
+const pos = { x: 300, y: 128 };
+const place = () => { anchor.style.left = pos.x + "px"; anchor.style.top = pos.y + "px"; tone = toneAt(anchor); };
+const clock = () => { const s = Math.floor((performance.now() - since) / 1000) + 12; return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+function stepDrops(dt) {
+  for (const d of drops) {
+    for (let n = 0; n < 2; n++) { stepSpring(d.p, dt / 2); stepSpring(d.s, dt / 2, 700, 38); }
+    const p = Math.max(0, d.p.v), sc = (.35 + .65 * Math.min(1.1, p)) * d.s.v;
+    d.g.el.style.transform = `translate(${(d.x * p).toFixed(2)}px, ${(d.y * p).toFixed(2)}px) scale(${sc.toFixed(3)})`;
+    d.g.el.style.opacity = Math.min(1, p * 1.6).toFixed(3);
+    d.g.el.style.visibility = p < .02 ? "hidden" : "visible";
+  }
+}
+function openMenu(open) {
+  drops.forEach((d, i) => { const go = () => { d.p.t = open ? 1 : 0; d.s.t = 1; }; if (open) timers.push(setTimeout(go, i * 40)); else go(); });
+}
+function later(ms, fn) { timers.push(setTimeout(fn, reduced ? 0 : ms)); }
+function setState(key) {
+  timers.forEach(clearTimeout); timers = [];
+  state = key; since = performance.now();
+  btn.state.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === key)));
+  openMenu(key === "menu");
+  [ov, ...drops.map(d => d.g)].forEach(g => g.setMaterial(MATERIALS[mat]));
+  bars = []; ring = null;
+  glyph.title = "";
+  glyph.setAttribute("aria-label", { idle: "apollo s2t, Menü öffnen", menu: "Menü schließen", rec: "Aufnahme läuft", busy: "Wird verarbeitet", done: "Text eingefügt", retry: "Keine Verbindung, neuer Versuch folgt" }[key]);
+  if (key === "idle" || key === "menu") glyph.innerHTML = sunMark(34);
+  if (key === "rec") { glyph.innerHTML = barsHTML(); bars = [...glyph.querySelectorAll(".bars i")]; }
+  if (key === "busy") glyph.innerHTML = `<span style="opacity:.55">${sunMark(34)}</span><svg class="spin" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" fill="none" stroke="var(--sun)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="30 124"/></svg>`;
+  if (key === "done") glyph.innerHTML = `<svg class="sunmark" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>`;
+  if (key === "retry") {
+    // Network failed: the audio is saved, Apollo retries by itself. The ring fills until the next attempt.
+    glyph.innerHTML = `<span style="opacity:.55">${sunMark(34)}</span><svg class="ring" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" fill="none" stroke="var(--sun)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="150.8" stroke-dashoffset="150.8"/></svg><span class="dot"></span>`;
+    ring = glyph.querySelector(".ring circle");
+    later(4000, () => { setState("busy"); later(1600, () => setState("done")); });
+  }
+}
+drops.forEach(d => {
+  d.btn.addEventListener("pointerenter", () => { d.s.t = 1.1; });
+  d.btn.addEventListener("pointerleave", () => { d.s.t = 1; });
+  d.btn.addEventListener("pointerdown", e => { e.stopPropagation(); d.s.t = .94; });
+  d.btn.addEventListener("click", () => { d.s.t = 1.1; if (d.k === "close") setState("idle"); });
+});
+stage.addEventListener("pointerdown", e => {
+  const handle = e.target.closest("[data-drag]"); if (!handle) return;
+  const sx = e.clientX, sy = e.clientY, ox = pos.x, oy = pos.y; let moved = false;
+  handle.setPointerCapture(e.pointerId); handle.style.cursor = "grabbing";
+  const move = ev => {
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    if (!moved && Math.abs(dx) + Math.abs(dy) < 5) return;
+    moved = true;
+    pos.x = Math.max(32, Math.min(stage.clientWidth - 32, ox + dx)); pos.y = Math.max(32, Math.min(stage.clientHeight - 32, oy + dy)); place();
+  };
+  const up = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.style.cursor = "";
+    if (!moved) setState(state === "menu" ? "idle" : "menu"); };
+  handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+});
+ov.frame = () => {
+  const cls = "gcontent " + glyphClass(ov.m, tone);
+  if (ov.content.className !== cls) { ov.content.className = cls; drops.forEach(d => { d.g.content.className = cls; }); }
+  if (bars.length) { setBars(bars); glyph.title = `F9 · Bereinigen · ${clock()}`; }
+  if (ring) {
+    const k = Math.min(1, (performance.now() - since) / 4000), left = Math.ceil(4 - k * 4);
+    ring.setAttribute("stroke-dashoffset", (150.8 * (1 - k)).toFixed(1));
+    glyph.title = `Keine Verbindung. Aufnahme gesichert. Neuer Versuch in ${left} s.`;
+  }
+};
+const mkSeg = (id, items, pick) => items.map(([k, name]) => {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = name; b.dataset.k = k;
+  b.addEventListener("click", () => pick(k)); document.getElementById(id).appendChild(b); return b;
+});
+const btn = {};
+btn.mat = mkSeg("seg-mat", Object.entries(MATERIALS).map(([k, m]) => [k, m.name]), k => { mat = k; btn.mat.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === k))); setState(state); });
+btn.state = mkSeg("seg-state", STATES, setState);
+btn.view = mkSeg("seg-view", VIEWS, v => { stage.className = "stage v-" + v; btn.view.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.k === v))); tone = toneAt(anchor); });
+(function icons() {
+  const host = document.getElementById("icons");
+  const bgs = [["Hintergrundbild", `<div class="fill photo"><div class="disc" style="left:16px;top:16px"></div><div class="hill h1"></div></div>`],
+               ["Dunkler Editor", `<div class="fill code"><pre><span class="k">def</span> <span class="f">on_press</span>(self, mode):\n    <span class="k">if</span> self.recording:\n        <span class="k">return</span>\n    self.recorder.start()\n    beep(<span class="s">"start"</span>)\n    <span class="c"># F9: Bereinigen</span></pre></div>`],
+               ["Helles Dokument", `<div class="fill doc">Sehr geehrte Frau Albers, vielen Dank für das Gespräch am Dienstag. Wie besprochen erhalten Sie anbei unser Angebot für die Wartung der drei Standorte.</div>`]];
+  for (const [name, bg] of bgs) {
+    const fig = document.createElement("figure");
+    fig.innerHTML = `<div class="swatch">${bg}<div class="slot"></div></div><figcaption>${name}</figcaption>`;
+    host.appendChild(fig);
+    const g = new Glass(fig.querySelector(".slot"), 144, 144, [{ box: true, x: sp(0), y: sp(0), w: sp(96), h: sp(96), r: sp(24) }], MATERIALS.clear);
+    g.content.innerHTML = `<div class="mainglyph" style="width:96px;height:96px;cursor:default">${sunMark(60)}</div>`;
+    glasses.push(g);
+  }
+})();
+
+// Screenshot hooks: ?demo&state=menu&view=doc&mat=clear
+const qs = new URLSearchParams(location.search);
+if (qs.has("demo")) { level.hist = level.hist.map((_, i) => speech(i * .045 + .5)); level.now = .7; level.last = Infinity; }
+btn.mat.find(b => b.dataset.k === (qs.get("mat") || "dark")).click();
+btn.view.find(b => b.dataset.k === (qs.get("view") || "video")).click();
+setState(qs.get("state") || "rec");
+place();
+if (qs.has("settle")) {            // screenshots: finish the springs synchronously
+  timers.forEach(clearTimeout); if (state === "menu") drops.forEach(d => { d.p.t = 1; });
+  for (let n = 0; n < 240; n++) { glasses.forEach(g => g.update(1 / 60)); stepDrops(1 / 60); }
+  glasses.forEach(g => g.frame && g.frame());
+}
+let last = performance.now();
+function loop(t) {
+  const dt = Math.min(1 / 30, (t - last) / 1000); last = t;
+  tickLevel(t);
+  for (const g of glasses) { g.update(dt); if (g.frame) g.frame(); }
+  stepDrops(dt);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
