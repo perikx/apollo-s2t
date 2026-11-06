@@ -16,14 +16,15 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 # the droplets. "panel" is for windows and menus with text: they need more
 # frost and tint than an icon, or the desktop behind competes with the text.
 GLASS = {
-    "clear": {"blur": 2, "disp": 16, "bezel": 20, "zoom": .06, "lens": QColor(255, 255, 255, 8),
-              "panel_blur": 6, "panel": QColor(250, 250, 248, 110)},
+    "clear": {"blur": 1, "disp": 16, "bezel": 20, "zoom": .06, "lens": QColor(255, 255, 255, 8),
+              "panel_blur": 1, "panel": QColor(250, 250, 248, 36)},
     "light": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(255, 255, 255, 77),
               "panel_blur": 16, "panel": QColor(248, 248, 246, 178)},
     "dark": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(0, 0, 0, 64),
              "panel_blur": 16, "panel": QColor(24, 24, 26, 178)},
 }
-MARGIN = 40  # the capture reaches this far past the window, so the bent rim has pixels to show
+MARGIN = 40  # the bent rim shows pixels up to this far past the window
+REACH = 200  # the capture reaches this far, so a drag inside it needs no new capture
 SLICES = 8
 
 
@@ -41,11 +42,19 @@ class Backdrop:
     """The blurred desktop behind one window."""
     def __init__(self, widget):
         self.widget = widget
-        self.images, self.origin, self.taken = {}, QPointF(), 0.
+        self.images, self.area, self.taken = {}, None, 0.
         self.excluded = False
+    @property
+    def origin(self):
+        """Where the capture sits in the window, from the window position of this moment.
+
+        A moved window paints the right part of the capture at once, without a new capture."""
+        return QPointF(self.widget.mapFromGlobal(self.area.topLeft())) if self.area else QPointF()
     def refresh(self, max_age):
-        """Capture again when the last capture is older than max_age seconds. True if it did."""
-        if time.monotonic()-self.taken < max_age:
+        """Capture again when the last capture is older than max_age seconds, or when the
+        window left the captured area. True if the picture changed."""
+        need = self.widget.frameGeometry().adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN)
+        if self.area is not None and self.area.contains(need) and time.monotonic()-self.taken < max_age:
             return False
         if not self.excluded:
             self.excluded = exclude_from_capture(self.widget)
@@ -54,7 +63,7 @@ class Backdrop:
         screen = self.widget.screen()
         if screen is None:
             return False
-        frame = self.widget.frameGeometry().adjusted(-MARGIN, -MARGIN, MARGIN, MARGIN)
+        frame = self.widget.frameGeometry().adjusted(-REACH, -REACH, REACH, REACH)
         geometry = screen.geometry()
         image = screen.grabWindow(0, frame.x()-geometry.x(), frame.y()-geometry.y(), frame.width(), frame.height()).toImage()
         if image.isNull():
@@ -62,12 +71,10 @@ class Backdrop:
         image.setDevicePixelRatio(1)
         image = image.scaled(frame.width(), frame.height(), Qt.AspectRatioMode.IgnoreAspectRatio,
                              Qt.TransformationMode.SmoothTransformation)
-        origin = QPointF(self.widget.mapFromGlobal(frame.topLeft()))
         self.taken = time.monotonic()
-        if getattr(self, "source", None) == image and origin == self.origin:
+        if getattr(self, "source", None) == image and frame == self.area:
             return False  # nothing changed behind the window: no repaint
-        self.source = image; self.images = {}
-        self.origin = origin
+        self.source, self.images, self.area = image, {}, frame
         return True
     def image(self, blur):
         """The capture, blurred by roughly `blur` pixels (down and up scaling is a cheap blur)."""

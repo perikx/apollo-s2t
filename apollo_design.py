@@ -243,7 +243,7 @@ class Shell(QDialog):
     def showEvent(self, event):
         self.glass.refresh(0); super().showEvent(event)
     def moveEvent(self, event):
-        super().moveEvent(event); self.refresh_glass(.03)
+        super().moveEvent(event); self.glass.refresh(1.); self.repaint()  # the glass follows the window at once
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         paint_glass(painter, QRectF(self.surface.geometry()), 24, self.glass, material(), panel=True); painter.end()
