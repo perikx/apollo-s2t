@@ -7,7 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Overlay
 - Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
-- Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and in the tray and window icons.
+- Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and for the exe, tray and window icons.
 
 ## [0.4.9] - 2026-11-06
 
