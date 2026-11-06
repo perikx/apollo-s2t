@@ -352,7 +352,7 @@ const ov = new Glass(anchor, 106, 106, [{ box: true, x: sp(0), y: sp(0), w: sp(5
 glasses.push(ov);
 ov.content.innerHTML = `<div class="mainglyph" data-drag role="button" tabindex="0" style="width:58px;height:58px"></div>`;
 const glyph = ov.content.firstChild;
-let state = "rec", since = performance.now(), mat = "dark", timers = [], bars = [], tone = "dark", ring = null;
+let state = "rec", since = performance.now(), mat = "light", timers = [], bars = [], tone = "dark", ring = null;
 const pos = { x: 300, y: 128 };
 const place = () => { anchor.style.left = pos.x + "px"; anchor.style.top = pos.y + "px"; tone = toneAt(anchor); };
 const clock = () => { const s = Math.floor((performance.now() - since) / 1000) + 12; return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -446,7 +446,7 @@ btn.view = mkSeg("seg-view", VIEWS, v => { stage.className = "stage v-" + v; btn
 // Screenshot hooks: ?demo&state=menu&view=doc&mat=clear
 const qs = new URLSearchParams(location.search);
 if (qs.has("demo")) { level.hist = level.hist.map((_, i) => speech(i * .045 + .5)); level.now = .7; level.last = Infinity; }
-btn.mat.find(b => b.dataset.k === (qs.get("mat") || "dark")).click();
+btn.mat.find(b => b.dataset.k === (qs.get("mat") || "light")).click();
 btn.view.find(b => b.dataset.k === (qs.get("view") || "video")).click();
 setState(qs.get("state") || "rec");
 place();
