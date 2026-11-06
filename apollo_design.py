@@ -1,6 +1,7 @@
 """Shared Qt surfaces, vector icons and DPI-aware typography."""
 from pathlib import Path
 import sys
+from string import Template
 from apollo_i18n import t
 
 from PySide6.QtCore import Qt, QRectF, QPointF, QSize
@@ -8,47 +9,98 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, Q
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
                               QPushButton, QVBoxLayout, QWidget)
 
-ACCENT = "#232323"
-TEXT = "#232323"
-MUTED = "#696966"
-STYLE = """
-QWidget { color: #232323; font-family: 'Figtree'; font-size: 14px; }
-QFrame#surface { background: #eeedeb; border: 1px solid #cecdca; border-radius: 24px; }
-QFrame#card { background: #f8f8f6; border: 1px solid #d7d6d3; border-radius: 16px; }
+# Panels and menus use the same material as the floating orb. Windows gives a
+# frameless Qt window no reliable backdrop blur, so the glass is a tint: clear
+# shows the most of the desktop, milky light and milky dark show less of it.
+_LIGHT = dict(surface="rgba(246, 246, 243, 236)", edge="rgba(255, 255, 255, 235)", card="rgba(255, 255, 255, 130)",
+              line="rgba(35, 35, 35, 34)", text="#232323", muted="#5f5f5c", error="#a72e29",
+              field="rgba(255, 255, 255, 200)", focus="#232323", button="#232323", button_text="#fafafa",
+              button_hover="#3c3c3c", button_pressed="#111111", nav_checked="#50504e",
+              disabled="rgba(35, 35, 35, 40)", disabled_text="#6f6f6c", item_hover="rgba(35, 35, 35, 16)",
+              item_selected="rgba(35, 35, 35, 34)", item_border="rgba(35, 35, 35, 90)", check_border="#868682")
+MATERIAL_STYLES = {
+    "light": _LIGHT,
+    "clear": dict(_LIGHT, surface="rgba(250, 250, 248, 200)", card="rgba(255, 255, 255, 96)", field="rgba(255, 255, 255, 176)"),
+    "dark": dict(surface="rgba(28, 28, 30, 236)", edge="rgba(255, 255, 255, 55)", card="rgba(255, 255, 255, 14)",
+                 line="rgba(255, 255, 255, 34)", text="#fafafa", muted="#b4b4af", error="#ff9b8f",
+                 field="rgba(255, 255, 255, 20)", focus="#fafafa", button="rgba(255, 255, 255, 34)", button_text="#fafafa",
+                 button_hover="rgba(255, 255, 255, 52)", button_pressed="rgba(255, 255, 255, 22)",
+                 nav_checked="rgba(255, 255, 255, 78)", disabled="rgba(255, 255, 255, 14)", disabled_text="#8d8d89",
+                 item_hover="rgba(255, 255, 255, 18)", item_selected="rgba(255, 255, 255, 36)",
+                 item_border="rgba(255, 255, 255, 110)", check_border="#b4b4af"),
+}
+_STYLE = Template("""
+QWidget { color: $text; font-family: 'Figtree'; font-size: 14px; }
+QFrame#surface { background: $surface; border: 1px solid $edge; border-radius: 24px; }
+QFrame#card { background: $card; border: 1px solid $line; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
 QLabel#title { font-size: 21px; font-weight: 600; }
 QLabel#section { font-size: 14px; font-weight: 600; }
-QLabel#muted { color: #696966; font-size: 12px; }
-QLabel#error { color: #a72e29; font-size: 13px; }
-QPushButton { background: #232323; color: #fafafa; border: 1px solid #232323; border-radius: 12px;
+QLabel#muted { color: $muted; font-size: 12px; }
+QLabel#error { color: $error; font-size: 13px; }
+QPushButton { background: $button; color: $button_text; border: 1px solid transparent; border-radius: 12px;
               padding: 7px 10px; font-size: 14px; text-align: left; }
-QPushButton:hover { background: #3c3c3c; border-color: #3c3c3c; }
-QPushButton:pressed { background: #111111; }
-QPushButton:focus { border-color: #81817e; }
-QPushButton:disabled { background: #d4d4d1; color: #777774; border-color: #d4d4d1; }
+QPushButton:hover { background: $button_hover; }
+QPushButton:pressed { background: $button_pressed; }
+QPushButton:focus { border-color: $check_border; }
+QPushButton:disabled { background: $disabled; color: $disabled_text; }
 QPushButton#primary { font-weight: 600; text-align: center; }
-QPushButton#quiet { background: transparent; border: none; color: #696966; }
+QPushButton#quiet { background: transparent; border: none; color: $muted; }
 QPushButton#nav { padding: 8px; }
-QPushButton#nav:checked { background: #50504e; border-color: #50504e; }
-QLineEdit, QTextEdit, QPlainTextEdit { background: #fafafa; color: #232323; border: 1px solid #cfcecb; border-radius: 12px;
-                                    padding: 8px; selection-background-color: #232323; selection-color: #fafafa; }
-QLineEdit:focus, QTextEdit:focus { border-color: #232323; }
+QPushButton#nav:checked { background: $nav_checked; }
+QLineEdit, QTextEdit, QPlainTextEdit { background: $field; color: $text; border: 1px solid $line; border-radius: 12px;
+                                    padding: 8px; selection-background-color: $focus; selection-color: $selection_text; }
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border-color: $focus; }
+QPlainTextEdit#log { border-radius: 8px; padding: 6px; font-size: 12px; }
 QListWidget { background: transparent; border: none; outline: none; padding: 3px; }
-QListWidget::item { background: #f8f8f6; border: 1px solid #d7d6d3; border-radius: 13px; margin: 2px 0px; padding: 8px; }
-QListWidget::item:selected { background: #dededb; border-color: #868682; color: #232323; }
-QListWidget::item:hover { background: #e6e6e3; }
+QListWidget::item { background: $card; color: $text; border: 1px solid $line; border-radius: 13px; margin: 2px 0px; padding: 8px; }
+QListWidget::item:selected { background: $item_selected; border-color: $item_border; color: $text; }
+QListWidget::item:hover { background: $item_hover; }
 QScrollArea { background: transparent; border: none; }
+QScrollArea > QWidget > QWidget { background: transparent; }
 QScrollBar:vertical { width: 0px; }
 QScrollBar:horizontal { height: 0px; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
 QCheckBox { spacing: 10px; }
-QCheckBox::indicator { width: 22px; height: 22px; border: 1px solid #868682; border-radius: 6px; background: #fafafa; }
-QCheckBox::indicator:checked { background: #232323; border-color: #232323; }
+QCheckBox::indicator { width: 22px; height: 22px; border: 1px solid $check_border; border-radius: 6px; background: $field; }
+QCheckBox::indicator:checked { background: $focus; border-color: $focus; }
 QToolTip { background: #232323; color: #fafafa; border: 1px solid #50504e; padding: 8px; }
-QMenu { background: #eeedeb; color: #232323; border: 1px solid #cecdca; padding: 4px; }
-QMenu::item { padding: 8px 16px; border-radius: 6px; }
-QMenu::item:selected { background: #232323; color: #fafafa; }
-"""
+QMenu { background: $surface; color: $text; border: 1px solid $edge; border-radius: 12px; padding: 4px; }
+QMenu::item { padding: 8px 16px; border-radius: 8px; }
+QMenu::item:selected { background: $item_selected; color: $text; }
+""")
+_current = {"name": "light"}
+
+
+def theme():
+    """The colors of the active material, for widgets that paint text themselves."""
+    return MATERIAL_STYLES[_current["name"]]
+
+
+def style(material):
+    colors = MATERIAL_STYLES.get(material, _LIGHT)
+    return _STYLE.substitute(colors, selection_text="#fafafa" if colors["focus"] == "#232323" else "#232323")
+
+
+def apply_material(material):
+    """Restyle all Apollo windows and menus. Open windows change at once."""
+    _current["name"] = material if material in MATERIAL_STYLES else "light"
+    colors = theme(); app = qt_app(); palette = QPalette()
+    for role, color in ((QPalette.ColorRole.Window, colors["surface"]), (QPalette.ColorRole.Base, colors["field"]),
+                        (QPalette.ColorRole.Text, colors["text"]), (QPalette.ColorRole.WindowText, colors["text"]),
+                        (QPalette.ColorRole.Button, colors["button"]), (QPalette.ColorRole.ButtonText, colors["button_text"]),
+                        (QPalette.ColorRole.Highlight, colors["focus"]), (QPalette.ColorRole.HighlightedText, colors["surface"])):
+        palette.setColor(role, QColor(color))
+    app.setPalette(palette); app.setStyleSheet(style(_current["name"]))
+    for window in app.topLevelWidgets():
+        if isinstance(window, Shell): window.restyle()
+
+
+def glass_menu(menu):
+    """Let a menu show the material tint and round corners instead of a square native frame."""
+    menu.setWindowFlags(menu.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+    menu.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    return menu
 
 
 def qt_app():
@@ -58,17 +110,10 @@ def qt_app():
         app.setApplicationName("apollo s2t")
         app.setQuitOnLastWindowClosed(False)
         app.setStyle("Fusion")
-        palette = QPalette()
-        for role, color in ((QPalette.ColorRole.Window, "#eeedeb"), (QPalette.ColorRole.Base, "#fafafa"),
-                            (QPalette.ColorRole.Text, TEXT), (QPalette.ColorRole.WindowText, TEXT),
-                            (QPalette.ColorRole.Button, ACCENT), (QPalette.ColorRole.ButtonText, "#fafafa"),
-                            (QPalette.ColorRole.Highlight, ACCENT), (QPalette.ColorRole.HighlightedText, "#fafafa")):
-            palette.setColor(role, QColor(color))
-        app.setPalette(palette)
         font_path = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "assets/fonts/Figtree.ttf"
         QFontDatabase.addApplicationFont(str(font_path))
         app.setFont(QFont("Figtree", 10))
-        app.setStyleSheet(STYLE)
+        app.setStyleSheet(style(_current["name"]))
     return app
 
 
@@ -82,13 +127,13 @@ def logo_pixmap(path):
     return QPixmap(str(path))
 
 
-def vector(painter, kind, rect, color=TEXT):
+def vector(painter, kind, rect, color=None):
     """Consistent line icons, drawn as vectors at the current device scale."""
     painter.save()
     painter.translate(rect.x(), rect.y())
     painter.scale(rect.width()/24, rect.height()/24)
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(QPen(QColor(color), 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setPen(QPen(QColor(color or theme()["text"]), 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
     if kind == "close":
         painter.drawLine(QPointF(6, 6), QPointF(18, 18)); painter.drawLine(QPointF(18, 6), QPointF(6, 18))
     elif kind == "recovery":
@@ -109,7 +154,7 @@ def vector(painter, kind, rect, color=TEXT):
     painter.restore()
 
 
-def icon(kind, color=TEXT):
+def icon(kind, color=None):
     pix = QPixmap(48, 48); pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     vector(painter, kind, QRectF(0, 0, 48, 48), color); painter.end()
@@ -164,13 +209,15 @@ class Shell(QDialog):
         self.layout = QVBoxLayout(self.surface); self.layout.setContentsMargins(16, 12, 16, 16); self.layout.setSpacing(12)
         header = QWidget(); header.setFixedHeight(34); row = QHBoxLayout(header); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(8)
         row.addWidget(label("apollo", "section")); row.addStretch()
-        close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
+        self.close_button = close = QPushButton(); close.setIcon(icon("close")); close.setIconSize(QSize(18, 18)); close.setFixedSize(30, 30)
         close.setObjectName("quiet"); close.setAccessibleName(t("Fenster schließen")); close.clicked.connect(self.reject); row.addWidget(close)
         self.layout.addWidget(header)
         header.mousePressEvent = self.start_move
         self._move_origin = None
         header.mouseMoveEvent = self.move_window
         self.finished.connect(lambda _: self.hide())
+    def restyle(self):
+        self.close_button.setIcon(icon("close"))
     def start_move(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.windowHandle() and self.windowHandle().startSystemMove(): return

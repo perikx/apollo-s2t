@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QLineEdit, QLi
                               QListWidgetItem, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
                               QScrollArea, QSizePolicy)
 
-from apollo_design import label, icon, TEXT, MUTED
+from apollo_design import label, icon, theme
 from apollo_models import discover_catalog, audio_price, curated, load_stats, model_note, price_text, STT
 from apollo_i18n import t
 
@@ -155,14 +155,14 @@ class ModelCatalog(QObject):
         return self.data[kind].get(value) or {"name": value, "price": audio_price(value) if kind == "transcription" else None}
 
 
-def paint_model(painter, rect, name, price, text_color=TEXT, muted_color=MUTED):
+def paint_model(painter, rect, name, price, text_color=None, muted_color=None):
     name_font = painter.font(); price_font = painter.font(); price_font.setPixelSize(12)
     painter.setFont(price_font); metrics = painter.fontMetrics()
     price_width = min(metrics.horizontalAdvance(price)+6, round(rect.width()*.58))
-    painter.setPen(QColor(muted_color))
+    painter.setPen(QColor(muted_color or theme()["muted"]))
     painter.drawText(QRect(rect.right()-price_width, rect.y(), price_width, rect.height()),
                      Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, metrics.elidedText(price, Qt.TextElideMode.ElideRight, price_width))
-    painter.setPen(QColor(text_color))
+    painter.setPen(QColor(text_color or theme()["text"]))
     painter.setFont(name_font); metrics = painter.fontMetrics()
     name_width = max(0, rect.width()-price_width-12)
     painter.drawText(QRect(rect.x(), rect.y(), name_width, rect.height()),
@@ -172,7 +172,7 @@ def paint_model(painter, rect, name, price, text_color=TEXT, muted_color=MUTED):
 class ModelRow(QStyledItemDelegate):
     def paint(self, painter, option, index):
         if index.data(MORE):
-            painter.save(); painter.setPen(QColor(MUTED)); painter.setFont(option.font)
+            painter.save(); painter.setPen(QColor(theme()["muted"])); painter.setFont(option.font)
             painter.drawText(option.rect.adjusted(10, 0, -10, 0), Qt.AlignmentFlag.AlignVCenter, index.data())
             painter.restore(); return
         option = QStyleOptionViewItem(option); self.initStyleOption(option, index); option.text = ""
@@ -182,7 +182,7 @@ class ModelRow(QStyledItemDelegate):
         rect = option.rect.adjusted(10, 0, -10, 0)
         if note:
             paint_model(painter, QRect(rect.x(), rect.y()+2, rect.width(), 22), name, price)
-            small = QFont(option.font); small.setPixelSize(12); painter.setFont(small); painter.setPen(QColor(MUTED))
+            small = QFont(option.font); small.setPixelSize(12); painter.setFont(small); painter.setPen(QColor(theme()["muted"]))
             painter.drawText(QRect(rect.x(), rect.y()+24, rect.width(), 16), Qt.AlignmentFlag.AlignVCenter,
                              painter.fontMetrics().elidedText(note, Qt.TextElideMode.ElideRight, rect.width()))
         else: paint_model(painter, rect, name, price)
