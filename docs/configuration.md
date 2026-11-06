@@ -134,6 +134,22 @@ Each recording uses one shared filename stem:
 | `.txt` | Final text, including the raw-text fallback when rewriting fails. |
 | `.json` | Recording time, format, state, mode and original prompt context; no copied API credentials. |
 
+### Automatic retry
+
+When a transcription fails because of the network, a rate limit (HTTP 429), a server error
+(HTTP 5xx) or an incomplete response, Apollo sends the saved audio again by itself.
+The attempts start after 5, 15, 30, 60 and 120 seconds, then every 120 seconds.
+Apollo stops after 30 minutes. The audio then stays in Recovery for a manual retry.
+A rejected key (HTTP 401), missing credit (HTTP 402) and other request errors are not retried.
+Only the first failure plays the error tone.
+
+A retry that finishes within 60 seconds of the recording inserts the text like a normal dictation.
+A later result only goes to the clipboard, so it never lands in a field you opened afterwards.
+A recording that waits for a retry is not removed from the cache.
+Quit, an explicit recovery or a delete stops the pending retry. Startup never resends recordings.
+
+### Manual recovery
+
 Use the floating logo's **Recovery** window to select a saved recording. Existing
 final text, or its raw transcript if no final text exists, is copied without a network
 request. Otherwise, recovery sends the saved audio using **current** API/model settings

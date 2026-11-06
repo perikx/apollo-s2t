@@ -29,7 +29,7 @@ import requests
 import sounddevice as sd
 
 import apollo_models
-from apollo_api import ResponseError, http_error_hint, smooth, transcribe_openrouter, warm
+from apollo_api import ResponseError, RetryCancelled, http_error_hint, is_retryable, smooth, transcribe_openrouter, warm
 from apollo_config import (ConfigError, api_key, default_config, normalize_config,
                            read_config, save_config, scan_codes_of)
 from apollo_i18n import set_language
@@ -51,6 +51,10 @@ RESTORE_DELAY_SECONDS = 1.5  # slow apps read the clipboard late
 UPDATE_FIRST_CHECK_SECONDS = 60
 UPDATE_INTERVAL_SECONDS = 6 * 3600
 UPDATE_IDLE_SECONDS = 120  # restart into a new version only after two quiet minutes
+# A dictation that failed on the network is sent again by itself. The last delay repeats.
+AUTO_RETRY_DELAYS = (5, 15, 30, 60, 120)
+AUTO_RETRY_WINDOW_SECONDS = 30 * 60  # then the audio waits in Recovery
+AUTO_RETRY_PASTE_SECONDS = 60  # a later result goes to the clipboard, not into the field that has focus now
 PROFILES_DIR = "prompts"
 log = logging.getLogger("apollo")
 
@@ -643,6 +647,7 @@ class App:
         self.recovery = RecoveryStore(os.path.join(self.base_dir, "recovery"))
         self._backup = None
         self._busy_recordings = set()
+        self._retry_timers = {}  # recording ID -> pending automatic retry
         self.stats_path = os.path.join(self.base_dir, "model_stats.json")
         self.ui_events = queue.Queue(maxsize=128)
         self.ui_windows = set()
@@ -771,7 +776,7 @@ class App:
     def prune_recovery(self):
         try:
             with self._lock:
-                busy, cache = set(self._busy_recordings), self.cfg["recovery_cache"]
+                busy, cache = set(self._busy_recordings) | set(self._retry_timers), self.cfg["recovery_cache"]
             return self.recovery.prune(minutes=cache["minutes"], protected=busy)
         except (OSError, ValueError):
             log.warning("Recovery cache cleanup could not complete.")
@@ -780,6 +785,7 @@ class App:
     def delete_recovery(self, recording_id):
         with self._lock:
             if recording_id not in self._busy_recordings:
+                self._cancel_retry(recording_id)
                 self.recovery.delete(recording_id)
 
     def copy_recovery(self, recording_id):
@@ -841,6 +847,7 @@ class App:
                 self.notify("Processing queue full. Your saved dictation is still available.")
                 return
             self._busy_recordings.add(recording_id)
+            self._cancel_retry(recording_id)
             cfg = deepcopy(self.cfg)
         try:
             backup = self.recovery.open(recording_id)
@@ -852,6 +859,55 @@ class App:
             self._slots.release()
             log.error("Could not open saved dictation. Check the recovery folder.")
             self.notify("Recording unavailable. Reopen Recovery.")
+
+    def _cancel_retry(self, recording_id):
+        """Call with self._lock held."""
+        timer = self._retry_timers.pop(recording_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_retry(self, capture, t0, recording_id, attempt):
+        """Send a saved dictation again later. False when the retry window is over or Apollo closes."""
+        delay = AUTO_RETRY_DELAYS[min(attempt, len(AUTO_RETRY_DELAYS) - 1)]
+        if time.monotonic() + delay - t0 > AUTO_RETRY_WINDOW_SECONDS:
+            log.warning("Automatic retries stopped after %d attempts. Audio kept in recovery folder.", attempt)
+            return False
+        timer = threading.Timer(delay, self._auto_retry, args=(capture, t0, recording_id, attempt + 1))
+        timer.daemon = True
+        with self._lock:
+            if self._closing.is_set():
+                return False
+            self._cancel_retry(recording_id)
+            self._retry_timers[recording_id] = timer
+        timer.start()
+        log.warning("Transcription failed; automatic retry %d in %d seconds. Audio saved locally.", attempt + 1, delay)
+        self.notify(f"Transcription failed. Audio saved; retrying automatically in {delay} seconds.")
+        return True
+
+    def _auto_retry(self, capture, t0, recording_id, attempt):
+        with self._lock:
+            self._retry_timers.pop(recording_id, None)
+            if self._closing.is_set() or recording_id in self._busy_recordings:
+                return
+            if not self._slots.acquire(blocking=False):
+                queue_full = True
+            else:
+                queue_full = False
+                self._busy_recordings.add(recording_id)
+        if queue_full:  # new dictations go first; wait the same delay again
+            self._schedule_retry(capture, t0, recording_id, attempt - 1)
+            return
+        try:
+            backup = self.recovery.open(recording_id)
+            if backup.metadata["state"] != "failed":  # recovered or changed by hand meanwhile
+                raise LookupError
+            self._start_job(capture, None, t0, backup, False, None, attempt)
+        except Exception as exc:
+            with self._lock:
+                self._busy_recordings.discard(recording_id)
+            self._slots.release()
+            if not isinstance(exc, LookupError):
+                log.warning("Saved dictation is no longer available for an automatic retry.")
 
     def recovery_items(self):
         try:
@@ -1033,8 +1089,10 @@ class App:
                 self._threads.discard(threading.current_thread())
                 self._last_activity = time.monotonic()
 
-    def _process(self, capture, data, t0, backup, recovered=False, saver=None):
+    def _process(self, capture, data, t0, backup, recovered=False, saver=None, attempt=0):
         mode, cfg, prompt = capture
+        # A late automatic retry must not paste into whatever field has the focus by then.
+        copy_only = recovered or (attempt > 0 and time.monotonic() - t0 > AUTO_RETRY_PASTE_SECONDS)
 
         def durable():  # call before any final state: the audio must be on disk first
             if saver is not None:
@@ -1078,7 +1136,7 @@ class App:
                         log.warning("Rewrite unavailable or incomplete; keeping raw transcript.")
             try:
                 if not self._closing.is_set():
-                    if recovered:
+                    if copy_only:
                         _copy_owned(text)
                         log.info("Recovered dictation copied to clipboard; press Ctrl+V to paste.")
                         self.notify("Recovered dictation copied. Press Ctrl+V where you want it.")
@@ -1102,14 +1160,22 @@ class App:
                 # A rejected key fails every recording: open the key field at once.
                 self.notify("API key rejected. Set a new key in Settings. Audio saved.")
                 self._ui_event("open", "settings")
+            elif is_retryable(exc) and self._schedule_retry(capture, t0, backup.id, attempt):
+                if attempt:
+                    return  # a background retry failed again: no new error tone
             else:
                 self.notify("Transcription failed. Audio saved. Retry in Recovery.")
             beep("error", self.beep_enabled)
-        except (ResponseError, ValueError, TypeError):
+        except (ResponseError, ValueError, TypeError) as exc:
             durable()
             self._saved_status(backup, "failed", "No complete transcription received. Audio is saved; try again.")
             log.error("No complete transcription; nothing pasted. Audio kept in recovery folder.")
-            self.notify("Transcription incomplete. Audio saved. Retry in Recovery.")
+            retry = isinstance(exc, ResponseError) and not isinstance(exc, RetryCancelled)
+            if retry and self._schedule_retry(capture, t0, backup.id, attempt):
+                if attempt:
+                    return  # a background retry failed again: no new error tone
+            else:
+                self.notify("Transcription incomplete. Audio saved. Retry in Recovery.")
             beep("error", self.beep_enabled)
         except Exception:
             durable()
@@ -1159,6 +1225,9 @@ class App:
 
     def close(self):
         self._closing.set()
+        with self._lock:
+            for recording_id in list(self._retry_timers):
+                self._cancel_retry(recording_id)
         self._key_events.put(None)
         with self._rec_lock:
             if self._record_timer is not None:
