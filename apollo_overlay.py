@@ -11,7 +11,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
                               QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
-from apollo_design import (qt_app, Shell, label, button, vector, icon)
+from apollo_design import (qt_app, apply_material, glass_menu, Shell, label, button, vector, icon)
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
@@ -133,7 +133,7 @@ class Orbit(QWidget):
     def leaveEvent(self, event): self.hover(None); super().leaveEvent(event)
     def contextMenuEvent(self, event):
         if self.hit(QPointF(event.pos())) != "logo": return
-        self.context_menu = QMenu(self)
+        self.context_menu = glass_menu(QMenu(self))
         self.context_menu.addAction(t("Hide in tray"), self.ui.hide)
         self.context_menu.addAction(t("Quit"), self.ui.on_quit)
         handle = int(self.context_menu.winId()); self.ui.app.ui_windows.add(handle)
@@ -233,7 +233,7 @@ class FloatingUI:
     def __init__(self, app, on_quit):
         self.app, self.on_quit = app, on_quit
         set_language(app.cfg["ui_language"])
-        self.root = qt_app(); self.icon = sun_icon(); self.pixmap = sun_pixmap(64); self.root.setWindowIcon(self.icon)
+        self.root = qt_app(); apply_material(app.cfg["overlay"].get("material", "light")); self.icon = sun_icon(); self.pixmap = sun_pixmap(64); self.root.setWindowIcon(self.icon)
         self.catalog = ModelCatalog(); self.events = app.ui_events
         self.expanded = False; self.visible = app.cfg["overlay"]["visible"]
         self.dialog = None; self.page = None; self.status = "Ready"; self.tick_count = 0
@@ -251,7 +251,7 @@ class FloatingUI:
         # The tray is the way back when the floating logo is hidden.
         self.tray = QSystemTrayIcon(self.icon, self.root)
         self.tray.setToolTip("apollo s2t")
-        self.tray_menu = QMenu(); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
+        self.tray_menu = glass_menu(QMenu()); show, quit_ = self.tray_menu.addAction(""), self.tray_menu.addAction("")
         show.triggered.connect(lambda: app.open_panel()); quit_.triggered.connect(lambda: on_quit())
         self.tray_menu.aboutToShow.connect(lambda: (show.setText(t("Show apollo s2t")), quit_.setText(t("Quit"))))
         self.tray.setContextMenu(self.tray_menu)
@@ -508,7 +508,7 @@ class FloatingUI:
                 "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
             self.app.prune_recovery(); self.result.setObjectName("muted")
             set_language(self.app.cfg["ui_language"])
-            self.orb.update()
+            apply_material(self.app.cfg["overlay"]["material"]); self.orb.update()
             for name, b in self.nav_buttons.items(): b.setText(t({"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle"}[name]))
             if previous_language != self.app.cfg["ui_language"]:
                 self.open_page("settings")
@@ -553,7 +553,7 @@ class FloatingUI:
         self.debug_text = QPlainTextEdit(); self.debug_text.setReadOnly(True); self.debug_text.setMaximumBlockCount(300)
         self.debug_text.setPlaceholderText(t("Aufnahmeverlauf"))
         self.debug_text.setFixedHeight(108); self.debug_text.setAccessibleName(t("Live-Debug-Verlauf"))
-        self.debug_text.setStyleSheet("QPlainTextEdit { background: #fafafa; border: 1px solid #cfcecb; border-radius: 8px; padding: 6px; font-size: 12px; }")
+        self.debug_text.setObjectName("log")
         self.content_layout.addWidget(self.debug_text); self.rendered_debug = -1
         self.entries = []; self.refresh_recovery()
         self.refresh_debug()

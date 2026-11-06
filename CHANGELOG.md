@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Overlay
 - Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
+- Show the settings, recovery and model panels and the overlay and tray menus in the same material. A change applies at once.
 - Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and for the exe, tray and window icons.
 
 ## [0.4.9] - 2026-11-06
