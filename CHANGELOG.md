@@ -3,7 +3,7 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.0] - 2026-11-06
 
 ### Overlay
 - Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
