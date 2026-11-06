@@ -16,7 +16,7 @@ root = os.path.dirname(SPECPATH)
 datas = [
     (os.path.join(root, "config.example.json"), "."),
     (os.path.join(root, "prompts"), "prompts"),
-    (os.path.join(root, "assets", "apollo.ico"), "assets"),
+    (os.path.join(root, "assets", "apollo-sun.ico"), "assets"),
     (os.path.join(root, "assets", "apollo-app.png"), "assets"),  # small UI copy of apollo.png
     (os.path.join(root, "assets", "fonts"), "assets/fonts"),
     (os.path.join(root, "LICENSE"), "."),
@@ -99,5 +99,5 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,  # windowed: no console window; logs still go to apollo.log
     disable_windowed_traceback=False,
-    icon=os.path.join(root, "assets", "apollo.ico"),
+    icon=os.path.join(root, "assets", "apollo-sun.ico"),
 )
