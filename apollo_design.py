@@ -246,12 +246,7 @@ class Shell(QDialog):
         super().moveEvent(event); self.refresh_glass(.03)
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.surface.geometry())
-        painter.setPen(Qt.PenStyle.NoPen)
-        for spread, alpha in ((6, 10), (3, 18)):
-            painter.setBrush(QColor(0, 0, 0, alpha))
-            painter.drawRoundedRect(rect.adjusted(-spread/2, -spread/4, spread/2, spread), 24+spread/2, 24+spread/2)
-        paint_glass(painter, rect, 24, self.glass, material(), panel=True); painter.end()
+        paint_glass(painter, QRectF(self.surface.geometry()), 24, self.glass, material(), panel=True); painter.end()
     def start_move(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.windowHandle() and self.windowHandle().startSystemMove(): return

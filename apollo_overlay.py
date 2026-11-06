@@ -37,17 +37,15 @@ SUN = "#ff8a00"
 
 
 def paint_sun(painter, center, size, color=SUN):
-    """Draw the Apollo sun mark with the soft warm shadow of the glass prototype."""
+    """Draw the Apollo sun mark."""
     painter.save(); painter.translate(center.x()-size/2, center.y()-size/2); painter.scale(size/24.0, size/24.0)
-    rays = [(i*math.pi/6-math.pi/2, 2.4 if i % 2 else 4.2) for i in range(12)]
-    unit = 24.0/size  # one screen pixel in mark units
-    for offset, width, ink in ((unit, 2.1, QColor(70, 25, 0, 80)), (0, 2.1, QColor(color))):
-        painter.setPen(QPen(ink, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        for angle, length in rays:
-            painter.drawLine(QPointF(12+math.cos(angle)*7, 12+offset+math.sin(angle)*7),
-                             QPointF(12+math.cos(angle)*(7+length), 12+offset+math.sin(angle)*(7+length)))
-        painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(ink)
-        painter.drawEllipse(QPointF(12, 12+offset), 4.4+(width-2.1)/2, 4.4+(width-2.1)/2)
+    painter.setPen(QPen(QColor(color), 2.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    for i in range(12):
+        angle, length = i*math.pi/6-math.pi/2, 2.4 if i % 2 else 4.2
+        painter.drawLine(QPointF(12+math.cos(angle)*7, 12+math.sin(angle)*7),
+                         QPointF(12+math.cos(angle)*(7+length), 12+math.sin(angle)*(7+length)))
+    painter.setPen(Qt.PenStyle.NoPen); painter.setBrush(QColor(color))
+    painter.drawEllipse(QPointF(12, 12), 4.4, 4.4)
     painter.restore()
 
 
@@ -173,10 +171,6 @@ class Orbit(QWidget):
         orb = QRectF(center.x()-29, center.y()-29, 58, 58)
         material_name = self.ui.app.cfg["overlay"].get("material", "light")
         material = MATERIALS.get(material_name, MATERIALS["light"])
-        p.setPen(Qt.PenStyle.NoPen)
-        for spread, alpha in ((7, 12), (4, 20), (2, 28)):
-            p.setBrush(QColor(0, 0, 0, alpha))
-            p.drawEllipse(orb.adjusted(-spread*.6, 3, spread*.6, spread+5))
         paint_glass(p, orb, 29, self.glass, material_name)
         if self.ui.app.recording:
             p.setPen(QPen(QColor(SUN), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -202,9 +196,6 @@ class Orbit(QWidget):
                 c = QPointF(center.x()+(target.x()-center.x())*self.menu_progress,
                             center.y()+(target.y()-center.y())*self.menu_progress)
                 drop = QRectF(c.x()-21, c.y()-21, 42, 42)
-                p.setPen(Qt.PenStyle.NoPen)
-                for spread, alpha in ((6, 10), (3, 18), (1, 24)):  # soft shadow below, as in the prototype
-                    p.setBrush(QColor(0, 0, 0, alpha)); p.drawEllipse(drop.adjusted(-spread*.6, 3, spread*.6, spread+5))
                 paint_glass(p, drop, 21, self.glass, material_name)
                 if self.hovered == action:
                     hover = QColor(material["ink"]); hover.setAlpha(28); p.setPen(Qt.PenStyle.NoPen); p.setBrush(hover)
