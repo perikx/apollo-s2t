@@ -32,6 +32,10 @@ Notes for you; F10 does not send them. Describe the project below.
 
 # Icon color on the glass of each material.
 MATERIALS = {"clear": {"ink": "#232323"}, "light": {"ink": "#292929"}, "dark": {"ink": "#fafafa"}}
+# Clear glass shows the desktop almost unchanged, so its icons take the light ink over a dark
+# desktop. Dark and light ink have equal contrast at a luminance of about .21; the gap
+# between the two limits stops a flicker at that point.
+LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 
 SUN = "#ff8a00"
 
@@ -95,7 +99,15 @@ class Orbit(QWidget):
         self.hover_animation = QVariantAnimation(self); self.hover_animation.setDuration(100)
         self.hover_animation.valueChanged.connect(self.hover_frame)
         self.setMouseTracking(True)
-        self.glass = Backdrop(self)
+        self.glass = Backdrop(self); self.light_ink = {}
+    def ink(self, key, rect, material_name):
+        """Icon color for one shape. Clear glass follows the desktop behind the shape."""
+        if material_name != "clear":
+            return MATERIALS.get(material_name, MATERIALS["light"])["ink"]
+        level = self.glass.lightness(rect)
+        if level is not None:
+            self.light_ink[key] = level < (DARK_INK_ABOVE if self.light_ink.get(key) else LIGHT_INK_BELOW)
+        return MATERIALS["dark" if self.light_ink.get(key) else "clear"]["ink"]
     def menu_frame(self, value): self.menu_progress = float(value); self.update()
     def hover_frame(self, value): self.hover_progress = float(value); self.update()
     def animate_menu(self):
@@ -171,7 +183,6 @@ class Orbit(QWidget):
         center = self.CENTER
         orb = QRectF(center.x()-29, center.y()-29, 58, 58)
         material_name = self.ui.app.cfg["overlay"].get("material", "light")
-        material = MATERIALS.get(material_name, MATERIALS["light"])
         paint_glass(p, orb, 29, self.glass, material_name)
         if self.ui.app.recording:
             p.setPen(QPen(QColor(SUN), 2.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -182,7 +193,7 @@ class Orbit(QWidget):
         else:
             paint_sun(p, center, 34, SUN)
             if self.hovered == "logo" and self.hover_progress:
-                hover = QColor(material["ink"]); hover.setAlpha(round(110*self.hover_progress))
+                hover = QColor(self.ink("logo", orb, material_name)); hover.setAlpha(round(110*self.hover_progress))
                 p.setPen(QPen(hover, 1)); p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawEllipse(orb.adjusted(-2, -2, 2, 2))
             if self.ui.app._busy_recordings:
@@ -198,10 +209,11 @@ class Orbit(QWidget):
                             center.y()+(target.y()-center.y())*self.menu_progress)
                 drop = QRectF(c.x()-21, c.y()-21, 42, 42)
                 paint_glass(p, drop, 21, self.glass, material_name)
+                ink = self.ink(action, drop, material_name)
                 if self.hovered == action:
-                    hover = QColor(material["ink"]); hover.setAlpha(28); p.setPen(Qt.PenStyle.NoPen); p.setBrush(hover)
-                    p.drawEllipse(QRectF(c.x()-21, c.y()-21, 42, 42))
-                vector(p, action, QRectF(c.x()-10, c.y()-10, 20, 20), material["ink"])
+                    hover = QColor(ink); hover.setAlpha(28); p.setPen(Qt.PenStyle.NoPen); p.setBrush(hover)
+                    p.drawEllipse(drop)
+                vector(p, action, QRectF(c.x()-10, c.y()-10, 20, 20), ink)
         p.end()
 
 class FloatingUI:
