@@ -288,6 +288,8 @@ class FloatingUI:
                 if value: self.show(); self.open_page(value)
                 else: self.reveal()
             elif kind == "refresh" and self.page == "recovery": self.refresh_recovery()
+        if self.page in SECTIONS:
+            self.refresh_update()
         target = list(self.app.recorder.visual_levels()) if self.app.recording else []
         target = ([0.]*27+target)[-27:]
         for i, level in enumerate(target):
@@ -395,7 +397,10 @@ class FloatingUI:
         updates = self.group(layout, "Updates")
         self.auto_update = QCheckBox(t("Automatisch aktualisieren")); self.auto_update.setChecked(cfg["auto_update"])
         updates.addWidget(self.auto_update)
-        updates.addWidget(label("Lädt neue Versionen von GitHub und startet neu, wenn du nicht diktierst.", "muted", True))
+        row = QHBoxLayout(); row.setSpacing(12)
+        self.update_button = button("Jetzt aktualisieren", self.app.request_update); row.addWidget(self.update_button)
+        self.update_result = label("", "muted", True); row.addWidget(self.update_result, 1); updates.addLayout(row)
+        self.refresh_update()
         layout.addStretch()
         layout = section()  # recording
         keys = self.group(layout, "Aufnahmetasten")
@@ -473,6 +478,10 @@ class FloatingUI:
         except (OSError, ValueError) as exc:
             self.result.setText(t(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen.")); self.result.setObjectName("error")
         self.result.style().unpolish(self.result); self.result.style().polish(self.result)
+    def refresh_update(self):
+        self.update_button.setEnabled(not self.app.update_busy)
+        self.update_result.setText(t(self.app.update_status))
+
     def save_api_key(self):
         key = self.api_input.text().strip()
         if not key: return
