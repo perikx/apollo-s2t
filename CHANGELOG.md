@@ -9,6 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Choose clear, milky light or milky dark for the floating overlay. Milky light is the default.
 - Show the orb, the menu droplets, the settings, recovery and model panels and the overlay and tray menus as liquid glass in the same material. The glass blurs, magnifies and bends the desktop behind it. A change applies at once.
 - Use warm grays with the orange of the sun as the accent in panels and menus.
+- Split the settings into General, Recording and Prompt. Each section fits the window without scrolling.
+- Show settings as plain labels and fields instead of boxes. Pick two or three options from a row of segments instead of a list that opens in the page.
+- The model list opens in the free space of the Models page and is the only part that scrolls.
 - Apollo windows no longer appear in screenshots, screen recordings or screen sharing. Windows must exclude them from capture, so that the glass can show the desktop behind it.
 - Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and for the exe, tray and window icons.
 
