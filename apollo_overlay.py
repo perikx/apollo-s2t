@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrol
                               QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, apply_material, glyph_button, GlassMenu, Shell, label, button, vector)
-from apollo_glass import Backdrop, paint_glass
+from apollo_glass import GLASS, Backdrop, paint_glass
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
@@ -30,11 +30,10 @@ Notes for you; F10 does not send them. Describe the project below.
 ## Conventions
 """
 
-# Icon color on the glass of each material.
-MATERIALS = {"clear": {"ink": "#232323"}, "light": {"ink": "#292929"}, "dark": {"ink": "#fafafa"}}
-# Clear glass shows the desktop almost unchanged, so its icons take the light ink over a dark
-# desktop. Dark and light ink have equal contrast at a luminance of about .21; the gap
-# between the two limits stops a flicker at that point.
+# Icon colors on the glass. Each icon takes the light ink over a dark backdrop and the dark
+# ink over a light one, in every material. Both inks have equal contrast at a luminance of
+# about .21; the gap between the two limits stops a flicker at that point.
+INK = {"dark": "#232323", "light": "#fafafa"}
 LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 
 SUN = "#ff8a00"
@@ -101,13 +100,13 @@ class Orbit(QWidget):
         self.setMouseTracking(True)
         self.glass = Backdrop(self); self.light_ink = {}
     def ink(self, key, rect, material_name):
-        """Icon color for one shape. Clear glass follows the desktop behind the shape."""
-        if material_name != "clear":
-            return MATERIALS.get(material_name, MATERIALS["light"])["ink"]
-        level = self.glass.lightness(rect)
+        """Icon color for one shape, from the desktop behind it and the tint of the glass."""
+        level = self.glass.lightness(rect, GLASS.get(material_name, GLASS["light"])["lens"])
+        state = material_name, key
+        light = self.light_ink.get(state, material_name == "dark")  # without a capture: the tint decides
         if level is not None:
-            self.light_ink[key] = level < (DARK_INK_ABOVE if self.light_ink.get(key) else LIGHT_INK_BELOW)
-        return MATERIALS["dark" if self.light_ink.get(key) else "clear"]["ink"]
+            light = self.light_ink[state] = level < (DARK_INK_ABOVE if light else LIGHT_INK_BELOW)
+        return INK["light" if light else "dark"]
     def menu_frame(self, value): self.menu_progress = float(value); self.update()
     def hover_frame(self, value): self.hover_progress = float(value); self.update()
     def animate_menu(self):
