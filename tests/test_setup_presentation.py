@@ -85,12 +85,19 @@ def test_user_facing_files_do_not_reintroduce_retired_provider(relative):
 
 def test_current_logo_and_install_commands_are_present():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 'src="assets/apollo.png"' in readme
-    assert readme.index('src="assets/apollo.png"') < readme.index("Download for Windows")
+    assert 'src="assets/apollo-sun.svg"' in readme
+    assert readme.index('src="assets/apollo-sun.svg"') < readme.index("Download for Windows")
+    assert 'width="72" height="72"' in readme
+    assert "https://github.com/perikx/apollo-s2t/releases/latest/download/apollo.exe" in readme
     assert "https://github.com/perikx/apollo-s2t/releases/latest" in readme
     assert "docs/configuration.md" in readme and "docs/development.md" in readme
     assert "img.shields.io" not in readme
-    assert len(readme.split()) < 170
+    assert len(readme.split()) < 260
+    # The README uses the current app mark. Keep the original artwork below.
+    import xml.etree.ElementTree as ET
+    sun = ET.parse(ROOT / "assets/apollo-sun.svg").getroot()
+    assert len(sun.findall(".//{http://www.w3.org/2000/svg}path")) == 12
+    assert sun.find("{http://www.w3.org/2000/svg}circle").get("fill") == "#ff8a00"
     # Keep the user-supplied original artwork intact.
     logo = (ROOT / "assets/apollo.png").read_bytes()
     assert hashlib.sha256(logo).hexdigest() == "ba697c9e3ab47fc909ef3ff1af3780edc0b5f0ee2603280d49f32e45b4fafece"

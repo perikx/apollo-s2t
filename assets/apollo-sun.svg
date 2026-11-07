@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="-1 -1 26 26" role="img" aria-labelledby="title">
+  <title id="title">Apollo sun mark</title>
+  <g stroke="#ff8a00" stroke-width="2.1" stroke-linecap="round">
+    <path d="M12.000 5.000 L12.000 0.800"/>
+    <path d="M15.500 5.938 L16.700 3.859"/>
+    <path d="M18.062 8.500 L21.699 6.400"/>
+    <path d="M19.000 12.000 L21.400 12.000"/>
+    <path d="M18.062 15.500 L21.699 17.600"/>
+    <path d="M15.500 18.062 L16.700 20.141"/>
+    <path d="M12.000 19.000 L12.000 23.200"/>
+    <path d="M8.500 18.062 L7.300 20.141"/>
+    <path d="M5.938 15.500 L2.301 17.600"/>
+    <path d="M5.000 12.000 L2.600 12.000"/>
+    <path d="M5.938 8.500 L2.301 6.400"/>
+    <path d="M8.500 5.938 L7.300 3.859"/>
+  </g>
+  <circle cx="12" cy="12" r="4.4" fill="#ff8a00"/>
+</svg>
