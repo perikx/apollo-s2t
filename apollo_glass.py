@@ -4,13 +4,17 @@ The glass shows the desktop behind the window: blurred, slightly magnified,
 bent at the rim and tinted. Windows excludes the glass windows from screen
 capture, so a capture of their area returns the desktop behind them. If the
 exclusion fails, the glass falls back to the plain tint.
+
+While a glass window is visible, a capture thread takes the desktop behind it
+about 60 times a second, so the glass follows scrolling and video behind it.
 """
 import ctypes
 import sys
+import threading
 import time
 
-from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtCore import Qt, QEvent, QObject, QPoint, QRect, QRectF, QPointF, Signal
+from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen
 
 # Values from the MATERIALS table of the prototype. "lens" is for the orb and
 # the droplets. "panel" is for windows and menus with text: they need more
@@ -31,6 +35,10 @@ LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 MARGIN = 40  # the bent rim shows pixels up to this far past the window
 REACH = 200  # the capture reaches this far, so a drag inside it needs no new capture
 SLICES = 8
+# The capture thread takes small glass (orb, menus) 60 times a second. Large glass (the panel
+# window) 30 times: its blur hides the difference, and a large capture costs more.
+FRAME, LARGE_FRAME, LARGE = 1/60, 1/30, 300_000
+MOVED = .4  # seconds after a move in which the live capture reaches REACH instead of MARGIN
 
 
 def exclude_from_capture(widget):
@@ -43,12 +51,173 @@ def exclude_from_capture(widget):
         return False
 
 
+def _blur(source, blur):
+    """Down and up scaling is a cheap blur of roughly `blur` pixels."""
+    factor = max(1., blur/1.5)
+    small = source.scaled(max(1, round(source.width()/factor)), max(1, round(source.height()/factor)),
+                          Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    return small.scaled(source.width(), source.height(), Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation)
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+class _BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [("biSize", ctypes.c_uint32), ("biWidth", ctypes.c_long), ("biHeight", ctypes.c_long),
+                ("biPlanes", ctypes.c_uint16), ("biBitCount", ctypes.c_uint16), ("biCompression", ctypes.c_uint32),
+                ("biSizeImage", ctypes.c_uint32), ("biXPelsPerMeter", ctypes.c_long), ("biYPelsPerMeter", ctypes.c_long),
+                ("biClrUsed", ctypes.c_uint32), ("biClrImportant", ctypes.c_uint32)]
+
+
+def _win32():
+    """user32 and gdi32 with the argument types for 64-bit handles, or None off Windows."""
+    if sys.platform != "win32":
+        return None
+    user32, gdi32 = ctypes.WinDLL("user32"), ctypes.WinDLL("gdi32")
+    handle = ctypes.c_void_p
+    user32.GetDC.restype = handle; user32.GetDC.argtypes = (handle,)
+    user32.ReleaseDC.argtypes = (handle, handle)
+    user32.GetWindowRect.argtypes = (handle, ctypes.POINTER(_RECT))
+    gdi32.CreateCompatibleDC.restype = handle; gdi32.CreateCompatibleDC.argtypes = (handle,)
+    gdi32.CreateDIBSection.restype = handle
+    gdi32.CreateDIBSection.argtypes = (handle, ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), handle, ctypes.c_uint32)
+    gdi32.SelectObject.restype = handle; gdi32.SelectObject.argtypes = (handle, handle)
+    gdi32.DeleteObject.argtypes = (handle,); gdi32.DeleteDC.argtypes = (handle,)
+    gdi32.BitBlt.argtypes = (handle, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, handle, ctypes.c_int, ctypes.c_int, ctypes.c_uint32)
+    return user32, gdi32
+
+
+_API = _win32()
+
+
+def _window_rect(hwnd):
+    """The window rectangle in physical pixels, or None."""
+    rect = _RECT()
+    return (rect.left, rect.top, rect.right, rect.bottom) if _API and _API[0].GetWindowRect(hwnd, ctypes.byref(rect)) else None
+
+
+def _grab(x, y, width, height):
+    """The screen pixels of one rectangle in physical pixels, as bytes (BGRA). GDI works on any thread."""
+    user32, gdi32 = _API
+    screen = user32.GetDC(None); memory = gdi32.CreateCompatibleDC(screen)
+    info = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
+    bits = ctypes.c_void_p(); bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(bits), None, 0)
+    try:
+        if not bitmap: return None
+        old = gdi32.SelectObject(memory, bitmap)
+        gdi32.BitBlt(memory, 0, 0, width, height, screen, x, y, 0x00CC0020)  # SRCCOPY
+        data = ctypes.string_at(bits, width*height*4)
+        gdi32.SelectObject(memory, old)
+        return data
+    finally:
+        if bitmap: gdi32.DeleteObject(bitmap)
+        gdi32.DeleteDC(memory); user32.ReleaseDC(None, screen)
+
+
+class _Live(QObject):
+    """One capture thread for all visible glass windows. Frames reach the Qt thread as a signal."""
+    frame = Signal(object, object)
+    def __init__(self):
+        super().__init__()
+        self.backdrops, self.lock, self.thread = set(), threading.Lock(), None
+        self.frame.connect(self.deliver, Qt.ConnectionType.QueuedConnection)
+    def deliver(self, backdrop, payload):
+        backdrop.receive(payload)
+    def add(self, backdrop):
+        with self.lock:
+            self.backdrops.add(backdrop)
+            if self.thread is None:
+                self.thread = threading.Thread(target=self.run, daemon=True, name="apollo-glass"); self.thread.start()
+    def remove(self, backdrop):
+        with self.lock: self.backdrops.discard(backdrop)
+    def run(self):
+        while True:
+            start = time.perf_counter()
+            with self.lock: backdrops = list(self.backdrops)
+            for backdrop in backdrops:
+                if start < backdrop.due: continue
+                try:
+                    payload = backdrop.capture_live()
+                except (OSError, ValueError):
+                    payload = None
+                try:
+                    if payload is not None: self.frame.emit(backdrop, payload)
+                except RuntimeError:
+                    return  # Qt is shutting down
+            time.sleep(max(.002, FRAME-(time.perf_counter()-start)) if backdrops else .1)
+
+
+_live = None
+
+
+class _Watcher(QObject):
+    """Starts the live capture when the window shows and stops it when the window hides."""
+    def __init__(self, backdrop):
+        super().__init__(backdrop.widget); self.backdrop = backdrop
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Show: self.backdrop.start_live()
+        elif event.type() in (QEvent.Type.Hide, QEvent.Type.Close): self.backdrop.stop_live()
+        return False
+
+
 class Backdrop:
     """The blurred desktop behind one window."""
-    def __init__(self, widget):
-        self.widget = widget
+    def __init__(self, widget, on_frame=None):
+        self.widget, self.on_frame = widget, on_frame
         self.images, self.area, self.taken = {}, None, 0.
         self.excluded = False
+        self.hwnd, self.dpr, self.blurs, self.last, self.window_at, self.moved_at = None, 1., set(), None, None, 0.
+        self.due = 0.  # the capture thread takes the next frame at this time (time.perf_counter)
+        self.pending = False  # a frame waits for the Qt thread: take no new one, so none pile up
+        self.watcher = _Watcher(self); widget.installEventFilter(self.watcher)
+    def start_live(self):
+        global _live
+        if _API is None: return
+        if not self.excluded: self.excluded = exclude_from_capture(self.widget)
+        if not self.excluded: return  # a capture would show the window itself
+        self.hwnd, self.dpr = int(self.widget.winId()), self.widget.devicePixelRatioF()
+        if _live is None: _live = _Live()
+        _live.add(self)
+    def stop_live(self):
+        if _live is not None: _live.remove(self)
+    def capture_live(self):
+        """Capture thread: the desktop behind the window if it changed since the last frame, else None."""
+        window = _window_rect(self.hwnd)
+        if window is None or self.pending: return None
+        now = time.monotonic()
+        if window[:2] != self.window_at: self.window_at, self.moved_at = window[:2], now
+        reach = round((REACH if now-self.moved_at < MOVED else MARGIN)*self.dpr)
+        x, y = window[0]-reach, window[1]-reach
+        width, height = window[2]-window[0]+2*reach, window[3]-window[1]+2*reach
+        self.due = time.perf_counter()+(LARGE_FRAME if width*height > LARGE else FRAME)-.002
+        data = _grab(x, y, width, height)
+        if data is None or (data, width) == self.last: return None
+        self.last = (data, width)
+        image = QImage(data, width, height, QImage.Format.Format_RGB32).copy()
+        if self.dpr != 1:
+            image = image.scaled(round(width/self.dpr), round(height/self.dpr), Qt.AspectRatioMode.IgnoreAspectRatio,
+                                 Qt.TransformationMode.SmoothTransformation)
+        self.pending = True
+        return image, {blur: _blur(image, blur) for blur in list(self.blurs)}, window[:2], reach/self.dpr
+    def receive(self, payload):
+        """Qt thread: show a frame of the capture thread."""
+        image, blurs, window_at, reach = payload
+        self.pending = False
+        try:
+            now = _window_rect(self.hwnd)
+            if now is None or not self.widget.isVisible(): return
+            self.dpr = self.widget.devicePixelRatioF()
+            # The window may have moved since the capture: place the capture where it was taken.
+            shift = QPoint(round((window_at[0]-now[0])/self.dpr), round((window_at[1]-now[1])/self.dpr))
+            corner = self.widget.frameGeometry().topLeft()+shift-QPoint(round(reach), round(reach))
+            self.source, self.images, self.area = image, dict(blurs), QRect(corner, image.size())
+            self.taken = time.monotonic()
+            if self.on_frame: self.on_frame()
+            self.widget.update()
+        except RuntimeError:
+            self.stop_live()  # the window is gone
     @property
     def origin(self):
         """Where the capture sits in the window, from the window position of this moment.
@@ -104,15 +273,11 @@ class Backdrop:
                           +.0722*linear(mix(c.blueF(), tint.blueF())))
         return total/36
     def image(self, blur):
-        """The capture, blurred by roughly `blur` pixels (down and up scaling is a cheap blur)."""
+        """The capture, blurred by roughly `blur` pixels. The capture thread prepares each blur in use."""
         if not hasattr(self, "source"):
             return None
-        if blur not in self.images:
-            source = self.source; factor = max(1., blur/1.5)
-            small = source.scaled(max(1, round(source.width()/factor)), max(1, round(source.height()/factor)),
-                                  Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            self.images[blur] = small.scaled(source.width(), source.height(), Qt.AspectRatioMode.IgnoreAspectRatio,
-                                             Qt.TransformationMode.SmoothTransformation)
+        self.blurs.add(blur)
+        if blur not in self.images: self.images[blur] = _blur(self.source, blur)
         return self.images[blur]
 
 
