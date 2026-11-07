@@ -2,13 +2,13 @@
 import threading
 import time
 
-from PySide6.QtCore import QObject, Signal, Qt, QSize, QEvent, QRect
+from PySide6.QtCore import QObject, Signal, Qt, QSize, QEvent, QRect, QPoint
 from PySide6.QtGui import QPainter, QColor, QFont
-from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QLineEdit, QListWidget,
+from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QButtonGroup, QLineEdit, QListWidget,
                               QListWidgetItem, QStyledItemDelegate, QStyle, QStyleOptionViewItem,
-                              QScrollArea, QSizePolicy)
+                              QSizePolicy)
 
-from apollo_design import label, icon, theme, glyph_button
+from apollo_design import label, icon, theme, glyph_button, GlassMenu
 from apollo_models import discover_catalog, audio_price, curated, load_stats, model_note, price_text, STT
 from apollo_i18n import t
 
@@ -69,45 +69,45 @@ class KeyCapture(QPushButton):
 
 
 class Choice(QWidget):
-    """Small inline choices; no extra native window or modal event loop."""
+    """Pick one option. Options show side by side; a `menu` choice opens a menu instead."""
     changed = Signal(str)
-    def __init__(self, options, value, translate=True):
+    def __init__(self, options, value, translate=True, menu=False):
         super().__init__()
-        self.options, self.value = options, value
-        self.translate = translate
-        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
-        self.button = QPushButton(t(options.get(value, str(value))) if translate else options.get(value, str(value)))
-        self.button.setAutoDefault(False); self.button.setMinimumHeight(34); glyph_button(self.button, "chevron")
-        layout.addWidget(self.button)
-        self.items = QListWidget()
-        self.refresh_options()
-        layout.addWidget(self.items); self.items.hide()
-        self.button.clicked.connect(self.choose)
-        self.items.itemClicked.connect(self.apply); self.items.itemActivated.connect(self.apply)
-        self.items.installEventFilter(self)
+        self.options, self.value, self.translate = options, value, translate
+        layout = QHBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
+        self.buttons, self.button = {}, None
+        if menu:
+            # The options can change (new profiles), so the menu is built when it opens.
+            self.button = glyph_button(QPushButton(self.text(value)), "chevron"); self.button.setObjectName("picker")
+            self.button.setLayoutDirection(Qt.LayoutDirection.RightToLeft)  # the chevron sits at the right end
+            self.button.setAutoDefault(False); self.button.setMinimumHeight(34)
+            self.button.clicked.connect(self.choose); layout.addWidget(self.button)
+            self.menu = GlassMenu(self)
+            return
+        self.setObjectName("segments"); self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        self.group = QButtonGroup(self)
+        for key in options:
+            segment = QPushButton(self.text(key)); segment.setObjectName("segment")
+            segment.setCheckable(True); segment.setChecked(key == value); segment.setAutoDefault(False)
+            segment.setMinimumHeight(30); segment.setCursor(Qt.CursorShape.PointingHandCursor)
+            segment.clicked.connect(lambda checked=False, key=key: self.pick(key))
+            self.group.addButton(segment); layout.addWidget(segment, 1); self.buttons[key] = segment
+    def text(self, key):
+        text = self.options.get(key, str(key))
+        return t(text) if self.translate else text
     def choose(self):
-        self.refresh_options()
-        self.items.setVisible(self.items.isHidden())
-        if self.items.isVisible(): self.items.setFocus()
-    def refresh_options(self):
-        self.items.clear()
-        for key, text in self.options.items():
-            if key == self.value: continue
-            item = QListWidgetItem(t(text) if self.translate else text)
-            item.setData(Qt.ItemDataRole.UserRole, key); self.items.addItem(item)
-        self.items.setFixedHeight(min(self.items.count()*34+8, 150))
-        self.button.setEnabled(bool(self.items.count()))
+        self.menu.clear()
+        for key in self.options:
+            if key != self.value:
+                self.menu.addAction(self.text(key)).triggered.connect(lambda checked=False, key=key: self.pick(key))
+        self.menu.popup(self.button.mapToGlobal(QPoint(0, self.button.height()+4)))
+    def pick(self, key):
+        if key != self.value:
+            self.set_value(key); self.changed.emit(key)
     def set_value(self, value):
         self.value = value
-        self.button.setText(t(self.options[value]) if self.translate else self.options[value]); self.refresh_options()
-    def apply(self, item):
-        self.value = item.data(Qt.ItemDataRole.UserRole)
-        self.button.setText(t(self.options[self.value]) if self.translate else self.options[self.value]); self.items.hide(); self.button.setFocus()
-        self.changed.emit(self.value)
-    def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
-            self.items.hide(); self.button.setFocus(); return True
-        return super().eventFilter(watched, event)
+        if self.button is not None: self.button.setText(self.text(value))
+        for key, segment in self.buttons.items(): segment.setChecked(key == value)
 
 
 INFO, MORE = Qt.ItemDataRole.UserRole + 1, Qt.ItemDataRole.UserRole + 2
@@ -199,10 +199,12 @@ class ModelButton(QPushButton):
 
 
 class ModelPicker(QWidget):
-    """Embedded search and one ranked list; unranked models sit behind "Show all models"."""
+    """Embedded search and one ranked list; unranked models sit behind "Show all models".
+
+    The list takes the free height of the page, so it is the only part that scrolls."""
     def __init__(self, field):
         super().__init__(field)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.field = field
         self.selection = field.value
         self.show_all = False
@@ -210,8 +212,8 @@ class ModelPicker(QWidget):
         self.layout = QVBoxLayout(self); self.layout.setContentsMargins(0, 0, 0, 0); self.layout.setSpacing(4)
         self.search = QLineEdit(); self.search.setPlaceholderText(t("Search models …")); self.search.setAccessibleName(f"{field.title}: {t('Search models …')}")
         self.layout.addWidget(self.search)
-        self.items = QListWidget(); self.items.setStyleSheet("QListWidget::item { padding: 0; margin: 0; border-radius: 6px; }")
-        self.items.setItemDelegate(ModelRow(self.items)); self.items.setFixedHeight(166)
+        self.items = QListWidget(); self.items.setStyleSheet("QListWidget::item { padding: 0; margin: 0; }")
+        self.items.setItemDelegate(ModelRow(self.items)); self.items.setMinimumHeight(88)
         self.layout.addWidget(self.items)
         self.note = label("", "muted", True)
         self.layout.addWidget(self.note)
@@ -223,7 +225,7 @@ class ModelPicker(QWidget):
         field.catalog.changed.connect(self.refresh)
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
-            self.hide(); self.field.button.setFocus(); return True
+            self.field.close_picker(); return True
         if watched is self.search and event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Down:
             self.items.setFocus(); self.items.setCurrentRow(0)
             return True
@@ -266,8 +268,6 @@ class ModelPicker(QWidget):
         for model, info in rest:
             if (self.show_all or query) and found(model, info): self.add(model, info, ranked)
         self.items.blockSignals(False)
-        height = sum(self.items.item(i).sizeHint().height() for i in range(min(self.items.count(), 5)))
-        self.items.setFixedHeight(max(38, height+4))
         self.items.verticalScrollBar().setValue(scroll)
         if catalog.errors.get(kind): self.note.setText(t("Catalog unavailable. Please reload."))
         elif not data: self.note.setText(t("Loading catalog …"))
@@ -282,7 +282,7 @@ class ModelPicker(QWidget):
             self.show_all = not self.show_all; self.refresh(); return
         self.field.value = item.data(Qt.ItemDataRole.UserRole)
         self.field.refresh()
-        self.hide(); self.field.button.setFocus()
+        self.field.close_picker()
 
 
 class ModelField(QWidget):
@@ -291,7 +291,8 @@ class ModelField(QWidget):
         self.title, self.kind, self.value = t(title), kind, value
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self.catalog, self.allow_none = catalog, allow_none
-        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
+        layout.addWidget(label(title, "section"))
         self.button = ModelButton(); self.button.field = self; self.button.setAutoDefault(False)
         self.button.setFixedHeight(38); self.button.setAccessibleName(t(title))
         layout.addWidget(self.button); self.picker = None
@@ -311,8 +312,19 @@ class ModelField(QWidget):
         for field in self.window().findChildren(ModelField):
             if field.picker: field.picker.hide()
         self.picker.setVisible(opening)
-        if opening:
-            self.picker.open()
-            area = self.parentWidget()
-            while area and not isinstance(area, QScrollArea): area = area.parentWidget()
-            if area: area.ensureWidgetVisible(self.picker)
+        if opening: self.picker.open()
+        self.fit()
+    def close_picker(self):
+        self.picker.hide(); self.fit(); self.button.setFocus()
+    def fit(self):
+        """The field with an open picker takes the free height of the page; else it stays below."""
+        page = self.parentWidget().layout() if self.parentWidget() else None
+        if page is None: return
+        for i in range(page.count()):
+            item = page.itemAt(i); widget = item.widget()
+            if isinstance(widget, ModelField):
+                open_ = bool(widget.picker and not widget.picker.isHidden())
+                widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding if open_ else QSizePolicy.Policy.Maximum)
+                page.setStretch(i, int(open_))
+            elif item.spacerItem():
+                page.setStretch(i, 0 if any(f.picker and not f.picker.isHidden() for f in self.window().findChildren(ModelField)) else 1)

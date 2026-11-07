@@ -32,14 +32,13 @@ MATERIAL_STYLES = {
 _STYLE = Template("""
 QWidget { color: $text; font-family: 'Figtree'; font-size: 14px; }
 QFrame#surface { background: transparent; border: none; }
-QFrame#card { background: $card; border: 1px solid $line; border-radius: 16px; }
 QLabel { background: transparent; border: none; }
 QLabel#title { font-size: 21px; font-weight: 600; }
 QLabel#section { font-size: 14px; font-weight: 600; }
 QLabel#muted { color: $muted; font-size: 12px; }
 QLabel#error { color: $error; font-size: 13px; }
 QPushButton { background: $button; color: $text; border: 1px solid transparent; border-radius: 12px;
-              padding: 7px 10px; font-size: 14px; text-align: left; }
+              padding: 7px 10px; font-size: 14px; }
 QPushButton:hover { background: $button_hover; }
 QPushButton:pressed { background: $button_pressed; }
 QPushButton:focus { border-color: $accent; }
@@ -48,15 +47,21 @@ QPushButton#primary { background: $accent; color: $accent_text; font-weight: 600
 QPushButton#primary:hover { background: $accent_hover; }
 QPushButton#primary:focus { border-color: $text; }
 QPushButton#quiet { background: transparent; border: none; color: $muted; }
-QPushButton#nav { padding: 8px; }
+QPushButton#nav { background: transparent; padding: 8px; text-align: left; }
+QPushButton#picker { text-align: left; }
+QPushButton#nav:hover { background: $item_hover; }
 QPushButton#nav:checked { background: $nav_checked; }
+QWidget#segments { background: $button; border-radius: 12px; }
+QPushButton#segment { background: transparent; border-radius: 10px; margin: 2px; padding: 5px 8px; text-align: center; }
+QPushButton#segment:hover { background: $item_hover; }
+QPushButton#segment:checked { background: $nav_checked; }
 QLineEdit, QTextEdit, QPlainTextEdit { background: $field; color: $text; border: 1px solid $line; border-radius: 12px;
                                     padding: 8px; selection-background-color: $accent; selection-color: $accent_text; }
 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus { border-color: $accent; }
 QPlainTextEdit#log { border-radius: 8px; padding: 6px; font-size: 12px; }
 QListWidget { background: transparent; border: none; outline: none; padding: 3px; }
-QListWidget::item { background: $card; color: $text; border: 1px solid $line; border-radius: 13px; margin: 2px 0px; padding: 8px; }
-QListWidget::item:selected { background: $item_selected; border-color: $accent; color: $text; }
+QListWidget::item { background: transparent; color: $text; border: none; border-radius: 8px; margin: 0px; padding: 8px; }
+QListWidget::item:selected { background: $item_selected; color: $text; }
 QListWidget::item:hover { background: $item_hover; }
 QScrollArea { background: transparent; border: none; }
 QScrollArea > QWidget > QWidget { background: transparent; }
@@ -168,6 +173,13 @@ def vector(painter, kind, rect, color=None):
             painter.drawEllipse(QRectF(x-2.5, y-2.5, 5, 5))
         painter.drawLine(QPointF(8.5, 6), QPointF(15.5, 6))
         painter.drawLine(QPointF(7, 8), QPointF(11, 16)); painter.drawLine(QPointF(17, 8), QPointF(13, 16))
+    elif kind == "recording":  # a microphone
+        painter.drawRoundedRect(QRectF(9, 3, 6, 11), 3, 3)
+        painter.drawArc(QRectF(5.5, 6, 13, 12), 180*16, 180*16)
+        painter.drawLine(QPointF(12, 18), QPointF(12, 21))
+    elif kind == "prompt":  # a text prompt
+        painter.drawLine(QPointF(4, 7), QPointF(9, 12)); painter.drawLine(QPointF(9, 12), QPointF(4, 17))
+        painter.drawLine(QPointF(12, 17), QPointF(20, 17))
     elif kind == "chevron":
         painter.drawLine(QPointF(8, 10), QPointF(12, 14)); painter.drawLine(QPointF(12, 14), QPointF(16, 10))
     painter.restore()

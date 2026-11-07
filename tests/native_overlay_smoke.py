@@ -89,10 +89,20 @@ ui.open_page("settings")
 assert ui.record_minutes.text() == "10"
 screenshot("recording-settings.png", ui.dialog)
 assert any(item.text() == "apollo" for item in ui.dialog.findChildren(QLabel))
-ui.interface_language.choose()
-assert all(ui.interface_language.items.item(i).data(Qt.ItemDataRole.UserRole) != ui.interface_language.value for i in range(ui.interface_language.items.count()))
-assert ui.interface_language.items.count() == 2
-ui.interface_language.choose()
+# Settings are flat: no boxes and no lists that fold out inside the page.
+from PySide6.QtWidgets import QListWidget
+assert not [w for w in ui.content.findChildren(QListWidget) if w.isVisible()]
+assert list(ui.interface_language.buttons) == ["en", "de", "zh"] and ui.interface_language.buttons["de"].isChecked()
+assert ui.interface_language.buttons["de"].text() == "Deutsch" and ui.language.buttons["german"].text() == "Deutsch"
+ui.profile.choose(); qt_app().processEvents()
+assert isinstance(ui.profile.menu, apollo_overlay.GlassMenu) and ui.profile.menu.isVisible(); ui.profile.menu.close()
+# The settings have three sections. Each fits the window; a switch keeps unsaved edits.
+for section in apollo_overlay.SECTIONS:
+    ui.open_page(section); qt_app().processEvents()
+    assert ui.page == section and ui.nav_buttons[section].isChecked()
+    assert ui.form_scroll.verticalScrollBar().maximum() == 0, section
+ui.record_minutes.setText("12"); ui.open_page("settings"); ui.open_page("recording")
+assert ui.record_minutes.text() == "12"; ui.record_minutes.setText("10"); ui.open_page("settings")
 ui.vocabulary.setPlainText("PANDU\nSUPERBASE"); ui.save_settings()
 assert app.cfg["openrouter_stt"]["vocabulary"] == ["PANDU", "SUPERBASE"]
 ui.vocabulary.setPlainText("x"*101); ui.save_settings()
@@ -116,9 +126,10 @@ other.close(); ui.dialog.raise_(); ui.dialog.activateWindow()
 area = ui.content.findChild(QScrollArea)
 assert area.horizontalScrollBar().maximum() == 0
 ui.dialog.resize(680, 560); qt_app().processEvents()
-# Profile/behavior choices are embedded too.
-ui.key_mode.choose(); assert ui.key_mode.items.isVisible() and ui.key_mode.items.window() is ui.dialog
-ui.key_mode.apply(ui.key_mode.items.item(0)); assert ui.key_mode.items.isHidden()
+# A choice of two or three options is one row of segments.
+QTest.mouseClick(ui.key_mode.buttons["hold"], Qt.MouseButton.LeftButton)
+assert ui.key_mode.value == "hold" and ui.key_mode.buttons["hold"].isChecked() and not ui.key_mode.buttons["toggle"].isChecked()
+QTest.mouseClick(ui.key_mode.buttons["hold"], Qt.MouseButton.LeftButton); assert ui.key_mode.buttons["hold"].isChecked()
 ui.minutes.setText("bad"); ui.save_settings()
 assert ui.dialog.isVisible() and ui.minutes.text() == "bad" and "5 bis 60" in ui.result.text()
 QTest.keyClick(ui.minutes, Qt.Key.Key_Return); assert ui.dialog.isVisible()
@@ -222,7 +233,7 @@ ui.collapse()
 
 # Interface language is independent of transcription/output language, saves
 # through the real preference path, and leaves original transcript text intact.
-for language, settings_title in (("en", "Settings"), ("zh", "设置"), ("de", "Einstellungen")):
+for language, settings_title in (("en", "General"), ("zh", "常规"), ("de", "Allgemein")):
     ui.open_page("settings")
     output_language = app.cfg["prompt_profiles"]["output_language"]
     ui.form_scroll.verticalScrollBar().setValue(ui.form_scroll.verticalScrollBar().maximum()//2)

@@ -8,8 +8,8 @@ import threading
 import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea,
-                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QScrollArea, QStackedWidget,
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, apply_material, glyph_button, GlassMenu, Shell, label, button, vector)
 from apollo_glass import GLASS, Backdrop, paint_glass
@@ -37,6 +37,10 @@ INK = {"dark": "#232323", "light": "#fafafa"}
 LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 
 SUN = "#ff8a00"
+# The pages of the panel window, in the order of the sidebar. The settings have three sections.
+SECTIONS = {"settings": "Allgemein", "recording": "Aufnahme", "prompt": "Prompt"}
+PAGES = {"recovery": "Recovery", **SECTIONS, "models": "Modelle"}
+TITLES = {**PAGES, "recovery": "Letzte Aufnahmen"}
 
 
 def paint_sun(painter, center, size, color=SUN):
@@ -315,7 +319,7 @@ class FloatingUI:
         self.page = None
         if dialog: dialog.reject(); dialog.deleteLater()
     def open_page(self, page):
-        if page not in ("recovery", "settings", "models"): return
+        if page not in PAGES: return
         modal = self.root.activeModalWidget()
         if modal: modal.reject()
         if not self.dialog:
@@ -324,7 +328,7 @@ class FloatingUI:
             sidebar = QWidget(); sidebar.setFixedWidth(120)
             nav = QVBoxLayout(sidebar); nav.setContentsMargins(0, 0, 0, 0); nav.setSpacing(8)
             self.nav_buttons = {}
-            for name, text in (("recovery", "Recovery"), ("settings", "Einstellungen"), ("models", "Modelle")):
+            for name, text in PAGES.items():
                 b = button(text, lambda checked=False, p=name: self.open_page(p))
                 b.setObjectName("nav"); b.setCheckable(True); glyph_button(b, name)
                 nav.addWidget(b); self.nav_buttons[name] = b
@@ -337,13 +341,20 @@ class FloatingUI:
             rect = self.bounds()
             self.dialog.resize(min(680, rect.width()-32), min(560, rect.height()-32))
             self.dialog.move(rect.center()-self.dialog.rect().center())
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            if item.widget(): item.widget().hide(); item.widget().deleteLater()
-        self.page = page
-        for name, b in self.nav_buttons.items(): b.setChecked(name == page)
-        self.content_layout.addWidget(label({"recovery": "Letzte Aufnahmen", "settings": "Einstellungen", "models": "Modelle"}[page], "title"))
-        getattr(self, page+"_page")()
+        def clear(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                if item.widget(): item.widget().hide(); item.widget().deleteLater()
+                elif item.layout(): clear(item.layout()); item.layout().deleteLater()
+        if page in SECTIONS and self.page in SECTIONS:
+            self.show_section(page)
+        else:
+            clear(self.content_layout)
+            self.page = page
+            for name, b in self.nav_buttons.items(): b.setChecked(name == page)
+            self.page_title = label(TITLES[page], "title"); self.content_layout.addWidget(self.page_title)
+            if page in SECTIONS: self.settings_page(); self.show_section(page)
+            else: getattr(self, page+"_page")()
         self.dialog.show(); self.dialog.raise_(); self.dialog.activateWindow()
     def dialog_closed(self, _):
         dialog, self.dialog = self.dialog, None
@@ -351,22 +362,27 @@ class FloatingUI:
         if dialog: dialog.deleteLater()
     def form(self):
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        self.form_scroll = scroll
         scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 8, 0); layout.setSpacing(8)
-        scroll.setWidget(body); self.content_layout.addWidget(scroll, 1)
-        return layout
-    def card(self, layout, title):
-        card = QFrame(); card.setObjectName("card"); inside = QVBoxLayout(card)
-        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-        inside.setContentsMargins(12, 8, 12, 8); inside.setSpacing(6)
-        inside.addWidget(label(title, "section")); layout.addWidget(card); return inside
+        body = QWidget(); layout = QVBoxLayout(body); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(24)
+        scroll.setWidget(body)
+        return scroll, layout
+    def group(self, layout, title):
+        """One setting: its label, then its controls. Space separates the settings, not boxes."""
+        inside = QVBoxLayout(); inside.setSpacing(8)
+        inside.addWidget(label(title, "section")); layout.addLayout(inside); return inside
     def footer(self, text, save):
-        self.result = label(text, "muted", True); self.content_layout.addWidget(self.result)
-        self.content_layout.addWidget(button("Speichern", save, primary=True))
+        row = QHBoxLayout(); row.setSpacing(12)
+        self.result = label(text, "muted", True); row.addWidget(self.result, 1)
+        save_button = button("Speichern", save, primary=True); save_button.setMinimumWidth(120); row.addWidget(save_button)
+        self.content_layout.addLayout(row)
     def settings_page(self):
-        cfg = self.app.cfg; layout = self.form(); self.key_fields = {}
-        account = self.card(layout, "OpenRouter-API-Schlüssel")
+        """All settings in three sections. Only one shows; one Save stores all of them."""
+        cfg = self.app.cfg; self.key_fields = {}
+        self.sections = QStackedWidget(); self.section_scrolls = []
+        def section():
+            scroll, layout = self.form(); self.sections.addWidget(scroll); self.section_scrolls.append(scroll); return layout
+        layout = section()  # general
+        account = self.group(layout, "OpenRouter-API-Schlüssel")
         self.api_input = QLineEdit(); self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_input.setAccessibleName(t("OpenRouter-API-Schlüssel"))
         saved = cfg["smoothing"]["api_key"].strip()
@@ -375,30 +391,52 @@ class FloatingUI:
         self.api_input.returnPressed.connect(self.save_api_key)
         row = QHBoxLayout(); row.addWidget(self.api_input, 1)
         self.api_button = button("Prüfen und speichern", self.save_api_key); row.addWidget(self.api_button); account.addLayout(row)
-        self.api_status = label("Neuen Schlüssel einfügen. Leer lassen, um den gespeicherten zu behalten.", "muted", True); account.addWidget(self.api_status)
-        interface = self.card(layout, "Sprache der Oberfläche")
-        self.interface_language = Choice(LANGUAGES, cfg["ui_language"]); interface.addWidget(self.interface_language)
-        material = self.card(layout, "Overlay-Material")
+        self.api_status = label("", "muted", True); self.api_status.hide(); account.addWidget(self.api_status)
+        interface = self.group(layout, "Sprache der Oberfläche")
+        self.interface_language = Choice(LANGUAGES, cfg["ui_language"], translate=False); interface.addWidget(self.interface_language)
+        material = self.group(layout, "Overlay-Material")
         self.overlay_material = Choice({"clear": "Klar", "light": "Milchig hell", "dark": "Milchig dunkel"},
                                        cfg["overlay"].get("material", "light"))
         material.addWidget(self.overlay_material)
-        material.addWidget(label("Milchig hell ist der Standard.", "muted", True))
-        recording = self.card(layout, "Maximale Aufnahmelänge (Minuten)")
-        self.record_minutes = QLineEdit(str(cfg["recording"]["max_minutes"]))
-        self.record_minutes.setAccessibleName(t("Maximale Aufnahmelänge (Minuten)"))
-        recording.addWidget(self.record_minutes)
-        keys = self.card(layout, "Aufnahmetasten")
+        updates = self.group(layout, "Updates")
+        self.auto_update = QCheckBox(t("Automatisch aktualisieren")); self.auto_update.setChecked(cfg["auto_update"])
+        updates.addWidget(self.auto_update)
+        updates.addWidget(label("Lädt neue Versionen von GitHub und startet neu, wenn du nicht diktierst.", "muted", True))
+        layout.addStretch()
+        layout = section()  # recording
+        keys = self.group(layout, "Aufnahmetasten")
+        row = QHBoxLayout(); row.setSpacing(16); keys.addLayout(row)
         for mode, text in MODES.items():
-            row = QHBoxLayout(); row.addWidget(label(text)); row.addStretch()
-            field = KeyCapture(cfg["hotkeys"][mode]); row.addWidget(field); keys.addLayout(row); self.key_fields[mode] = field
+            column = QVBoxLayout(); column.setSpacing(4); column.addWidget(label(text, "muted"))
+            field = KeyCapture(cfg["hotkeys"][mode]); column.addWidget(field); row.addLayout(column, 1); self.key_fields[mode] = field
         for field in self.key_fields.values(): field.setToolTip(t("Taste anklicken und die neue Taste drücken"))
         self.key_mode = Choice({"toggle": "Antippen zum Starten / Stoppen", "hold": "Gedrückt halten"}, cfg["hotkey_mode"]); keys.addWidget(self.key_mode)
         self.fullscreen_keys = QCheckBox(t("Tasten auch in Vollbild-Apps und Spielen"))
         self.fullscreen_keys.setChecked(cfg["hotkeys_in_fullscreen"]); keys.addWidget(self.fullscreen_keys)
         self.fullscreen_keys.setToolTip(t("Aus: Spiele wie Minecraft behalten F8, F9 und F10. Eine laufende Aufnahme lässt sich immer stoppen."))
-        profiles = self.card(layout, "Prompt-Profil")
-        self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], translate=False); profiles.addWidget(self.profile)
-        self.profile_text = QPlainTextEdit(self.app.profile_text(self.profile.value)); self.profile_text.setFixedHeight(170)
+        numbers = QHBoxLayout(); numbers.setSpacing(16); layout.addLayout(numbers)
+        recording = self.group(numbers, "Maximale Aufnahmelänge (Minuten)")
+        self.record_minutes = QLineEdit(str(cfg["recording"]["max_minutes"]))
+        self.record_minutes.setAccessibleName(t("Maximale Aufnahmelänge (Minuten)"))
+        recording.addWidget(self.record_minutes)
+        cache = self.group(numbers, "Recovery-Dauer in Minuten")
+        self.minutes = QLineEdit(str(cfg["recovery_cache"]["minutes"])); self.minutes.setAccessibleName(t("Recovery-Dauer in Minuten"))
+        cache.addWidget(self.minutes)
+        self.minutes.setToolTip(t("5–60 Minuten · Abgelaufene Aufnahmen werden automatisch gelöscht."))
+        words = self.group(layout, "Persönliches Wörterbuch")
+        self.vocabulary = QPlainTextEdit("\n".join(cfg["openrouter_stt"]["vocabulary"]))
+        self.vocabulary.setAccessibleName(t("Persönliches Wörterbuch")); self.vocabulary.setFixedHeight(72)
+        self.vocabulary.setPlaceholderText("PANDU\nOpenRouter")
+        words.addWidget(self.vocabulary)
+        self.vocabulary.setToolTip(t("Ein Begriff pro Zeile · maximal 100. MAI-Transcribe 2 erhält diese Begriffe mit dem Audio als Erkennungshilfe. Andere Modelle verwenden sie derzeit nicht."))
+        words.addWidget(label("Ein Begriff pro Zeile · mit Audio an MAI 2 gesendet", "muted", True))
+        layout.addStretch()
+        layout = section()  # prompt
+        output = self.group(layout, "Ausgabesprache")
+        self.language = Choice({"english": "Englisch", "german": "Deutsch", "match": "Wie gesprochen"}, cfg["prompt_profiles"]["output_language"]); output.addWidget(self.language)
+        profiles = self.group(layout, "Prompt-Profil")
+        self.profile = Choice({p:p for p in self.app.available_profiles()}, cfg["prompt_profiles"]["active"], translate=False, menu=True); profiles.addWidget(self.profile)
+        self.profile_text = QPlainTextEdit(self.app.profile_text(self.profile.value)); self.profile_text.setFixedHeight(140)
         self.profile_loaded = self.profile.value  # the profile whose text the editor shows
         self.profile_text.setAccessibleName(t("Inhalt des Prompt-Profils"))
         self.profile_text.setPlaceholderText(t("Projekt, Stack, Ordner und Regeln für F10"))
@@ -407,23 +445,15 @@ class FloatingUI:
         row = QHBoxLayout(); self.new_profile = QLineEdit(); self.new_profile.setPlaceholderText(t("Name für ein neues Profil"))
         self.new_profile.setAccessibleName(t("Name für ein neues Profil")); self.new_profile.returnPressed.connect(self.create_profile)
         row.addWidget(self.new_profile, 1); row.addWidget(button("Anlegen", self.create_profile)); profiles.addLayout(row)
-        self.language = Choice({"english": "Ausgabe auf Englisch", "german": "Ausgabe auf Deutsch", "match": "Sprache der Aufnahme"}, cfg["prompt_profiles"]["output_language"]); profiles.addWidget(self.language)
-        cache = self.card(layout, "Recovery-Cache")
-        self.minutes = QLineEdit(str(cfg["recovery_cache"]["minutes"])); self.minutes.setAccessibleName(t("Recovery-Dauer in Minuten"))
-        cache.addWidget(self.minutes); cache.addWidget(label("5–60 min", "muted"))
-        self.minutes.setToolTip(t("5–60 Minuten · Abgelaufene Aufnahmen werden automatisch gelöscht."))
-        words = self.card(layout, "Persönliches Wörterbuch")
-        self.vocabulary = QPlainTextEdit("\n".join(cfg["openrouter_stt"]["vocabulary"]))
-        self.vocabulary.setAccessibleName(t("Persönliches Wörterbuch")); self.vocabulary.setFixedHeight(90)
-        self.vocabulary.setPlaceholderText("PANDU\nOpenRouter")
-        words.addWidget(self.vocabulary)
-        self.vocabulary.setToolTip(t("Ein Begriff pro Zeile · maximal 100. MAI-Transcribe 2 erhält diese Begriffe mit dem Audio als Erkennungshilfe. Andere Modelle verwenden sie derzeit nicht."))
-        words.addWidget(label("Ein Begriff pro Zeile · mit Audio an MAI 2 gesendet", "muted", True))
-        updates = self.card(layout, "Updates")
-        self.auto_update = QCheckBox(t("Automatisch aktualisieren")); self.auto_update.setChecked(cfg["auto_update"])
-        updates.addWidget(self.auto_update)
-        updates.addWidget(label(t("Version") + f" {self.app.version} · " + t("Lädt neue Versionen von GitHub und startet neu, wenn du nicht diktierst."), "muted", True))
-        layout.addStretch(); self.footer("", self.save_settings)
+        layout.addStretch()
+        self.content_layout.addWidget(self.sections, 1); self.footer("", self.save_settings)
+    def show_section(self, page):
+        """Switch between the settings sections without a rebuild, so unsaved edits stay."""
+        self.page = page
+        for name, b in self.nav_buttons.items(): b.setChecked(name == page)
+        self.page_title.setText(t(TITLES[page]))
+        index = list(SECTIONS).index(page)
+        self.sections.setCurrentIndex(index); self.form_scroll = self.section_scrolls[index]
     def store_profile_text(self, name):
         """Write the editor text to its profile, if the user changed it."""
         if self.profile_text.document().isModified():
@@ -475,7 +505,7 @@ class FloatingUI:
                 pass  # the settings page closed while the check ran; the key is saved
         QTimer.singleShot(100, done)
     def set_api_status(self, text, kind):
-        self.api_status.setText(t(text)); self.api_status.setObjectName(kind)
+        self.api_status.setText(t(text)); self.api_status.setObjectName(kind); self.api_status.show()
         self.api_status.style().unpolish(self.api_status); self.api_status.style().polish(self.api_status)
     def save_settings(self):
         previous_language = self.app.cfg["ui_language"]
@@ -497,9 +527,9 @@ class FloatingUI:
             self.app.prune_recovery(); self.result.setObjectName("muted")
             set_language(self.app.cfg["ui_language"])
             apply_material(self.app.cfg["overlay"]["material"]); self.orb.update()
-            for name, b in self.nav_buttons.items(): b.setText(t({"recovery": "Recovery", "settings": "Einstellungen", "models": "Modelle"}[name]))
+            for name, b in self.nav_buttons.items(): b.setText(t(PAGES[name]))
             if previous_language != self.app.cfg["ui_language"]:
-                self.open_page("settings")
+                page, self.page = self.page, None; self.open_page(page)  # rebuild in the new language
             self.result.setText(t("Gespeichert"))
             scroll = self.form_scroll
             QTimer.singleShot(0, lambda: scroll.verticalScrollBar().setValue(scroll_position))
@@ -507,15 +537,16 @@ class FloatingUI:
             self.result.setText(t(str(exc) if isinstance(exc, ValueError) else "Speichern fehlgeschlagen. Bitte erneut versuchen.")); self.result.setObjectName("error")
         self.result.style().unpolish(self.result); self.result.style().polish(self.result)
     def models_page(self):
-        cfg = self.app.cfg; layout = self.form(); self.model_fields = {}
+        cfg = self.app.cfg; layout = self.content_layout; self.model_fields = {}
         for key, title, kind, value, allow_none in (
             ("primary", "Haupttranskription", "transcription", cfg["openrouter_stt"]["model"], False),
             ("fallback", "Fallback bei Rate Limit (429)", "transcription", cfg["openrouter_stt"].get("fallback_model"), True),
             ("text", "Bereinigen & Prompt", "text", cfg["smoothing"]["model"], False)):
-            card = self.card(layout, title); field = ModelField(title, kind, value, self.catalog, allow_none)
-            card.addWidget(field); self.model_fields[key] = field
-        layout.addWidget(button("Katalog erneut laden", lambda: self.catalog.start(reload=True), quiet=True))
-        layout.addStretch(); self.footer("", self.save_models); self.catalog.start()
+            field = ModelField(title, kind, value, self.catalog, allow_none)
+            layout.addWidget(field); self.model_fields[key] = field
+        reload = button("Katalog erneut laden", lambda: self.catalog.start(reload=True), quiet=True)
+        layout.addWidget(reload, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addStretch(1); self.footer("", self.save_models); self.catalog.start()
     def save_models(self):
         stt = self.app.cfg["openrouter_stt"]; text = self.app.cfg["smoothing"]; values = {k:f.value for k,f in self.model_fields.items()}
         for key, kind, original in (("primary", "transcription", stt["model"]), ("fallback", "transcription", stt.get("fallback_model")), ("text", "text", text["model"])):
