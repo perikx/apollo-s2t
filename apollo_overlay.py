@@ -8,8 +8,8 @@ import threading
 import time
 from PySide6.QtCore import Qt, QRectF, QPointF, QPoint, QTimer, QEvent, QVariantAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFrame, QScrollArea, QStackedWidget,
-                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QSizePolicy, QMenu, QSystemTrayIcon)
+from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QScrollArea, QStackedWidget,
+                              QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, apply_material, glyph_button, GlassMenu, Shell, label, button, vector)
 from apollo_glass import GLASS, Backdrop, paint_glass
