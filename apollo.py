@@ -38,7 +38,7 @@ from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -50,6 +50,7 @@ AUTOSTART_DELAY_SECONDS = 3  # wait for the audio device and keyboard hooks at l
 RESTORE_DELAY_SECONDS = 1.5  # slow apps read the clipboard late
 UPDATE_FIRST_CHECK_SECONDS = 60
 UPDATE_INTERVAL_SECONDS = 6 * 3600
+UPDATE_RETRY_SECONDS = 60
 UPDATE_IDLE_SECONDS = 120  # restart into a new version only after two quiet minutes
 # A dictation that failed on the network is sent again by itself. The last delay repeats.
 AUTO_RETRY_DELAYS = (5, 15, 30, 60, 120)
@@ -654,6 +655,10 @@ class App:
         self._key_handles = []
         self._key_generation = 0
         self.version = APP_VERSION
+        self._update_path = None
+        self._update_requested = threading.Event()
+        self.update_busy = False
+        self.update_status = ""
         self._last_activity = time.monotonic()  # last key press or finished job
 
     def _install_keys(self, cfg, generation):
@@ -1185,7 +1190,20 @@ class App:
             beep("error", self.beep_enabled)
 
     def start_updates(self, exe_path):
+        self._update_path = exe_path
         threading.Thread(target=self._update_loop, args=(exe_path,), daemon=True, name="apollo-update").start()
+
+    def request_update(self):
+        """Check and install now, even when automatic updates are off."""
+        with self._lock:
+            if not self._update_path:
+                self.update_status = "Updates require the Windows app. Download apollo.exe from GitHub."
+                return
+            if self.update_busy or self._closing.is_set():
+                return
+            self.update_busy = True
+            self.update_status = "Checking GitHub and downloading the update…"
+            self._update_requested.set()
 
     def _idle_for(self, seconds):
         with self._lock:
@@ -1194,22 +1212,52 @@ class App:
 
     def _update_loop(self, exe_path):
         """Install a newer release in the background. Restart into it when Apollo is idle."""
-        next_check, installed = time.monotonic() + UPDATE_FIRST_CHECK_SECONDS, None
-        while not self._closing.wait(30):
-            if installed is None and self.cfg["auto_update"] and time.monotonic() >= next_check:
+        next_check, installed, manual_restart = time.monotonic() + UPDATE_FIRST_CHECK_SECONDS, None, False
+        next_restart = 0
+        while not self._closing.is_set():
+            self._update_requested.wait(1)
+            if self._closing.is_set():
+                return
+            with self._lock:
+                manual = self._update_requested.is_set()
+                self._update_requested.clear()
+                check = installed is None and (manual or self.cfg["auto_update"] and time.monotonic() >= next_check)
+                if check:
+                    self.update_busy = True
+                    self.update_status = "Checking GitHub and downloading the update…"
+            manual_restart = manual_restart or manual
+            if check:
                 next_check = time.monotonic() + UPDATE_INTERVAL_SECONDS
                 try:
                     installed = install_update(exe_path, APP_VERSION)
-                except (requests.RequestException, OSError, ValueError):
-                    log.warning("Update check failed. Apollo tries again later.")
+                    self.update_status = "Apollo is up to date."
+                except (requests.RequestException, OSError, ValueError) as exc:
+                    next_check = time.monotonic() + UPDATE_RETRY_SECONDS
+                    code = getattr(getattr(exc, "response", None), "status_code", None)
+                    log.warning("Update failed (%s, HTTP %s). Retrying in %s seconds.", type(exc).__name__, code, UPDATE_RETRY_SECONDS)
+                    if isinstance(exc, PermissionError):
+                        self.update_status = "Update blocked. Check folder permissions and antivirus, then try again."
+                    else:
+                        self.update_status = "Update failed. Try again. See Debug for the error type."
+                    manual_restart = False
+                finally:
+                    self.update_busy = False
                 if installed:
                     log.info("Update %s installed. Apollo restarts when it is idle.", installed)
+                    self.update_status = "Update installed. Apollo restarts after dictation finishes."
                     self.notify("Update installed. Apollo restarts when you are not dictating.")
+                else:
+                    manual_restart = False
             if installed:
+                self.update_busy = False
+                self.update_status = "Update installed. Apollo restarts after dictation finishes."
                 with self._rec_lock:  # no recording can start during the restart
-                    if self._idle_for(UPDATE_IDLE_SECONDS):
-                        self._restart(exe_path)
-                        return
+                    if time.monotonic() >= next_restart and self._idle_for(0 if manual_restart else UPDATE_IDLE_SECONDS):
+                        if self._restart(exe_path):
+                            return
+                        self.update_status = "Update installed. Close and reopen Apollo to finish."
+                        next_restart = time.monotonic() + UPDATE_RETRY_SECONDS
+                        manual_restart = False
 
     def _restart(self, exe_path):
         # A frozen app that starts itself must ask for a fresh PyInstaller environment.
@@ -1222,6 +1270,7 @@ class App:
             return
         log.info("Restarting into the updated version.")
         self.close()
+        return True
 
     def close(self):
         self._closing.set()

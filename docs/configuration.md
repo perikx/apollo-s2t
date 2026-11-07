@@ -102,6 +102,10 @@ API references: [transcription](https://openrouter.ai/docs/guides/overview/multi
 | `beep` | Enable start, stop, ready and error tones. |
 | `auto_update` | `true` (default): the exe installs new GitHub releases and restarts after 2 quiet minutes. |
 
+Select **Update now** in General settings to check GitHub and install the latest release immediately.
+This also works when automatic updates are off. Apollo waits for recording and processing to finish before it restarts.
+Failed automatic checks retry after one minute. Settings show failures; Debug shows the error type and HTTP status.
+
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
 audio stays in recovery. A recording stops and processes after 30 minutes (1,800 seconds).
 This is about 57.6 MB of uncompressed audio, sent through the base64 JSON transcription endpoint.

@@ -3,6 +3,14 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.1] - 2026-11-07
+
+### Updates
+- Add Update now in General settings. Check GitHub and install updates even when automatic updates are off.
+- Show progress, the current version state and failures in Settings. Block repeated clicks during a download.
+- Retry failed automatic checks after one minute. Log the error type and HTTP status without private request details.
+- Restart after a manual update when recording and processing finish. Keep the two-minute idle delay for automatic updates.
+
 ## [0.5.0] - 2026-11-06
 
 ### Overlay
