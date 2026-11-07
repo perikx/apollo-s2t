@@ -76,8 +76,9 @@ class Backdrop:
             return False  # nothing changed behind the window: no repaint
         self.source, self.images, self.area = image, {}, frame
         return True
-    def lightness(self, rect):
-        """Mean relative luminance (0 to 1) of the desktop behind `rect`, or None without a capture."""
+    def lightness(self, rect, tint=None):
+        """Mean relative luminance (0 to 1) of the desktop behind `rect` under the glass `tint`,
+        or None without a capture."""
         if not hasattr(self, "source"):
             return None
         area = QRectF(rect).translated(-self.origin).toAlignedRect().intersected(self.source.rect())
@@ -87,11 +88,15 @@ class Backdrop:
                                               Qt.TransformationMode.SmoothTransformation)
         def linear(v):
             return v/12.92 if v <= .04045 else ((v+.055)/1.055)**2.4
+        tint = tint or QColor(0, 0, 0, 0); a = tint.alphaF()
+        def mix(back, front):
+            return back*(1-a)+front*a
         total = 0.
         for y in range(6):
             for x in range(6):
                 c = small.pixelColor(x, y)
-                total += .2126*linear(c.redF())+.7152*linear(c.greenF())+.0722*linear(c.blueF())
+                total += (.2126*linear(mix(c.redF(), tint.redF()))+.7152*linear(mix(c.greenF(), tint.greenF()))
+                          +.0722*linear(mix(c.blueF(), tint.blueF())))
         return total/36
     def image(self, blur):
         """The capture, blurred by roughly `blur` pixels (down and up scaling is a cheap blur)."""

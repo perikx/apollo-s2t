@@ -246,19 +246,20 @@ for material in ("dark", "clear", "light"):
     screenshot(f"settings-{material}.png", ui.dialog)
     ui.open_page("recovery"); screenshot(f"recovery-{material}.png", ui.dialog)
 assert lightness["dark"] < lightness["light"], lightness
-# Clear icons follow the desktop behind them: light ink on dark, dark ink on light.
+# Icons follow the desktop behind them in every material: light ink on dark, dark ink on light.
 from PySide6.QtCore import QRect, QRectF, QPoint
 from PySide6.QtGui import QColor, QImage
-drop = QRectF(10, 10, 42, 42); real = ui.orb.glass.__dict__.copy()
-def behind(color):
+drop = QRectF(10, 10, 42, 42); real = ui.orb.glass.__dict__.copy(); INK = apollo_overlay.INK
+def behind(color, material="clear"):
     image = QImage(ui.orb.size(), QImage.Format.Format_ARGB32); image.fill(QColor(color))
     ui.orb.glass.source, ui.orb.glass.area = image, QRect(ui.orb.mapToGlobal(QPoint(0, 0)), ui.orb.size())
-    return ui.orb.ink("settings", drop, "clear")
-assert behind("#101010") == apollo_overlay.MATERIALS["dark"]["ink"]
-assert behind("#767676") == apollo_overlay.MATERIALS["dark"]["ink"]  # luminance .18: no flicker
-assert behind("#f0f0f0") == apollo_overlay.MATERIALS["clear"]["ink"]
-assert behind("#767676") == apollo_overlay.MATERIALS["clear"]["ink"]
-assert ui.orb.ink("settings", drop, "dark") == apollo_overlay.MATERIALS["dark"]["ink"]
+    return ui.orb.ink("settings", drop, material)
+assert behind("#101010") == INK["light"]
+assert behind("#767676") == INK["light"]  # luminance .18: no flicker
+assert behind("#f0f0f0") == INK["dark"]
+assert behind("#767676") == INK["dark"]
+assert behind("#101010", "light") == INK["light"] and behind("#f0f0f0", "light") == INK["dark"]
+assert behind("#f0f0f0", "dark") == INK["dark"] and behind("#101010", "dark") == INK["light"]
 ui.orb.glass.__dict__.clear(); ui.orb.glass.__dict__.update(real); ui.orb.light_ink.clear()
 ui.collapse()
 for _ in range(100):
