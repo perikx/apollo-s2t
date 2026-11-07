@@ -17,12 +17,17 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 # frost and tint than an icon, or the desktop behind competes with the text.
 GLASS = {
     "clear": {"blur": 1, "disp": 16, "bezel": 20, "zoom": .06, "lens": QColor(255, 255, 255, 8),
-              "panel_blur": 1, "panel": QColor(250, 250, 248, 36)},
+              "panel_blur": 6, "panel": QColor(250, 250, 248, 96)},
     "light": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(255, 255, 255, 77),
               "panel_blur": 16, "panel": QColor(248, 248, 246, 178)},
     "dark": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(0, 0, 0, 64),
              "panel_blur": 16, "panel": QColor(24, 24, 26, 178)},
 }
+# Clear windows and menus over a dark desktop: a dark tint behind their light text.
+GLASS["clear_dark"] = dict(GLASS["clear"], panel=QColor(20, 20, 22, 110))
+# Light ink and dark ink have equal contrast at a luminance of about .21. The gap between
+# the two limits stops a flicker when the luminance behind is near that point.
+LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 MARGIN = 40  # the bent rim shows pixels up to this far past the window
 REACH = 200  # the capture reaches this far, so a drag inside it needs no new capture
 SLICES = 8
@@ -111,6 +116,13 @@ class Backdrop:
         return self.images[blur]
 
 
+def dark_behind(level, was_dark):
+    """True if text on the glass needs the light ink. None (no capture) keeps the last answer."""
+    if level is None:
+        return was_dark
+    return level < (DARK_INK_ABOVE if was_dark else LIGHT_INK_BELOW)
+
+
 def shape(rect, radius, inset=0.):
     path = QPainterPath()
     r = rect.adjusted(inset, inset, -inset, -inset)
@@ -161,5 +173,5 @@ def paint_glass(painter, rect, radius, backdrop, material, panel=False):
 
 def _fallback(material):
     """Tint without a backdrop: dense enough to read, still lighter than an opaque window."""
-    return {"clear": QColor(255, 255, 255, 60), "light": QColor(250, 250, 248, 222),
+    return {"clear": QColor(255, 255, 255, 60), "clear_dark": QColor(20, 20, 22, 110), "light": QColor(250, 250, 248, 222),
             "dark": QColor(28, 28, 30, 222)}.get(material, QColor(250, 250, 248, 222))

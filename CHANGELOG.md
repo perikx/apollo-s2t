@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 - Split the settings into General, Recording and Prompt. Each section fits the window without scrolling.
 - Show settings as plain labels and fields instead of boxes. Pick two or three options from a row of segments instead of a list that opens in the page.
 - The model list opens in the free space of the Models page and is the only part that scrolls.
+- With clear glass, windows and menus take light text on a dark tint over a dark desktop and dark text on a light tint over a light desktop. A slight blur keeps the text readable over busy content.
 - Apollo windows no longer appear in screenshots, screen recordings or screen sharing. Windows must exclude them from capture, so that the glass can show the desktop behind it.
 - Use the new sun mark, the larger glass orb and the new menu droplets in the floating overlay and for the exe, tray and window icons.
 
