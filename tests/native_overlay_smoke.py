@@ -272,6 +272,24 @@ assert behind("#767676") == INK["dark"]
 assert behind("#101010", "light") == INK["light"] and behind("#f0f0f0", "light") == INK["dark"]
 assert behind("#f0f0f0", "dark") == INK["dark"] and behind("#101010", "dark") == INK["light"]
 ui.orb.glass.__dict__.clear(); ui.orb.glass.__dict__.update(real); ui.orb.light_ink.clear()
+# Clear panels and menus take light text over a dark desktop and dark text over a light one.
+import apollo_design
+ui.open_page("settings"); ui.overlay_material.set_value("clear"); ui.save_settings()
+def fake(glass, widget, color):
+    image = QImage(widget.size(), QImage.Format.Format_ARGB32); image.fill(QColor(color))
+    glass.source, glass.area = image, QRect(widget.mapToGlobal(QPoint(0, 0)), widget.size())
+real = ui.dialog.glass.__dict__.copy()
+fake(ui.dialog.glass, ui.dialog, "#101010"); ui.dialog.follow_backdrop()
+assert apollo_design.theme()["text"] == "#fafafa" and "#fafafa" in qt_app().styleSheet()
+fake(ui.dialog.glass, ui.dialog, "#767676"); ui.dialog.follow_backdrop(); assert apollo_design.theme()["text"] == "#fafafa"  # no flicker
+fake(ui.dialog.glass, ui.dialog, "#f0f0f0"); ui.dialog.follow_backdrop(); assert apollo_design.theme()["text"] == "#232323"
+ui.dialog.glass.__dict__.clear(); ui.dialog.glass.__dict__.update(real)
+menu = apollo_overlay.GlassMenu(); menu.addAction("x"); menu.glass.refresh = lambda max_age: False
+fake(menu.glass, menu, "#101010"); menu.popup(QPoint(300, 300)); qt_app().processEvents()
+assert "#fafafa" in menu.styleSheet(); menu.close()
+fake(menu.glass, menu, "#f0f0f0"); menu.popup(QPoint(300, 300)); qt_app().processEvents()
+assert menu.styleSheet() == ""; menu.close()
+ui.overlay_material.set_value("light"); ui.save_settings(); assert apollo_design.theme()["text"] == "#232323"
 ui.collapse()
 for _ in range(100):
     if ui.orb.menu_animation.state() == ui.orb.menu_animation.State.Stopped: break

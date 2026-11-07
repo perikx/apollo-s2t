@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPalette, QBrush
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMenu,
                               QPushButton, QVBoxLayout, QWidget)
-from apollo_glass import Backdrop, paint_glass
+from apollo_glass import Backdrop, dark_behind, paint_glass
 
 # Windows, menus and the orb are liquid glass in the chosen material. The
 # colors are warm grays with the orange of the sun as the one accent.
@@ -29,6 +29,8 @@ MATERIAL_STYLES = {
                  disabled="rgba(255, 255, 255, 12)", disabled_text="#8d8d89", item_hover="rgba(255, 255, 255, 18)",
                  item_selected="rgba(255, 138, 0, 80)", check_border="#b4b4af", window="#1c1c1e"),
 }
+# Clear glass over a dark desktop: the text colors of the dark material.
+MATERIAL_STYLES["clear_dark"] = MATERIAL_STYLES["dark"]
 _STYLE = Template("""
 QWidget { color: $text; font-family: 'Figtree'; font-size: 14px; }
 QFrame#surface { background: transparent; border: none; }
@@ -76,12 +78,17 @@ QMenu { background: transparent; color: $text; border: none; padding: 6px; }
 QMenu::item { padding: 8px 16px; border-radius: 8px; }
 QMenu::item:selected { background: $item_selected; color: $text; }
 """)
-_current = {"name": "light"}
+_current = {"name": "light", "dark_behind": False}
+
+
+def colors_name():
+    """The style in use. Clear glass takes light text while the desktop behind the panel is dark."""
+    return "clear_dark" if _current["name"] == "clear" and _current["dark_behind"] else _current["name"]
 
 
 def theme():
     """The colors of the active material, for widgets that paint text themselves."""
-    return MATERIAL_STYLES[_current["name"]]
+    return MATERIAL_STYLES[colors_name()]
 
 
 def material():
@@ -92,16 +99,17 @@ def style(material):
     return _STYLE.substitute(MATERIAL_STYLES.get(material, _LIGHT))
 
 
-def apply_material(material):
+def apply_material(material, dark=None):
     """Restyle all Apollo windows and menus. Open windows change at once."""
-    _current["name"] = material if material in MATERIAL_STYLES else "light"
+    _current["name"] = material if material in ("clear", "light", "dark") else "light"
+    if dark is not None: _current["dark_behind"] = dark  # clear glass over a dark desktop
     colors = theme(); app = qt_app(); palette = QPalette()
     for role, color in ((QPalette.ColorRole.Window, colors["window"]), (QPalette.ColorRole.Base, colors["window"]),
                         (QPalette.ColorRole.Text, colors["text"]), (QPalette.ColorRole.WindowText, colors["text"]),
                         (QPalette.ColorRole.Button, colors["window"]), (QPalette.ColorRole.ButtonText, colors["text"]),
                         (QPalette.ColorRole.Highlight, colors["accent"]), (QPalette.ColorRole.HighlightedText, colors["accent_text"])):
         palette.setColor(role, QColor(color))
-    app.setPalette(palette); app.setStyleSheet(style(_current["name"]))
+    app.setPalette(palette); app.setStyleSheet(style(colors_name()))
     for widget in app.allWidgets():
         if widget.property("glyph"): widget.setIcon(icon(widget.property("glyph")))
         if isinstance(widget, (Shell, GlassMenu)): widget.update()
@@ -120,10 +128,15 @@ class GlassMenu(QMenu):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.glass = Backdrop(self)
     def showEvent(self, event):
-        self.glass.refresh(0); super().showEvent(event)
+        self.glass.refresh(0)
+        # A clear menu takes light text over a dark desktop, like the panel.
+        self.dark = material() == "clear" and dark_behind(self.glass.lightness(QRectF(self.rect())), False)
+        self.setStyleSheet(style("clear_dark") if self.dark else "")
+        super().showEvent(event)
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        paint_glass(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, self.glass, material(), panel=True)
+        paint_glass(painter, QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 12, self.glass,
+                    "clear_dark" if getattr(self, "dark", False) and material() == "clear" else material(), panel=True)
         painter.end(); super().paintEvent(event)
 
 
@@ -251,14 +264,20 @@ class Shell(QDialog):
         # The desktop behind can change; a capture takes about 7 ms.
         self.glass_timer = QTimer(self); self.glass_timer.timeout.connect(self.refresh_glass); self.glass_timer.start(500)
     def refresh_glass(self, max_age=.5):
-        if self.isVisible() and self.glass.refresh(max_age): self.update()
+        if self.isVisible() and self.glass.refresh(max_age): self.follow_backdrop(); self.update()
+    def follow_backdrop(self):
+        """Clear glass: light text on a dark tint over a dark desktop, dark text on a light tint else."""
+        if material() != "clear": return
+        level = self.glass.lightness(QRectF(self.surface.geometry()))
+        dark = dark_behind(level, _current["dark_behind"])
+        if dark != _current["dark_behind"]: apply_material("clear", dark)
     def showEvent(self, event):
-        self.glass.refresh(0); super().showEvent(event)
+        self.glass.refresh(0); self.follow_backdrop(); super().showEvent(event)
     def moveEvent(self, event):
-        super().moveEvent(event); self.glass.refresh(1.); self.repaint()  # the glass follows the window at once
+        super().moveEvent(event); self.glass.refresh(1.); self.follow_backdrop(); self.repaint()  # the glass follows the window at once
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        paint_glass(painter, QRectF(self.surface.geometry()), 24, self.glass, material(), panel=True); painter.end()
+        paint_glass(painter, QRectF(self.surface.geometry()), 24, self.glass, colors_name(), panel=True); painter.end()
     def start_move(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.windowHandle() and self.windowHandle().startSystemMove(): return

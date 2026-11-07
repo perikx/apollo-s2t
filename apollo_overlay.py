@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QScrollArea, Q
                               QLineEdit, QListWidget, QListWidgetItem, QTextEdit, QCheckBox, QPlainTextEdit, QToolTip, QMenu, QSystemTrayIcon)
 from apollo_i18n import t, set_language, LANGUAGES
 from apollo_design import (qt_app, apply_material, glyph_button, GlassMenu, Shell, label, button, vector)
-from apollo_glass import GLASS, Backdrop, paint_glass
+from apollo_glass import GLASS, Backdrop, dark_behind, paint_glass
 from apollo_widgets import Choice, KeyCapture, ModelCatalog, ModelField, MODES, register_window
 from apollo_api import check_key, KEY_UNUSABLE
 from apollo_config import api_key
@@ -31,10 +31,8 @@ Notes for you; F10 does not send them. Describe the project below.
 """
 
 # Icon colors on the glass. Each icon takes the light ink over a dark backdrop and the dark
-# ink over a light one, in every material. Both inks have equal contrast at a luminance of
-# about .21; the gap between the two limits stops a flicker at that point.
+# ink over a light one, in every material.
 INK = {"dark": "#232323", "light": "#fafafa"}
-LIGHT_INK_BELOW, DARK_INK_ABOVE = .17, .25
 
 SUN = "#ff8a00"
 # The pages of the panel window, in the order of the sidebar. The settings have three sections.
@@ -107,9 +105,7 @@ class Orbit(QWidget):
         """Icon color for one shape, from the desktop behind it and the tint of the glass."""
         level = self.glass.lightness(rect, GLASS.get(material_name, GLASS["light"])["lens"])
         state = material_name, key
-        light = self.light_ink.get(state, material_name == "dark")  # without a capture: the tint decides
-        if level is not None:
-            light = self.light_ink[state] = level < (DARK_INK_ABOVE if light else LIGHT_INK_BELOW)
+        light = self.light_ink[state] = dark_behind(level, self.light_ink.get(state, material_name == "dark"))
         return INK["light" if light else "dark"]
     def menu_frame(self, value): self.menu_progress = float(value); self.update()
     def hover_frame(self, value): self.hover_progress = float(value); self.update()
@@ -526,7 +522,7 @@ class FloatingUI:
                 "prompt_profiles": {"active": self.profile.value, "output_language": self.language.value}, "recovery_cache": {"minutes": minutes}})
             self.app.prune_recovery(); self.result.setObjectName("muted")
             set_language(self.app.cfg["ui_language"])
-            apply_material(self.app.cfg["overlay"]["material"]); self.orb.update()
+            apply_material(self.app.cfg["overlay"]["material"]); self.dialog.follow_backdrop(); self.orb.update()
             for name, b in self.nav_buttons.items(): b.setText(t(PAGES[name]))
             if previous_language != self.app.cfg["ui_language"]:
                 page, self.page = self.page, None; self.open_page(page)  # rebuild in the new language
