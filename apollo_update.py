@@ -37,8 +37,10 @@ def latest_release(get=requests.get):
     version = parse_version(data.get("tag_name"))
     assets = {asset.get("name"): asset.get("browser_download_url")
               for asset in data.get("assets") or [] if isinstance(asset, dict)}
-    if version is None or not assets.get(EXE_ASSET) or not assets.get(SUM_ASSET):
+    if version is None:
         return None
+    if not assets.get(EXE_ASSET) or not assets.get(SUM_ASSET):
+        raise UpdateError("The release is missing its executable or checksum.")
     return version, assets[EXE_ASSET], assets[SUM_ASSET]
 
 

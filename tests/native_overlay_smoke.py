@@ -103,6 +103,11 @@ for section in apollo_overlay.SECTIONS:
     assert ui.form_scroll.verticalScrollBar().maximum() == 0, section
 ui.record_minutes.setText("12"); ui.open_page("settings"); ui.open_page("recording")
 assert ui.record_minutes.text() == "12"; ui.record_minutes.setText("10"); ui.open_page("settings")
+QTest.mouseClick(ui.update_button, Qt.MouseButton.LeftButton); ui.tick()
+assert "Windows-App" in ui.update_result.text()
+app.update_busy = True; ui.tick(); assert not ui.update_button.isEnabled()
+app.update_busy = False; app.update_status = "Apollo is up to date."; ui.tick()
+assert ui.update_button.isEnabled() and ui.update_result.text() == "Apollo ist aktuell."
 ui.vocabulary.setPlainText("PANDU\nSUPERBASE"); ui.save_settings()
 assert app.cfg["openrouter_stt"]["vocabulary"] == ["PANDU", "SUPERBASE"]
 ui.vocabulary.setPlainText("x"*101); ui.save_settings()

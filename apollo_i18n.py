@@ -24,6 +24,14 @@ def t(text, language=None):
 # key: (English, German, Chinese). None means the same as the key.
 # Older keys are German; newer keys are English.
 CATALOG = {
+    "Jetzt aktualisieren": ("Update now", None, "立即更新"),
+    "Checking GitHub and downloading the update…": (None, "GitHub wird geprüft und das Update heruntergeladen…", "正在检查 GitHub 并下载更新…"),
+    "Apollo is up to date.": (None, "Apollo ist aktuell.", "Apollo 已是最新版本。"),
+    "Update installed. Apollo restarts after dictation finishes.": (None, "Update installiert. Apollo startet nach dem Diktat neu.", "更新已安装。听写结束后 Apollo 将重启。"),
+    "Update blocked. Check folder permissions and antivirus, then try again.": (None, "Update blockiert. Ordnerrechte und Virenschutz prüfen, dann erneut versuchen.", "更新被阻止。请检查文件夹权限和杀毒软件，然后重试。"),
+    "Update failed. Try again. See Debug for the error type.": (None, "Update fehlgeschlagen. Erneut versuchen. Der Fehlertyp steht unter Debug.", "更新失败。请重试。在调试中查看错误类型。"),
+    "Update installed. Close and reopen Apollo to finish.": (None, "Update installiert. Apollo zum Abschließen schließen und erneut öffnen.", "更新已安装。请关闭并重新打开 Apollo 以完成更新。"),
+    "Updates require the Windows app. Download apollo.exe from GitHub.": (None, "Updates benötigen die Windows-App. apollo.exe von GitHub herunterladen.", "更新需要 Windows 应用。请从 GitHub 下载 apollo.exe。"),
     "Maximale Aufnahmelänge (Minuten)": ("Maximum recording length (minutes)", None, "最长录音时长（分钟）"),
     "Bitte eine Aufnahmelänge von 1 bis 30 Minuten eingeben.": ("Enter a recording length from 1 to 30 minutes.", None, "请输入 1 至 30 分钟的录音时长。"),
     "Gespeichert": ("Saved", None, "已保存"),
