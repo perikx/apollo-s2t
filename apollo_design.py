@@ -4,7 +4,7 @@ import sys
 from string import Template
 from apollo_i18n import t
 
-from PySide6.QtCore import Qt, QRectF, QPointF, QSize, QTimer
+from PySide6.QtCore import Qt, QRectF, QPointF, QSize
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPalette, QBrush
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMenu,
                               QPushButton, QVBoxLayout, QWidget)
@@ -260,11 +260,7 @@ class Shell(QDialog):
         self._move_origin = None
         header.mouseMoveEvent = self.move_window
         self.finished.connect(lambda _: self.hide())
-        self.glass = Backdrop(self)
-        # The desktop behind can change; a capture takes about 7 ms.
-        self.glass_timer = QTimer(self); self.glass_timer.timeout.connect(self.refresh_glass); self.glass_timer.start(500)
-    def refresh_glass(self, max_age=.5):
-        if self.isVisible() and self.glass.refresh(max_age): self.follow_backdrop(); self.update()
+        self.glass = Backdrop(self, on_frame=self.follow_backdrop)  # live while the window shows
     def follow_backdrop(self):
         """Clear glass: light text on a dark tint over a dark desktop, dark text on a light tint else."""
         if material() != "clear": return
@@ -274,7 +270,7 @@ class Shell(QDialog):
     def showEvent(self, event):
         self.glass.refresh(0); self.follow_backdrop(); super().showEvent(event)
     def moveEvent(self, event):
-        super().moveEvent(event); self.glass.refresh(1.); self.follow_backdrop(); self.repaint()  # the glass follows the window at once
+        super().moveEvent(event); self.follow_backdrop(); self.repaint()  # the glass follows the window at once
     def paintEvent(self, event):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         paint_glass(painter, QRectF(self.surface.geometry()), 24, self.glass, colors_name(), panel=True); painter.end()

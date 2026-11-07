@@ -301,6 +301,26 @@ assert ui.orb.hover_animation.state() == ui.orb.hover_animation.State.Stopped
 ui.tick(); assert ui.timer.interval() == 100  # slow when idle
 with patch.object(ui.orb, "update") as redraw:
     ui.tick(); assert not redraw.called  # unchanged idle state never repaints
+# The glass is live: a change behind an open panel shows in the glass within a fraction of a second.
+import time
+ui.open_page("settings")
+peer = QWidget(); peer.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)  # above any other window; the panel is excluded from capture anyway
+peer.setGeometry(ui.dialog.frameGeometry().adjusted(-60, -60, 60, 60)); peer.show(); ui.dialog.raise_(); QTest.qWait(300)
+def behind_panel():
+    source = getattr(ui.dialog.glass, "source", None)
+    return source.pixelColor(source.width()//2, source.height()//2).name() if source is not None else None
+def run_loop(ms):
+    # Like the app: QEventLoop.exec releases the Python lock for the capture thread. QTest.qWait does not.
+    from PySide6.QtCore import QEventLoop, QTimer
+    loop = QEventLoop(); QTimer.singleShot(ms, loop.quit); loop.exec()
+delays = []
+for color in ("#ff0000", "#0000ff", "#ff0000", "#0000ff", "#ff0000"):
+    peer.setStyleSheet(f"background: {color};"); start = time.perf_counter()
+    while behind_panel() != color and time.perf_counter()-start < 2: run_loop(5)
+    assert behind_panel() == color, (color, behind_panel()); delays.append(time.perf_counter()-start)
+print("glass delays ms", [round(d*1000) for d in delays])
+assert sorted(delays)[2] < .15, delays  # the old refresh every 0.5 s took 0.25 s on average
+peer.close(); ui.close_dialog()
 # Right-click at the logo opens a small menu; Hide persists and tray Show restores.
 event = types.SimpleNamespace(pos=lambda: ui.orb.CENTER.toPoint(), globalPos=lambda: ui.orb.mapToGlobal(ui.orb.CENTER.toPoint()), accept=lambda: None)
 ui.orb.contextMenuEvent(event); qt_app().processEvents()
