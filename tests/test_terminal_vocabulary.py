@@ -69,35 +69,35 @@ def test_model_step_lists_ranked_top_three_and_keeps_current(tmp_path, monkeypat
 
 
 def test_vocabulary_biases_recognition_without_replacing_output(monkeypatch):
-    post = Mock(return_value={"text": "Pando"}); monkeypatch.setattr(api, "_post", post)
+    post = Mock(return_value={"text": "Pando"}); monkeypatch.setattr(api, "_post_stt", post)
     cfg = {"vocabulary": [" PANDU ", "PANDU", "SUPERBASE"]}; before = deepcopy(cfg)
     assert api.transcribe_openrouter(b"wave", cfg, "key") == "Pando"
-    assert post.call_args.args[2]["provider"] == {"options": {"azure": {"phraseList": {"phrases": ["PANDU", "SUPERBASE"]}}}}
+    assert post.call_args.args[4] == {"options": {"azure": {"phraseList": {"phrases": ["PANDU", "SUPERBASE"]}}}}
     assert cfg == before
 
 
 def test_fallback_removes_model_specific_hints_but_preserves_audio(monkeypatch):
     response = requests.Response(); response.status_code = 429
-    post = Mock(side_effect=[requests.HTTPError(response=response), {"text": "PANDU"}]); monkeypatch.setattr(api, "_post", post)
+    post = Mock(side_effect=[requests.HTTPError(response=response), {"text": "PANDU"}]); monkeypatch.setattr(api, "_post_stt", post)
     cfg = {"vocabulary": ["PANDU"], "language": "de", "fallback_model": "elevenlabs/scribe-v2"}
     assert api.transcribe_openrouter(b"wave", cfg, "key", wait=lambda _: False) == "PANDU"
-    first, second = [call.args[2] for call in post.call_args_list]
-    assert "provider" in first and "provider" not in second
-    assert first["input_audio"] == second["input_audio"] and second["language"] == "de"
+    first, second = [call.args[4] for call in post.call_args_list]
+    assert first is not None and second is None
+    assert all(call.args[2] == b"wave" and call.args[3] == "de" for call in post.call_args_list)
 
 
 @pytest.mark.parametrize("value", [None, "PANDU", [""], ["a"*101], ["a\nsecret"], [2], ["a"]*101])
 def test_invalid_vocabulary_blocked_before_network(monkeypatch, value):
-    post = Mock(); monkeypatch.setattr(api, "_post", post)
+    post = Mock(); monkeypatch.setattr(api, "_post_stt", post)
     with pytest.raises(ConfigError): api.transcribe_openrouter(b"wave", {"vocabulary": value}, "key")
     with pytest.raises(ConfigError): normalize_config({"openrouter_stt": {"vocabulary": value}})
     post.assert_not_called()
 
 
 def test_other_models_do_not_receive_unverified_options(monkeypatch):
-    post = Mock(return_value={"text": "ok"}); monkeypatch.setattr(api, "_post", post)
+    post = Mock(return_value={"text": "ok"}); monkeypatch.setattr(api, "_post_stt", post)
     api.transcribe_openrouter(b"wave", {"model": "openai/gpt-4o-mini-transcribe", "vocabulary": ["PANDU"]}, "key")
-    assert "provider" not in post.call_args.args[2]
+    assert post.call_args.args[4] is None
 
 
 def test_setup_can_continue_without_connection(tmp_path, monkeypatch):

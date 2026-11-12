@@ -62,17 +62,20 @@ original order stay. It must not summarize, paraphrase or infer what you meant.
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
 
-## Race, fallback and circuit breaker
+## Fallback and circuit breaker
 
-The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 180 seconds.
+The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 300 seconds.
 The rewrite timeout is 20 seconds. The connection timeout is 5 seconds.
 
-Apollo sends each recording to the primary and the fallback model at the same time, with the
-same audio and language. The first transcript wins, so a slow model never delays the text.
-The speech cost is two requests per recording. If both models fail, Apollo shows the primary's error.
-`HEDGE_SECONDS` and `HEDGE_PER_AUDIO_SECOND` in `apollo_api.py` can delay the second request again.
-Without a fallback model, a 429 retries the same model and respects `Retry-After`.
-Apollo makes at most three requests in a row, within 30 seconds of the first.
+Apollo sends the recording to the primary model first. It switches to the fallback only after a
+failure or timeout, with the same audio and language. A normal recording makes one speech request
+and pays for one transcription. If both models fail, Apollo shows the primary's error.
+`HEDGE_SECONDS` and `HEDGE_PER_AUDIO_SECOND` in `apollo_api.py` can start a parallel hedge; the
+defaults are `None` and `0.0`. A parallel hedge uploads the same audio twice and can slow long
+recordings on a limited uplink. Without a fallback model, a 429 retries the same model and
+respects `Retry-After`. Apollo makes at most three requests in a row, within 30 seconds of the first.
+Recordings longer than five minutes are split at a quiet point and stitched; each part is sent as
+multipart audio.
 
 After a primary failure, the circuit breaker opens for 5 minutes. New recordings list the fallback
 first. Authentication, credit and other HTTP errors do not switch models.
@@ -108,7 +111,7 @@ Failed automatic checks retry after one minute. Settings show failures; Debug sh
 
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
 audio stays in recovery. A recording stops and processes after 30 minutes (1,800 seconds).
-This is about 57.6 MB of uncompressed audio, sent through the base64 JSON transcription endpoint.
+This is about 57.6 MB of uncompressed audio. Apollo sends it as multipart WAV in parts of at most five minutes, about 9.6 MB each.
 Provider size and processing limits still apply; failed requests keep the audio for Recovery.
 At most 3 jobs
 (the active recording plus processing jobs) run at once. A full queue rejects a new start with an error tone.

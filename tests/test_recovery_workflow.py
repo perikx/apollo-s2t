@@ -54,7 +54,7 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
     posts = []
     import apollo_api
     def rejected(*args, **kwargs):
-        posts.append(kwargs["json"])
+        posts.append(kwargs["data"])
         response = requests.Response()
         response.status_code = 429
         response.headers["Retry-After"] = "0"
@@ -68,10 +68,9 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
     with caplog.at_level(logging.INFO, logger="apollo"):
         app.on_release("dictate")
         app._join_jobs()
-    # Both models at once, then two retries of the primary after its Retry-After.
+    # Primary first, then the fallback, then one retry of the fallback.
     models = [body["model"] for body in posts]
-    assert sorted(models[:2]) == ["elevenlabs/scribe-v2", "microsoft/mai-transcribe-2"]
-    assert models[2:] == ["microsoft/mai-transcribe-2"] * 2
+    assert models == ["microsoft/mai-transcribe-2", "elevenlabs/scribe-v2", "elevenlabs/scribe-v2"]
     entry = app.recovery_items()[0]
     assert read_pcm(entry.path) == audio
     assert entry.metadata["state"] == "failed"
