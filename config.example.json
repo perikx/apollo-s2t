@@ -10,13 +10,13 @@
   "hotkeys_in_fullscreen": true,
   "openrouter_stt": {
     "model": "microsoft/mai-transcribe-2",
-    "fallback_model": "elevenlabs/scribe-v2",
+    "fallback_model": "nvidia/nemotron-3.5-transcribe",
     "language": "",
     "vocabulary": []
   },
   "smoothing": {
     "api_key": "",
-    "model": "google/gemini-3.5-flash-lite"
+    "model": "openai/gpt-6-luna"
   },
   "prompt_profiles": {
     "active": "default",

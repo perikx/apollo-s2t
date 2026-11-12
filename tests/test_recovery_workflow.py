@@ -70,7 +70,7 @@ def test_three_minute_429_survives_restart_and_explicit_retry(app, monkeypatch, 
         app._join_jobs()
     # Primary first, then the fallback, then one retry of the fallback.
     models = [body["model"] for body in posts]
-    assert models == ["microsoft/mai-transcribe-2", "elevenlabs/scribe-v2", "elevenlabs/scribe-v2"]
+    assert models == ["microsoft/mai-transcribe-2", "nvidia/nemotron-3.5-transcribe", "nvidia/nemotron-3.5-transcribe"]
     entry = app.recovery_items()[0]
     assert read_pcm(entry.path) == audio
     assert entry.metadata["state"] == "failed"

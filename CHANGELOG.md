@@ -3,12 +3,17 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## [0.5.2] - 2026-11-12
 
 ### Performance
 - Upload speech as multipart audio instead of base64 JSON. Remove the 33 percent payload overhead.
 - Send speech in five-minute parts instead of one-minute parts. Providers accept up to one hour.
 - Use the primary speech model first and switch to the fallback only after a failure or timeout. A normal recording makes one request and pays for one transcription.
+
+### Models
+- Use GPT-6 Luna for cleanup by default. It kept self-corrections cleaner than Gemini 3.5 Flash Lite in Apollo's tests.
+- Use Nemotron 3.5 Transcribe as the default speech fallback. It is cheaper than Scribe v2 and strong in German.
+- Keep MAI-Transcribe-2 as the default speech model.
 
 ## [0.5.1] - 2026-11-07
 

@@ -41,9 +41,11 @@ backup.save_transcript("Das ist wichtig. Wirklich wichtig. Bitte behalte meine W
 def start(self, reload=False):
     self.started = True
     speech = ["microsoft/mai-transcribe-2", "elevenlabs/scribe-v2", "google/gemini-3.5-transcribe",
-              "microsoft/mai-transcribe-1.5", "mistralai/voxtral-small-24b-2507-stt", "x-ai/grok-stt-1.0", "openai/whisper-1"]
+              "microsoft/mai-transcribe-1.5", "mistralai/voxtral-small-24b-2507-stt",
+              "nvidia/nemotron-3.5-transcribe", "x-ai/grok-stt-1.0", "openai/whisper-1"]
     self.data = {"transcription": {m: {"name": m, "price": ("audio", apollo_models.STT[m][3])} for m in speech},
-        "text": {"google/gemini-3.5-flash-lite": {"name": "Google: Gemini 3.5 Flash Lite", "price": ("tokens", 0.1, 0.4)}}}
+        "text": {"openai/gpt-6-luna": {"name": "OpenAI: GPT-6 Luna", "price": ("tokens", 0.1, 0.5)},
+                 "google/gemini-3.5-flash-lite": {"name": "Google: Gemini 3.5 Flash Lite", "price": ("tokens", 0.1, 0.4)}}}
     self.data["transcription"]["vendor/unranked-stt"] = {"name": "Vendor: Unranked", "price": None}
     self.changed.emit()
 apollo_widgets.ModelCatalog.start = start
@@ -169,7 +171,8 @@ MORE = Qt.ItemDataRole.UserRole + 2
 listed = lambda: [picker.items.item(i).data(Qt.ItemDataRole.UserRole) for i in range(picker.items.count()) if not picker.items.item(i).data(MORE)]
 # Ranked models first, in ranking order; the unranked one hides behind "Show all models".
 assert listed() == [None, "microsoft/mai-transcribe-2", "elevenlabs/scribe-v2", "google/gemini-3.5-transcribe",
-                    "microsoft/mai-transcribe-1.5", "mistralai/voxtral-small-24b-2507-stt", "x-ai/grok-stt-1.0", "openai/whisper-1"]
+                    "microsoft/mai-transcribe-1.5", "mistralai/voxtral-small-24b-2507-stt",
+                    "nvidia/nemotron-3.5-transcribe", "x-ai/grok-stt-1.0", "openai/whisper-1"]
 more = [picker.items.item(i) for i in range(picker.items.count()) if picker.items.item(i).data(MORE)]
 assert [item.text() for item in more] == ["Alle Modelle anzeigen (1)"]
 picker.items.setCurrentItem(more[0]); picker.apply()
@@ -190,7 +193,7 @@ ui.model_fields["primary"].choose(); ui.model_fields["text"].choose()
 assert ui.model_fields["primary"].picker.isHidden() and ui.model_fields["text"].picker.isVisible()
 text_picker = ui.model_fields["text"].picker
 QTest.keyClick(text_picker.search, Qt.Key.Key_Down)
-assert text_picker.items.currentItem().data(Qt.ItemDataRole.UserRole) == "google/gemini-3.5-flash-lite"
+assert text_picker.items.currentItem().data(Qt.ItemDataRole.UserRole) == "openai/gpt-6-luna"
 assert "geladen" not in text_picker.note.text()
 for scrollable in ui.dialog.findChildren(QAbstractScrollArea):
     assert scrollable.verticalScrollBar().sizeHint().width() == 0

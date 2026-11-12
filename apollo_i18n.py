@@ -201,6 +201,8 @@ CATALOG = {
     "Fast and cheap, more errors": (None, "Schnell und günstig, mehr Fehler", "快速便宜，错误较多"),
     "Slow and expensive": (None, "Langsam und teuer", "慢且贵"),
     "Old and slow": (None, "Alt und langsam", "老旧且慢"),
+    "Strong German, lower cost; slower than MAI": (None, "Starkes Deutsch, günstiger; langsamer als MAI", "德语强，成本更低；比 MAI 慢"),
+    "Fast, faithful cleanup; best value": (None, "Schnelle, wortgetreue Bereinigung; bestes Preis-Leistungs-Verhältnis", "快速、忠实清理；最佳性价比"),
     "Current inexpensive text editing": (None, "Aktuelle günstige Textbearbeitung", "当前低成本文本处理"),
     "Inexpensive alternative from Z.ai": (None, "Günstige Alternative von Z.ai", "Z.ai 低成本备选"),
     "Very inexpensive text editing": (None, "Besonders günstige Textbearbeitung", "极低成本文本处理"),

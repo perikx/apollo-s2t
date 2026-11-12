@@ -8,7 +8,8 @@ import tempfile
 
 CONFIG_VERSION = 2
 DEFAULT_STT_MODEL = "microsoft/mai-transcribe-2"
-DEFAULT_SMOOTHING_MODEL = "google/gemini-3.5-flash-lite"
+DEFAULT_STT_FALLBACK = "nvidia/nemotron-3.5-transcribe"
+DEFAULT_SMOOTHING_MODEL = "openai/gpt-6-luna"
 
 DEFAULTS = {
     "config_version": CONFIG_VERSION,
@@ -18,7 +19,7 @@ DEFAULTS = {
     "hotkeys_in_fullscreen": True,  # False: games and other full-screen apps keep F8, F9 and F10
     "openrouter_stt": {
         "model": DEFAULT_STT_MODEL,
-        "fallback_model": "elevenlabs/scribe-v2",
+        "fallback_model": DEFAULT_STT_FALLBACK,
         "language": "", "vocabulary": [],
     },
     "smoothing": {"api_key": "", "model": DEFAULT_SMOOTHING_MODEL},
@@ -71,8 +72,8 @@ def normalize_config(raw):
     if "fallback_model" not in raw.get("openrouter_stt", {}) and stt["model"] != DEFAULT_STT_MODEL:
         stt["fallback_model"] = None
     if stt["fallback_model"] == "microsoft/mai-transcribe-1.5" and stt["model"] == DEFAULT_STT_MODEL:
-        stt["fallback_model"] = "elevenlabs/scribe-v2"
-        notes.append("Changed the fallback model to ElevenLabs Scribe v2 (another vendor, fewer shared outages).")
+        stt["fallback_model"] = DEFAULT_STT_FALLBACK
+        notes.append("Changed the fallback model to NVIDIA Nemotron 3.5 (another vendor, strong German, lower cost).")
     cfg["config_version"] = CONFIG_VERSION
     validate_config(cfg)
     return cfg, notes
