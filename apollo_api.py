@@ -1,7 +1,7 @@
-"""OpenRouter STT and rewriting. STT asks two models at once, uses the first transcript and retries 429."""
-import base64
+"""OpenRouter STT and rewriting. STT sends multipart audio, uses the primary first and falls back on failure."""
 from array import array
 import io
+import json
 import logging
 import math
 import queue
@@ -19,8 +19,8 @@ from apollo_config import DEFAULT_STT_MODEL, validate_vocabulary
 truststore.inject_into_ssl()
 log = logging.getLogger("apollo")
 
-# Two pools with warm TLS connections: one for each model of the race.
-# A Session is not thread-safe, so each request thread needs its own pool.
+# Two pools with warm TLS connections. A Session is not thread-safe, so a
+# parallel hedge request needs its own pool.
 _http = requests.Session()
 _hedge_http = requests.Session()
 STT_URL = "https://openrouter.ai/api/v1/audio/transcriptions"
@@ -29,9 +29,12 @@ REWRITE_TIMEOUT_SECONDS = 20
 REWRITE_MAX_TOKENS = 4096  # incomplete rewrites fall back to the full raw transcript
 STT_MAX_ATTEMPTS = 3
 STT_RETRY_WINDOW_SECONDS = 30
-# Wait before the second model starts. 0: both models start at once and the faster
-# transcript wins (twice the speech cost, but a slow model never delays the text).
-HEDGE_SECONDS = 0.0  # plus HEDGE_PER_AUDIO_SECOND for each second of audio
+STT_CHUNK_SECONDS = 300  # one request per five minutes; providers accept up to one hour
+# None: use one model at a time and send the fallback only after a failure or
+# timeout. A number starts a parallel hedge after that many seconds. A parallel
+# hedge uploads the same audio twice, which can slow long recordings on a limited
+# uplink and costs a second transcription.
+HEDGE_SECONDS = None  # plus HEDGE_PER_AUDIO_SECOND for each second of audio
 HEDGE_PER_AUDIO_SECOND = 0.0
 BREAKER_SECONDS = 300
 _primary_down_until = 0.0  # time.monotonic() until which new recordings try the fallback first
@@ -142,13 +145,35 @@ def http_error_hint(service, exc):
 def _post(url, key, body, timeout, post=None):
     if not key:
         raise ResponseError("Missing OpenRouter API key. Run setup.bat.")
-    # Requests also uses the connect timeout while writing the request body.
-    # Allow slow uploads without making text requests wait longer to connect.
-    audio = body.get("input_audio", {}).get("data", "")
-    upload_timeout = max(15, min(180, len(audio) / (32 * 1024))) if audio else 5
     response = (post or _http.post)(
         url, headers={"Authorization": f"Bearer {key}", "X-Title": "Apollo-s2t"},
-        json=body, timeout=(upload_timeout, timeout),
+        json=body, timeout=(5, timeout),
+    )
+    try:
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict) or "error" in data:
+            raise ResponseError("OpenRouter returned an invalid response.")
+        return data
+    finally:
+        response.close()
+
+
+def _post_stt(key, model, wav_bytes, language, provider, timeout, post=None):
+    """Multipart STT upload: raw audio, no base64 or JSON size overhead."""
+    if not key:
+        raise ResponseError("Missing OpenRouter API key. Run setup.bat.")
+    fields = {"model": model}
+    if language:
+        fields["language"] = language
+    if provider:
+        # Multipart fields are strings; the API decodes this JSON object.
+        fields["provider"] = json.dumps(provider, separators=(",", ":"))
+    files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
+    upload_timeout = max(15, min(300, len(wav_bytes) / (32 * 1024)))
+    response = (post or _http.post)(
+        STT_URL, headers={"Authorization": f"Bearer {key}", "X-Title": "Apollo-s2t"},
+        data=fields, files=files, timeout=(upload_timeout, timeout),
     )
     try:
         response.raise_for_status()
@@ -165,14 +190,14 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
 
     On the first request, 429, timeout, connection error and 5xx switch to the fallback
     at once. Later 429s retry the same model (Retry-After honored, 30 s window).
-    A request with no answer after HEDGE_SECONDS also goes to the other model; the first
-    transcript wins. After a primary failure new recordings try the fallback first for
-    BREAKER_SECONDS. ``on_retry`` gets (next_attempt_number, delay_seconds);
-    ``wait(seconds)`` can return True to cancel (e.g. threading.Event.wait).
-    ``on_fallback`` gets the fallback model when its transcript is used.
-    ``on_attempt`` gets (model, ok, seconds) for every finished request.
+    With HEDGE_SECONDS set, a request with no answer after that delay also goes to the
+    other model; the first transcript wins. After a primary failure new recordings try
+    the fallback first for BREAKER_SECONDS. ``on_retry`` gets
+    (next_attempt_number, delay_seconds); ``wait(seconds)`` can return True to cancel
+    (e.g. threading.Event.wait). ``on_fallback`` gets the fallback model when its
+    transcript is used. ``on_attempt`` gets (model, ok, seconds) for every finished request.
     """
-    if _audio_seconds(wav_bytes) > 60:
+    if _audio_seconds(wav_bytes) > STT_CHUNK_SECONDS:
         transcripts = []
         with wave.open(io.BytesIO(wav_bytes)) as audio:
             rate, width, channels = audio.getframerate(), audio.getsampwidth(), audio.getnchannels()
@@ -180,12 +205,13 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
                 if wait and wait(0):
                     raise RetryCancelled("Transcription cancelled; saved audio can be retried later.")
                 start = audio.tell()
-                frames = audio.readframes(rate * 60)
+                frames = audio.readframes(rate * STT_CHUNK_SECONDS)
                 if width == 2 and audio.tell() < audio.getnframes():
                     # Cut at the quietest 100 ms in the last five seconds.
                     samples = array("h", frames)
                     step = max(1, rate // 10) * channels
-                    candidates = range(rate * 55 * channels, len(samples) - step + 1, step)
+                    candidates = range(rate * (STT_CHUNK_SECONDS - 5) * channels,
+                                       len(samples) - step + 1, step)
                     cut = min(candidates, key=lambda i: sum(abs(v) for v in samples[i:i+step]))
                     end = (cut + step // 2) // channels
                     frames = frames[:end * channels * width]
@@ -199,24 +225,21 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
         return "\n\n".join(text for text in transcripts if text)
     primary = cfg.get("model", DEFAULT_STT_MODEL)
     fallback = cfg.get("fallback_model")
-    body = {"model": primary, "input_audio": {"data": base64.b64encode(wav_bytes).decode("ascii"), "format": "wav"}}
-    if cfg.get("language"):
-        body["language"] = cfg["language"]
+    language = cfg.get("language")
     vocabulary = validate_vocabulary(cfg.get("vocabulary", []))
     seconds = _audio_seconds(wav_bytes)
-    read_timeout = min(180, 15 + 0.5 * seconds)
+    read_timeout = min(300, 15 + 0.5 * seconds)
     first, other = (fallback, primary) if fallback and time.monotonic() < _primary_down_until else (primary, fallback)
 
     def request(model, post=None):
         global _primary_down_until
-        req = dict(body, model=model)
         # Only the documented MAI 2 Azure integration is enabled. Keep unsupported
         # models usable; never turn the list into transcript replacements.
-        if vocabulary and model == "microsoft/mai-transcribe-2":
-            req["provider"] = {"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
+        provider = ({"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
+                    if vocabulary and model == "microsoft/mai-transcribe-2" else None)
         t0, ok = time.monotonic(), False
         try:
-            text = _post(STT_URL, key, req, read_timeout, post).get("text")
+            text = _post_stt(key, model, wav_bytes, language, provider, read_timeout, post).get("text")
             if not isinstance(text, str):
                 raise ResponseError("OpenRouter returned no valid transcript field.")
             ok = True
@@ -240,6 +263,11 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
 
     def first_request():
         if not other:
+            announce(first)
+            return request(first)
+        if HEDGE_SECONDS is None:
+            # One upload at a time. The outer retry loop sends the fallback after
+            # a failure or timeout, so normal recordings do not pay for two uploads.
             announce(first)
             return request(first)
         results = queue.Queue()

@@ -14,9 +14,9 @@ may still contain them. Apollo ignores such keys and removes them at the next sa
 ## Models and one API key
 
 The default speech model is `microsoft/mai-transcribe-2`; the rewrite model is
-`google/gemini-3.5-flash-lite`. Change `openrouter_stt.model` and `smoothing.model`
+`openai/gpt-6-luna`. Change `openrouter_stt.model` and `smoothing.model`
 to pin other compatible OpenRouter models. `openrouter_stt.fallback_model` selects
-the fallback model. The default is `elevenlabs/scribe-v2`, which comes from another vendor than
+the fallback model. The default is `nvidia/nemotron-3.5-transcribe`, which comes from another vendor than
 MAI, so one vendor outage does not stop dictation. Use `null` to disable the fallback.
 The two model IDs must differ. A custom primary without a fallback keeps no fallback. Transcription uses the dedicated
 `/audio/transcriptions` endpoint, not the chat endpoint. A chat/audio-capable model
@@ -31,20 +31,27 @@ To change the key, open **Settings → OpenRouter API key**. Paste the new key a
 When OpenRouter is not reachable, Apollo saves the key and marks it as not checked.
 When OpenRouter rejects the key during a dictation (HTTP 401), Apollo opens this page.
 
-Model selection checked **2026-09-29**:
+Model selection checked **2026-11-12**:
 
 - [MAI-Transcribe-2](https://openrouter.ai/microsoft/mai-transcribe-2) was released on
   September 3, 2026 and supports 60 languages, including German, English and code-switching.
   [Microsoft's announcement](https://microsoft.ai/news/mai-transcribe-2-is-the-fastest-most-accurate-and-cheapest-speech-recognition-model-in-the-world/)
   describes the successor's accuracy and latency improvements over prior models.
-- [Gemini 3.5 Flash Lite](https://openrouter.ai/google/gemini-3.5-flash-lite) was released
-  on July 21, 2026 and is a lightweight text model suitable for the rewrite stage.
+- [Nemotron 3.5 Transcribe](https://openrouter.ai/nvidia/nemotron-3.5-transcribe) is the
+  default fallback. NVIDIA reports strong German accuracy, and it costs less than Scribe v2.
+- [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna) is the default rewrite model. In
+  Apollo's tests it removed self-corrections more faithfully than Gemini 3.5 Flash Lite,
+  at similar latency and lower output cost.
+- [Gemini 3.5 Flash Lite](https://openrouter.ai/google/gemini-3.5-flash-lite) remains a
+  compatible alternative with low initial latency. It kept abandoned self-corrections in
+  the test set, so it is no longer the default.
 - [Qwen3 ASR Flash](https://openrouter.ai/qwen/qwen3-asr-flash-2026-02-10) is another
-  compatible multilingual model. MAI-2 is selected here as the newer successor to
-  Apollo's former Microsoft default, not on the basis of a measured voice-specific comparison.
+  compatible multilingual model.
 
-These are compatibility/default choices, not a measured accuracy ranking for your voice.
-Check current provider availability and pricing before changing models.
+These defaults come from 10 German and English cleanup cases and 18 real audio clips on
+2026-11-12, not from a voice-specific accuracy study. Your microphone, vocabulary and
+network can change the ranking. Check current provider availability and pricing before
+changing models.
 
 `openrouter_stt.language: ""` enables automatic detection, suitable for German/English
 mixing. Set `"de"` or `"en"` to force a single language. `auto`/`multi` normalize to empty.
@@ -62,17 +69,20 @@ original order stay. It must not summarize, paraphrase or infer what you meant.
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
 
-## Race, fallback and circuit breaker
+## Fallback and circuit breaker
 
-The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 180 seconds.
+The speech timeout grows with the audio: 15 seconds plus half the audio length, at most 300 seconds.
 The rewrite timeout is 20 seconds. The connection timeout is 5 seconds.
 
-Apollo sends each recording to the primary and the fallback model at the same time, with the
-same audio and language. The first transcript wins, so a slow model never delays the text.
-The speech cost is two requests per recording. If both models fail, Apollo shows the primary's error.
-`HEDGE_SECONDS` and `HEDGE_PER_AUDIO_SECOND` in `apollo_api.py` can delay the second request again.
-Without a fallback model, a 429 retries the same model and respects `Retry-After`.
-Apollo makes at most three requests in a row, within 30 seconds of the first.
+Apollo sends the recording to the primary model first. It switches to the fallback only after a
+failure or timeout, with the same audio and language. A normal recording makes one speech request
+and pays for one transcription. If both models fail, Apollo shows the primary's error.
+`HEDGE_SECONDS` and `HEDGE_PER_AUDIO_SECOND` in `apollo_api.py` can start a parallel hedge; the
+defaults are `None` and `0.0`. A parallel hedge uploads the same audio twice and can slow long
+recordings on a limited uplink. Without a fallback model, a 429 retries the same model and
+respects `Retry-After`. Apollo makes at most three requests in a row, within 30 seconds of the first.
+Recordings longer than five minutes are split at a quiet point and stitched; each part is sent as
+multipart audio.
 
 After a primary failure, the circuit breaker opens for 5 minutes. New recordings list the fallback
 first. Authentication, credit and other HTTP errors do not switch models.
@@ -108,7 +118,7 @@ Failed automatic checks retry after one minute. Settings show failures; Debug sh
 
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
 audio stays in recovery. A recording stops and processes after 30 minutes (1,800 seconds).
-This is about 57.6 MB of uncompressed audio, sent through the base64 JSON transcription endpoint.
+This is about 57.6 MB of uncompressed audio. Apollo sends it as multipart WAV in parts of at most five minutes, about 9.6 MB each.
 Provider size and processing limits still apply; failed requests keep the audio for Recovery.
 At most 3 jobs
 (the active recording plus processing jobs) run at once. A full queue rejects a new start with an error tone.
@@ -267,7 +277,7 @@ writes the cleaned file. Invalid JSON is never overwritten automatically. Keep b
 Apollo drops keys that it no longer uses, for example `stt_engine`, `insertion.mode`,
 `smoothing.temperature`, `max_record_seconds` or `autostart_delay_seconds`. The built-in values
 apply instead. Your models, keys, hotkeys and profiles survive. A fallback of
-`microsoft/mai-transcribe-1.5` with the MAI-2 primary changes to `elevenlabs/scribe-v2`.
+`microsoft/mai-transcribe-1.5` with the MAI-2 primary changes to `nvidia/nemotron-3.5-transcribe`.
 
 ## Personal vocabulary
 

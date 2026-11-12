@@ -27,6 +27,13 @@ def test_removed_keys_are_dropped_and_custom_settings_survive():
     assert set(cfg) == set(DEFAULTS)
 
 
+def test_defaults_use_the_tested_models():
+    cfg = default_config()
+    assert cfg["openrouter_stt"]["model"] == "microsoft/mai-transcribe-2"
+    assert cfg["openrouter_stt"]["fallback_model"] == "nvidia/nemotron-3.5-transcribe"
+    assert cfg["smoothing"]["model"] == "openai/gpt-6-luna"
+
+
 def test_custom_models_not_overwritten():
     cfg, _ = normalize_config({"smoothing": {"model": "custom/text"}, "openrouter_stt": {"model": "custom/stt"}})
     assert cfg["smoothing"]["model"] == "custom/text"
@@ -40,7 +47,7 @@ def test_version_two_can_explicitly_pin_old_model():
 
 def test_same_vendor_fallback_migrates_to_other_vendor():
     cfg, notes = normalize_config({"config_version": 2, "openrouter_stt": {"fallback_model": "microsoft/mai-transcribe-1.5"}})
-    assert cfg["openrouter_stt"]["fallback_model"] == "elevenlabs/scribe-v2" and notes
+    assert cfg["openrouter_stt"]["fallback_model"] == "nvidia/nemotron-3.5-transcribe" and notes
     assert normalize_config(cfg) == (cfg, [])
 
 

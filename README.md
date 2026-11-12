@@ -24,7 +24,7 @@ Change keys, models and prompts in Settings. The floating sun opens the controls
 
 ## Keep Apollo current
 
-Automatic updates are enabled by default. In version 0.5.1, select **General → Update now** to check and install immediately.
+Automatic updates are enabled by default. In version 0.5.2, select **General → Update now** to check and install immediately.
 Keep `config.json` and the `prompts` folder when you replace an older executable.
 
 ## Your data

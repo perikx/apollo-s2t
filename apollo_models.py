@@ -22,6 +22,7 @@ STT = {
     "google/gemini-3.5-transcribe": ("best", 2.6, 91, 5.00, "Accurate, different vendor"),
     "microsoft/mai-transcribe-1.5": ("good", 2.4, 84, 6.00, "Accurate; same vendor as MAI 2"),
     "mistralai/voxtral-small-24b-2507-stt": ("good", 2.8, 66, 4.00, "Accurate, slower"),
+    "nvidia/nemotron-3.5-transcribe": ("good", 3.4, 64, 1.00, "Strong German, lower cost; slower than MAI"),
     "openai/gpt-transcribe": ("ok", 3.3, 52, 4.50, ""),
     "x-ai/grok-stt-1.0": ("ok", 4.0, 170, 1.67, "Fast and cheap, more errors"),
     "openai/gpt-4o-transcribe": ("ok", 4.0, 36, 6.00, ""),
@@ -34,6 +35,7 @@ STT = {
 }
 # Rewrite models, best first. Prices come from the catalog.
 TEXT = {
+    "openai/gpt-6-luna": "Fast, faithful cleanup; best value",
     "qwen/qwen3.8-flash": "Current inexpensive text editing",
     "z-ai/glm-5.3-flash": "Inexpensive alternative from Z.ai",
     "qwen/qwen3.7-flash": "Very inexpensive text editing",

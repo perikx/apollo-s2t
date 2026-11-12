@@ -24,7 +24,7 @@ def response(status, data=None, headers=None):
 
 
 def models(post):
-    return [call.kwargs["json"]["model"] for call in post.call_args_list]
+    return [call.kwargs["data"]["model"] for call in post.call_args_list]
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +64,7 @@ def test_429_switches_to_fallback_at_once_ignoring_old_retry_after(monkeypatch, 
     retry.assert_called_once_with(2, 0)
     fallback.assert_called_once_with(FALLBACK)
     assert clock.elapsed == 0
-    first, second = [call.kwargs["json"] for call in post.call_args_list]
+    first, second = [call.kwargs["data"] for call in post.call_args_list]
     assert second == dict(first, model=FALLBACK)
     rejected.close.assert_called_once()
     accepted.close.assert_called_once()
@@ -187,7 +187,7 @@ def test_delayed_wakeup_cannot_send_past_retry_window(monkeypatch, clock):
 def test_slow_failure_still_falls_back_after_retry_window(monkeypatch, clock):
     calls = []
     def post(*args, **kwargs):
-        calls.append(kwargs["json"]["model"])
+        calls.append(kwargs["data"]["model"])
         if len(calls) == 1:
             clock.elapsed += 60
             raise requests.Timeout()
@@ -202,7 +202,7 @@ def test_error_inside_success_response_tries_the_fallback_once(monkeypatch, cloc
     monkeypatch.setattr(api._http, "post", post)
     with pytest.raises(api.ResponseError):
         api.transcribe_openrouter(b"wav", CFG, "key")
-    assert [c.kwargs["json"]["model"] for c in post.call_args_list] == [PRIMARY, FALLBACK]
+    assert [c.kwargs["data"]["model"] for c in post.call_args_list] == [PRIMARY, FALLBACK]
 
 
 def test_rewrite_rate_rejection_is_not_retried(monkeypatch, clock):
@@ -254,7 +254,7 @@ def test_hedge_returns_fallback_transcript_without_waiting_for_slow_primary(monk
     finally:
         release.set()
     notify.assert_called_once_with(FALLBACK)
-    assert hedged.call_args.kwargs["json"]["model"] == FALLBACK
+    assert hedged.call_args.kwargs["data"]["model"] == FALLBACK
 
 
 def test_hedge_both_fail_raises_primary_error(monkeypatch, hedge):
