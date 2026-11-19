@@ -3,6 +3,11 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Performance
+- Take the desktop behind the liquid glass only 4 times a second when nothing changes behind it and nobody types or moves the mouse. A change behind the glass, a move of the window or input brings back the full rate at once. The idle floating orb now uses about one fifth of the CPU time it used before.
+
 ## [0.5.2] - 2026-11-12
 
 ### Performance
