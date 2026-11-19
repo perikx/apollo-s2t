@@ -7,6 +7,8 @@ exclusion fails, the glass falls back to the plain tint.
 
 While a glass window is visible, a capture thread takes the desktop behind it
 about 60 times a second, so the glass follows scrolling and video behind it.
+When nothing changes and nobody types or moves the mouse, it takes the desktop
+only 4 times a second, because each capture costs CPU also on a still desktop.
 """
 import ctypes
 import sys
@@ -39,6 +41,10 @@ SLICES = 8
 # window) 30 times: its blur hides the difference, and a large capture costs more.
 FRAME, LARGE_FRAME, LARGE = 1/60, 1/30, 300_000
 MOVED = .4  # seconds after a move in which the live capture reaches REACH instead of MARGIN
+# Windows needs about 20 ms for each capture, also when nothing changed. So the full rate lasts
+# only STILL seconds after a change behind the glass, a move of the window, or keyboard or mouse
+# input. Then the capture thread takes one capture every IDLE_FRAME seconds until one changes.
+STILL, IDLE_FRAME = 1., .25
 
 
 def exclude_from_capture(widget):
@@ -71,6 +77,10 @@ class _BITMAPINFOHEADER(ctypes.Structure):
                 ("biClrUsed", ctypes.c_uint32), ("biClrImportant", ctypes.c_uint32)]
 
 
+class _LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_uint32), ("dwTime", ctypes.c_uint32)]
+
+
 def _win32():
     """user32 and gdi32 with the argument types for 64-bit handles, or None off Windows."""
     if sys.platform != "win32":
@@ -80,6 +90,7 @@ def _win32():
     user32.GetDC.restype = handle; user32.GetDC.argtypes = (handle,)
     user32.ReleaseDC.argtypes = (handle, handle)
     user32.GetWindowRect.argtypes = (handle, ctypes.POINTER(_RECT))
+    user32.GetLastInputInfo.argtypes = (ctypes.POINTER(_LASTINPUTINFO),)
     gdi32.CreateCompatibleDC.restype = handle; gdi32.CreateCompatibleDC.argtypes = (handle,)
     gdi32.CreateDIBSection.restype = handle
     gdi32.CreateDIBSection.argtypes = (handle, ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), handle, ctypes.c_uint32)
@@ -116,6 +127,13 @@ def _grab(x, y, width, height):
         gdi32.DeleteDC(memory); user32.ReleaseDC(None, screen)
 
 
+def _input_age():
+    """Seconds since the last keyboard or mouse input, or 0 if Windows does not tell."""
+    info = _LASTINPUTINFO(ctypes.sizeof(_LASTINPUTINFO), 0)
+    if not _API[0].GetLastInputInfo(ctypes.byref(info)): return 0.
+    return ((ctypes.windll.kernel32.GetTickCount()-info.dwTime) & 0xFFFFFFFF)/1000  # the tick count wraps
+
+
 class _Live(QObject):
     """One capture thread for all visible glass windows. Frames reach the Qt thread as a signal."""
     frame = Signal(object, object)
@@ -136,8 +154,10 @@ class _Live(QObject):
         while True:
             start = time.perf_counter()
             with self.lock: backdrops = list(self.backdrops)
+            # Input wakes an idle glass at once: a key or a click often changes the desktop behind it.
+            woken = any(backdrop.idle for backdrop in backdrops) and _input_age() < STILL
             for backdrop in backdrops:
-                if start < backdrop.due: continue
+                if start < backdrop.due and not (woken and backdrop.idle): continue
                 try:
                     payload = backdrop.capture_live()
                 except (OSError, ValueError):
@@ -170,6 +190,7 @@ class Backdrop:
         self.excluded = False
         self.hwnd, self.dpr, self.blurs, self.last, self.window_at, self.moved_at = None, 1., set(), None, None, 0.
         self.due = 0.  # the capture thread takes the next frame at this time (time.perf_counter)
+        self.changed_at, self.idle = 0., False  # the last change behind the glass; True at the IDLE_FRAME rate
         self.pending = False  # a frame waits for the Qt thread: take no new one, so none pile up
         self.watcher = _Watcher(self); widget.installEventFilter(self.watcher)
     def start_live(self):
@@ -191,9 +212,13 @@ class Backdrop:
         reach = round((REACH if now-self.moved_at < MOVED else MARGIN)*self.dpr)
         x, y = window[0]-reach, window[1]-reach
         width, height = window[2]-window[0]+2*reach, window[3]-window[1]+2*reach
-        self.due = time.perf_counter()+(LARGE_FRAME if width*height > LARGE else FRAME)-.002
+        start = time.perf_counter()
         data = _grab(x, y, width, height)
-        if data is None or (data, width) == self.last: return None
+        changed = data is not None and (data, width) != self.last
+        if changed: self.changed_at = now
+        self.idle = now-max(self.moved_at, self.changed_at) > STILL and _input_age() > STILL
+        self.due = start+(IDLE_FRAME if self.idle else LARGE_FRAME if width*height > LARGE else FRAME)-.002
+        if not changed: return None
         self.last = (data, width)
         image = QImage(data, width, height, QImage.Format.Format_RGB32).copy()
         if self.dpr != 1:
