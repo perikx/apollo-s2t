@@ -97,7 +97,11 @@ def _win32():
     gdi32.SelectObject.restype = handle; gdi32.SelectObject.argtypes = (handle, handle)
     gdi32.DeleteObject.argtypes = (handle,); gdi32.DeleteDC.argtypes = (handle,)
     gdi32.BitBlt.argtypes = (handle, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, handle, ctypes.c_int, ctypes.c_int, ctypes.c_uint32)
-    return user32, gdi32
+    gdi32.GdiFlush.argtypes = ()
+    memcmp = ctypes.CDLL("ucrtbase").memcmp
+    memcmp.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t)
+    memcmp.restype = ctypes.c_int
+    return user32, gdi32, memcmp
 
 
 _API = _win32()
@@ -109,19 +113,25 @@ def _window_rect(hwnd):
     return (rect.left, rect.top, rect.right, rect.bottom) if _API and _API[0].GetWindowRect(hwnd, ctypes.byref(rect)) else None
 
 
-def _grab(x, y, width, height):
-    """The screen pixels of one rectangle in physical pixels, as bytes (BGRA). GDI works on any thread."""
-    user32, gdi32 = _API
+def _grab(x, y, width, height, previous=None):
+    """Return the screen pixels as BGRA bytes, or None if unchanged or unavailable."""
+    user32, gdi32, memcmp = _API
     screen = user32.GetDC(None); memory = gdi32.CreateCompatibleDC(screen)
     info = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
     bits = ctypes.c_void_p(); bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(bits), None, 0)
     try:
         if not bitmap: return None
         old = gdi32.SelectObject(memory, bitmap)
-        gdi32.BitBlt(memory, 0, 0, width, height, screen, x, y, 0x00CC0020)  # SRCCOPY
-        data = ctypes.string_at(bits, width*height*4)
-        gdi32.SelectObject(memory, old)
-        return data
+        if not old: return None
+        try:
+            if not gdi32.BitBlt(memory, 0, 0, width, height, screen, x, y, 0x00CC0020): return None
+            if not gdi32.GdiFlush(): return None  # finish the blit before reading the bitmap
+            size = width*height*4
+            if previous is not None and len(previous) == size and memcmp(bits, previous, size) == 0:
+                return None
+            return ctypes.string_at(bits, size)
+        finally:
+            gdi32.SelectObject(memory, old)
     finally:
         if bitmap: gdi32.DeleteObject(bitmap)
         gdi32.DeleteDC(memory); user32.ReleaseDC(None, screen)
@@ -213,12 +223,12 @@ class Backdrop:
         x, y = window[0]-reach, window[1]-reach
         width, height = window[2]-window[0]+2*reach, window[3]-window[1]+2*reach
         start = time.perf_counter()
-        data = _grab(x, y, width, height)
-        changed = data is not None and (data, width) != self.last
-        if changed: self.changed_at = now
+        previous = self.last[0] if self.last is not None and self.last[1] == width else None
+        data = _grab(x, y, width, height, previous)
+        if data is not None: self.changed_at = now
         self.idle = now-max(self.moved_at, self.changed_at) > STILL and _input_age() > STILL
         self.due = start+(IDLE_FRAME if self.idle else LARGE_FRAME if width*height > LARGE else FRAME)-.002
-        if not changed: return None
+        if data is None: return None
         self.last = (data, width)
         image = QImage(data, width, height, QImage.Format.Format_RGB32).copy()
         if self.dpr != 1:

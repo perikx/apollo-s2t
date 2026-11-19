@@ -1,4 +1,7 @@
 """The live glass captures at the full rate only while something happens."""
+import ctypes
+from types import SimpleNamespace
+
 import pytest
 from PySide6.QtCore import QObject
 
@@ -27,7 +30,10 @@ def desk(monkeypatch):
     desk = type("Desk", (), {})(); desk.clock, desk.color, desk.input_age = clock, 1, 60.
     monkeypatch.setattr(glass, "time", type("Time", (), {"monotonic": clock.time, "perf_counter": clock.time, "sleep": clock.sleep}))
     monkeypatch.setattr(glass, "_window_rect", lambda hwnd: (0, 0, 4, 4))
-    monkeypatch.setattr(glass, "_grab", lambda x, y, width, height: bytes([desk.color])*(width*height*4))
+    def grab(x, y, width, height, previous):
+        data = bytes([desk.color])*(width*height*4)
+        return None if data == previous else data
+    monkeypatch.setattr(glass, "_grab", grab)
     monkeypatch.setattr(glass, "_input_age", lambda: desk.input_age)
     return desk
 
@@ -80,3 +86,32 @@ def test_input_wakes_an_idle_glass_at_once(desk):
     desk.input_age = .05
     with pytest.raises(Stop): live.run()
     assert taken == ["idle"]  # the full-rate glass keeps its own schedule
+
+
+@pytest.mark.skipif(glass._API is None, reason="Windows GDI")
+def test_grab_skips_the_copy_only_for_equal_pixels(monkeypatch):
+    pixels = b"\x00\x11\x22\x00\x33\x44\x55\x00"
+    bitmap = ctypes.create_string_buffer(pixels)
+    def make_bitmap(screen, info, usage, bits, section, offset):
+        bits._obj.value = ctypes.addressof(bitmap)
+        return 3
+    selected = []
+    gdi = SimpleNamespace(CreateCompatibleDC=lambda screen: 2, CreateDIBSection=make_bitmap,
+                          SelectObject=lambda dc, obj: selected.append(obj) or 4,
+                          BitBlt=lambda *args: True, GdiFlush=lambda: True,
+                          DeleteObject=lambda obj: None, DeleteDC=lambda dc: None)
+    user = SimpleNamespace(GetDC=lambda hwnd: 1, ReleaseDC=lambda hwnd, dc: None)
+    monkeypatch.setattr(glass, "_API", (user, gdi, glass._API[2]))
+    copies, string_at = [], ctypes.string_at
+    def copy(bits, size):
+        copies.append(size)
+        return string_at(bits, size)
+    monkeypatch.setattr(ctypes, "string_at", copy)
+
+    assert glass._grab(0, 0, 2, 1, pixels) is None
+    assert glass._grab(0, 0, 2, 1, pixels[:-1]+b"\xff") == pixels
+    assert glass._grab(0, 0, 2, 1, pixels[:4]) == pixels
+    gdi.BitBlt = lambda *args: False
+    assert glass._grab(0, 0, 2, 1) is None
+    assert copies == [8, 8]
+    assert selected == [3, 4]*4
