@@ -38,7 +38,7 @@ from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.5.3"
+APP_VERSION = "0.5.4"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -1383,6 +1383,7 @@ if __name__ == "__main__":
             cfg = load_config()
             if not api_key(cfg):
                 raise ConfigError("Missing API key. Run setup.bat.")
+            import apollo_overlay  # loads Qt and the glass with their DLLs: the release check of the exe finds a missing one
             print("Configuration valid. No paid API call was made.")
         else:
             if getattr(sys, "frozen", False):

@@ -89,7 +89,7 @@ def test_input_wakes_an_idle_glass_at_once(desk):
 
 
 @pytest.mark.skipif(glass._API is None, reason="Windows GDI")
-def test_grab_skips_the_copy_only_for_equal_pixels(monkeypatch):
+def test_grab_returns_only_changed_pixels_and_no_failed_frame(monkeypatch):
     pixels = b"\x00\x11\x22\x00\x33\x44\x55\x00"
     bitmap = ctypes.create_string_buffer(pixels)
     def make_bitmap(screen, info, usage, bits, section, offset):
@@ -101,17 +101,11 @@ def test_grab_skips_the_copy_only_for_equal_pixels(monkeypatch):
                           BitBlt=lambda *args: True, GdiFlush=lambda: True,
                           DeleteObject=lambda obj: None, DeleteDC=lambda dc: None)
     user = SimpleNamespace(GetDC=lambda hwnd: 1, ReleaseDC=lambda hwnd, dc: None)
-    monkeypatch.setattr(glass, "_API", (user, gdi, glass._API[2]))
-    copies, string_at = [], ctypes.string_at
-    def copy(bits, size):
-        copies.append(size)
-        return string_at(bits, size)
-    monkeypatch.setattr(ctypes, "string_at", copy)
+    monkeypatch.setattr(glass, "_API", (user, gdi))
 
     assert glass._grab(0, 0, 2, 1, pixels) is None
     assert glass._grab(0, 0, 2, 1, pixels[:-1]+b"\xff") == pixels
     assert glass._grab(0, 0, 2, 1, pixels[:4]) == pixels
     gdi.BitBlt = lambda *args: False
-    assert glass._grab(0, 0, 2, 1) is None
-    assert copies == [8, 8]
-    assert selected == [3, 4]*4
+    assert glass._grab(0, 0, 2, 1) is None  # a failed capture is no frame
+    assert selected == [3, 4]*4  # the old bitmap goes back into the DC every time
