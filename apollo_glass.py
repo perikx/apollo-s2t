@@ -98,10 +98,8 @@ def _win32():
     gdi32.DeleteObject.argtypes = (handle,); gdi32.DeleteDC.argtypes = (handle,)
     gdi32.BitBlt.argtypes = (handle, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, handle, ctypes.c_int, ctypes.c_int, ctypes.c_uint32)
     gdi32.GdiFlush.argtypes = ()
-    memcmp = ctypes.CDLL("ucrtbase").memcmp
-    memcmp.argtypes = (ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t)
-    memcmp.restype = ctypes.c_int
-    return user32, gdi32, memcmp
+    # Load no C runtime here: the exe of 0.5.3 could not load ucrtbase and stopped at start.
+    return user32, gdi32
 
 
 _API = _win32()
@@ -115,7 +113,7 @@ def _window_rect(hwnd):
 
 def _grab(x, y, width, height, previous=None):
     """Return the screen pixels as BGRA bytes, or None if unchanged or unavailable."""
-    user32, gdi32, memcmp = _API
+    user32, gdi32 = _API
     screen = user32.GetDC(None); memory = gdi32.CreateCompatibleDC(screen)
     info = _BITMAPINFOHEADER(ctypes.sizeof(_BITMAPINFOHEADER), width, -height, 1, 32, 0, 0, 0, 0, 0, 0)
     bits = ctypes.c_void_p(); bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(bits), None, 0)
@@ -126,10 +124,8 @@ def _grab(x, y, width, height, previous=None):
         try:
             if not gdi32.BitBlt(memory, 0, 0, width, height, screen, x, y, 0x00CC0020): return None
             if not gdi32.GdiFlush(): return None  # finish the blit before reading the bitmap
-            size = width*height*4
-            if previous is not None and len(previous) == size and memcmp(bits, previous, size) == 0:
-                return None
-            return ctypes.string_at(bits, size)
+            data = ctypes.string_at(bits, width*height*4)
+            return None if data == previous else data
         finally:
             gdi32.SelectObject(memory, old)
     finally:

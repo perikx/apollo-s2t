@@ -3,6 +3,12 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.4] - 2026-11-19
+
+### Fixes
+- Start the Windows app again. The exe of 0.5.3 stopped at start because the liquid glass loaded the C runtime library ucrtbase, which the exe could not load. The glass compares its captures in Python again, as in 0.5.2. It still keeps the last good backdrop when a capture fails.
+- The release check of the exe now loads the overlay and the glass, so a missing library stops a release before it is published.
+
 ## [0.5.3] - 2026-11-19
 
 ### Performance
