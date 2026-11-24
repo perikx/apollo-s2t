@@ -3,6 +3,12 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Cleanup
+- Rewrite the F9 cleanup prompt as a corrector instead of an editor: it always removes filler sounds and hesitations, removes stutters and false starts, fixes punctuation and the grammar a disfluency broke, and must not add, drop, reorder, reword, summarize or interpret anything. Awkward but understandable wording, colloquial forms ("ich sitz") and unclear passages stay as spoken.
+- Send temperature 0 for the cleanup, so the same transcript returns the same text instead of a sampled variant.
+
 ## [0.5.6] - 2026-11-24
 
 ### Overlay

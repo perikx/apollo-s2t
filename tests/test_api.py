@@ -64,6 +64,7 @@ def test_rewrite_settings_are_bounded_and_latency_oriented(monkeypatch):
     assert body["reasoning"] == {"effort": "minimal", "exclude": True}
     assert body["provider"]["sort"] == "latency"
     assert body["provider"]["zdr"] is True
+    assert body["temperature"] == 0  # a copy edit must not sample
     assert body["max_tokens"] == 4096
     assert post.call_args.kwargs["timeout"] == (5, 20)
 

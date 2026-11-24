@@ -64,6 +64,16 @@ def test_modes_use_correct_calls(app, monkeypatch, mode):
         assert calls[0] == ("raw", apollo.PROMPTS[mode], "test-key")
 
 
+def test_cleanup_prompt_is_a_corrector_and_not_an_editor():
+    """A faithful cleanup: remove dictation artifacts only, never rewrite or interpret."""
+    prompt = apollo.PROMPTS["polish"].lower()
+    for rule in ("not an editor", "do not replace a word with a synonym",
+                 "do not summarize, shorten, explain or infer", "keep the original words",
+                 "always remove filler sounds", "does not become 'ich sitze'",
+                 "'also' stays where it means 'therefore'"):
+        assert rule in prompt
+
+
 @pytest.mark.parametrize("failure", [requests.Timeout("private text"), apollo.ResponseError("truncated"), RuntimeError("private text")])
 def test_rewrite_failure_preserves_raw_and_keeps_content_out_of_log(app, monkeypatch, caplog, failure):
     secret, delivered = "personal dictation 123", []

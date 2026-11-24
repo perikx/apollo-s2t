@@ -341,7 +341,7 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
 def smooth(text, system_prompt, cfg):
     body = {
         "model": cfg["model"],
-        "temperature": 0.2,
+        "temperature": 0,
         "max_tokens": REWRITE_MAX_TOKENS,
         "provider": {"sort": "latency", "zdr": True},
         "messages": [{"role": "system", "content": system_prompt},

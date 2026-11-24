@@ -57,18 +57,25 @@ changing models.
 mixing. Set `"de"` or `"en"` to force a single language. `auto`/`multi` normalize to empty.
 Do not force German when you want entire English passages transcribed as English.
 
-F9 and F10 use fixed rewrite settings: minimal reasoning, temperature 0.2, at most
+F9 and F10 use fixed rewrite settings: minimal reasoning, temperature 0, at most
 4096 output tokens, a 20-second timeout and latency-first provider routing among Zero Data
 Retention endpoints.
 Reasoning is not included in pasted output. An incomplete response falls back to the raw text.
 
-F9 removes filler sounds ("um", "ähm"), filler words that carry no meaning, stutters,
-doubled words, false starts and self-corrections (only the corrected version stays). It fixes
-punctuation, capitalization, sentence/paragraph breaks and the grammar that the disfluencies broke.
+F9 is a corrector, not an editor. It always removes filler sounds and hesitations ("um", "ähm",
+"mhh"), also when they repeat or sit mid-sentence, and filler words that carry no meaning. It
+removes stutters, doubled words, false starts and self-corrections (only the corrected version
+stays). It fixes punctuation, capitalization, sentence/paragraph breaks and the grammar that a
+disfluency broke. Nothing else changes: it must not add, drop or reorder content,
+replace a word with a synonym or a "better" one, summarize, shorten, explain or infer what you
+meant, and it keeps awkward but understandable wording and unclear passages as spoken.
+A colloquial or regional form stays as spoken ("ich sitz" does not become "ich sitze"), and so
+does a word that carries meaning ("also" as "therefore", "halt" as "simply").
 Every point, condition, deliberate emphasis ("wichtig, wichtig, wichtig"), your tone and the
-original order stay. It must not summarize, paraphrase or infer what you meant.
+original order stay. Temperature 0 makes a repeat of the same transcript return the same result.
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
+F8 dictation does not send a cleanup request at all; it pastes the transcript as transcribed.
 
 ## Zero Data Retention
 
