@@ -3,7 +3,7 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.5] - 2026-11-24
 
 ### Privacy
 - Send `provider.zdr: true` with every speech and rewrite request, so OpenRouter routes only to Zero Data Retention endpoints. No provider keeps the audio, the transcript or the cleanup text.
