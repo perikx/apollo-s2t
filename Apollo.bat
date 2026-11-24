@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 title Apollo s2t
-call bootstrap.bat
+call "%~dp0bootstrap.bat"
 if errorlevel 1 goto failed
 if not exist "config.json" (
   ".venv\Scripts\python.exe" apollo.py --setup
