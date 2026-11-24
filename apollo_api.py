@@ -1,4 +1,7 @@
-"""OpenRouter STT and rewriting. STT sends multipart audio, uses the primary first and falls back on failure."""
+"""OpenRouter STT and rewriting, Zero Data Retention only on both routes.
+
+STT sends multipart audio, uses the primary first and falls back on failure.
+"""
 from array import array
 import io
 import json
@@ -134,7 +137,7 @@ def http_error_hint(service, exc):
         401: "API key rejected. Set a new key in Settings.",
         402: "OpenRouter credit or spending limit. Check your balance and API-key limit.",
         403: "Access denied. Check your key permissions and provider access.",
-        404: "Model or endpoint not found. Check the model ID in config.json.",
+        404: "Model or endpoint not found. Check the model ID in config.json; the model may also have no Zero Data Retention endpoint.",
         408: "Request timed out. Try a shorter recording.",
         413: "Recording too large. Try a shorter recording.",
         429: "OpenRouter or its upstream provider rejected the request due to a rate/capacity limit. Retry the saved recording later.",
@@ -233,10 +236,12 @@ def transcribe_openrouter(wav_bytes, cfg, key, *, on_retry=None, on_fallback=Non
 
     def request(model, post=None):
         global _primary_down_until
+        # ZDR only: providers may not keep the audio or the transcript.
+        provider = {"zdr": True}
         # Only the documented MAI 2 Azure integration is enabled. Keep unsupported
         # models usable; never turn the list into transcript replacements.
-        provider = ({"options": {"azure": {"phraseList": {"phrases": vocabulary}}}}
-                    if vocabulary and model == "microsoft/mai-transcribe-2" else None)
+        if vocabulary and model == "microsoft/mai-transcribe-2":
+            provider["options"] = {"azure": {"phraseList": {"phrases": vocabulary}}}
         t0, ok = time.monotonic(), False
         try:
             text = _post_stt(key, model, wav_bytes, language, provider, read_timeout, post).get("text")
@@ -338,7 +343,7 @@ def smooth(text, system_prompt, cfg):
         "model": cfg["model"],
         "temperature": 0.2,
         "max_tokens": REWRITE_MAX_TOKENS,
-        "provider": {"sort": "latency"},
+        "provider": {"sort": "latency", "zdr": True},
         "messages": [{"role": "system", "content": system_prompt},
                      {"role": "user", "content": text}],
         "reasoning": {"effort": "minimal", "exclude": True},

@@ -58,7 +58,8 @@ mixing. Set `"de"` or `"en"` to force a single language. `auto`/`multi` normaliz
 Do not force German when you want entire English passages transcribed as English.
 
 F9 and F10 use fixed rewrite settings: minimal reasoning, temperature 0.2, at most
-4096 output tokens, a 20-second timeout and latency-first provider routing.
+4096 output tokens, a 20-second timeout and latency-first provider routing among Zero Data
+Retention endpoints.
 Reasoning is not included in pasted output. An incomplete response falls back to the raw text.
 
 F9 removes filler sounds ("um", "ähm"), filler words that carry no meaning, stutters,
@@ -68,6 +69,30 @@ Every point, condition, deliberate emphasis ("wichtig, wichtig, wichtig"), your 
 original order stay. It must not summarize, paraphrase or infer what you meant.
 This is a model instruction, not a deterministic guarantee of identical wording. The raw
 transcript remains saved alongside the cleaned version in `recovery/` for comparison.
+
+## Zero Data Retention
+
+Apollo sends `provider.zdr: true` on every speech and rewrite request, so OpenRouter routes
+only to endpoints with a Zero Data Retention policy: the provider may not keep the audio or
+the text and may not train on it. The request flag combines with, and never weakens, ZDR in
+your OpenRouter privacy settings.
+
+All three defaults keep working, because each has a ZDR endpoint: MAI-Transcribe-2 has Azure
+only, Nemotron 3.5 has PrimeIntellect and DeepInfra, GPT-6 Luna has Azure only. Measured on
+2026-11-24: one minute of audio took 1.6 s through MAI-2 and 2.2 s through Nemotron, and a
+1300-character cleanup took 1.7 s through Luna against 0.9 s on the non-ZDR route OpenRouter
+picked before ZDR was required. Azure rate limited one of the MAI-2 runs with HTTP 429.
+
+ZDR limits the model choice. These models have no ZDR endpoint and fail with HTTP 404 while
+ZDR is enforced: `google/gemini-3.5-transcribe`, `openai/gpt-transcribe`, `x-ai/grok-stt-1.0`,
+`openai/gpt-4o-transcribe`, `openai/gpt-4o-mini-transcribe`, `openai/whisper-1`,
+`qwen/qwen3.8-flash` and `qwen/qwen3.7-flash`. `google/gemini-3.5-flash-lite` has Safety
+Retention endpoints only: Google does not train on them, but may keep flagged prompts for up
+to 90 days. Select **ZDR only** in your [OpenRouter privacy settings](https://openrouter.ai/settings/privacy)
+to exclude those as well; the defaults above do not need them.
+
+The current endpoint list is available at
+[https://openrouter.ai/api/v1/endpoints/zdr](https://openrouter.ai/api/v1/endpoints/zdr).
 
 ## Fallback and circuit breaker
 
@@ -98,6 +123,7 @@ API references: [transcription](https://openrouter.ai/docs/guides/overview/multi
 [limits](https://openrouter.ai/docs/api_reference/limits),
 [errors and Retry-After](https://openrouter.ai/docs/api_reference/errors-and-debugging),
 [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection),
+[Zero Data Retention](https://openrouter.ai/docs/guides/features/zdr),
 [reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
 
 ## Keys, recording and insertion

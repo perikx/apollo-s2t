@@ -3,6 +3,13 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Privacy
+- Send `provider.zdr: true` with every speech and rewrite request, so OpenRouter routes only to Zero Data Retention endpoints. No provider keeps the audio, the transcript or the cleanup text.
+- Keep latency-first provider routing on rewrites and name the ZDR requirement in the 404 hint, because a model without a ZDR endpoint fails as not found.
+- Document which models ZDR excludes, the measured latency of the default ZDR routes and the Safety Retention choice in the privacy settings.
+
 ## [0.5.4] - 2026-11-19
 
 ### Fixes

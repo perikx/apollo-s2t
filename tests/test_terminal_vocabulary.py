@@ -72,7 +72,7 @@ def test_vocabulary_biases_recognition_without_replacing_output(monkeypatch):
     post = Mock(return_value={"text": "Pando"}); monkeypatch.setattr(api, "_post_stt", post)
     cfg = {"vocabulary": [" PANDU ", "PANDU", "SUPERBASE"]}; before = deepcopy(cfg)
     assert api.transcribe_openrouter(b"wave", cfg, "key") == "Pando"
-    assert post.call_args.args[4] == {"options": {"azure": {"phraseList": {"phrases": ["PANDU", "SUPERBASE"]}}}}
+    assert post.call_args.args[4] == {"zdr": True, "options": {"azure": {"phraseList": {"phrases": ["PANDU", "SUPERBASE"]}}}}
     assert cfg == before
 
 
@@ -82,7 +82,8 @@ def test_fallback_removes_model_specific_hints_but_preserves_audio(monkeypatch):
     cfg = {"vocabulary": ["PANDU"], "language": "de", "fallback_model": "elevenlabs/scribe-v2"}
     assert api.transcribe_openrouter(b"wave", cfg, "key", wait=lambda _: False) == "PANDU"
     first, second = [call.args[4] for call in post.call_args_list]
-    assert first is not None and second is None
+    assert "options" in first and "options" not in second  # the fallback gets no unverified hints
+    assert first["zdr"] and second["zdr"]  # both routes stay ZDR-only
     assert all(call.args[2] == b"wave" and call.args[3] == "de" for call in post.call_args_list)
 
 
@@ -97,7 +98,7 @@ def test_invalid_vocabulary_blocked_before_network(monkeypatch, value):
 def test_other_models_do_not_receive_unverified_options(monkeypatch):
     post = Mock(return_value={"text": "ok"}); monkeypatch.setattr(api, "_post_stt", post)
     api.transcribe_openrouter(b"wave", {"model": "openai/gpt-4o-mini-transcribe", "vocabulary": ["PANDU"]}, "key")
-    assert post.call_args.args[4] is None
+    assert post.call_args.args[4] == {"zdr": True}
 
 
 def test_setup_can_continue_without_connection(tmp_path, monkeypatch):

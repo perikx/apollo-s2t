@@ -1,4 +1,5 @@
 import io
+import json
 import wave
 from unittest.mock import Mock
 import pytest
@@ -27,7 +28,8 @@ def test_transcription_uses_documented_multipart_and_auto_language(monkeypatch):
     post, response = respond(monkeypatch, {"text": " Hallo world. "})
     assert api.transcribe_openrouter(b"wave", {}, "test-key") == "Hallo world."
     kwargs = post.call_args.kwargs
-    assert kwargs["data"] == {"model": DEFAULT_STT_MODEL}
+    assert json.loads(kwargs["data"]["provider"]) == {"zdr": True}  # never route to a provider that keeps the audio
+    assert {name: value for name, value in kwargs["data"].items() if name != "provider"} == {"model": DEFAULT_STT_MODEL}
     filename, audio, mime = kwargs["files"]["file"]
     assert (filename, audio, mime) == ("audio.wav", b"wave", "audio/wav")
     assert kwargs["timeout"] == (15, 15)  # short audio: 15 s + half the audio length
@@ -61,6 +63,7 @@ def test_rewrite_settings_are_bounded_and_latency_oriented(monkeypatch):
     assert body["model"] == DEFAULT_SMOOTHING_MODEL
     assert body["reasoning"] == {"effort": "minimal", "exclude": True}
     assert body["provider"]["sort"] == "latency"
+    assert body["provider"]["zdr"] is True
     assert body["max_tokens"] == 4096
     assert post.call_args.kwargs["timeout"] == (5, 20)
 
