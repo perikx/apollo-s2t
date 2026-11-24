@@ -23,7 +23,7 @@ from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPainterPat
 # frost and tint than an icon, or the desktop behind competes with the text.
 GLASS = {
     "clear": {"blur": 1, "disp": 16, "bezel": 20, "zoom": .06, "lens": QColor(255, 255, 255, 8),
-              "panel_blur": 6, "panel": QColor(250, 250, 248, 96)},
+              "panel_blur": 6, "panel": QColor(250, 250, 248, 160)},
     "light": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(255, 255, 255, 77),
               "panel_blur": 16, "panel": QColor(248, 248, 246, 178)},
     "dark": {"blur": 8, "disp": 14, "bezel": 22, "zoom": .05, "lens": QColor(0, 0, 0, 64),
@@ -91,6 +91,11 @@ def _win32():
     user32.ReleaseDC.argtypes = (handle, handle)
     user32.GetWindowRect.argtypes = (handle, ctypes.POINTER(_RECT))
     user32.GetLastInputInfo.argtypes = (ctypes.POINTER(_LASTINPUTINFO),)
+    user32.OpenInputDesktop.restype = handle
+    user32.OpenInputDesktop.argtypes = (ctypes.c_uint, ctypes.c_int, ctypes.c_uint)
+    user32.OpenDesktopW.restype = handle
+    user32.OpenDesktopW.argtypes = (ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_int, ctypes.c_uint)
+    user32.SetThreadDesktop.argtypes = (handle,); user32.CloseDesktop.argtypes = (handle,)
     gdi32.CreateCompatibleDC.restype = handle; gdi32.CreateCompatibleDC.argtypes = (handle,)
     gdi32.CreateDIBSection.restype = handle
     gdi32.CreateDIBSection.argtypes = (handle, ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p), handle, ctypes.c_uint32)
@@ -103,6 +108,25 @@ def _win32():
 
 
 _API = _win32()
+
+
+def _attach_input_desktop():
+    """Point this thread at the visible desktop before the first capture.
+
+    GetDC(None) captures the desktop the calling thread was started on. A launch
+    from an IDE or another launcher can start the capture thread on a desktop
+    that is not the visible one, and every grab then returns black. Failures are
+    ignored: the glass then keeps whatever it captured before.
+    """
+    if not _API:
+        return
+    user32 = _API[0]
+    desktop = user32.OpenInputDesktop(0, False, 0x0100)  # DESKTOP_SWITCHDESKTOP
+    if not desktop:
+        desktop = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+    if desktop:
+        user32.SetThreadDesktop(desktop)
+        user32.CloseDesktop(desktop)  # the thread keeps its own reference
 
 
 def _window_rect(hwnd):
@@ -157,6 +181,7 @@ class _Live(QObject):
     def remove(self, backdrop):
         with self.lock: self.backdrops.discard(backdrop)
     def run(self):
+        _attach_input_desktop()
         while True:
             start = time.perf_counter()
             with self.lock: backdrops = list(self.backdrops)
@@ -369,5 +394,5 @@ def paint_glass(painter, rect, radius, backdrop, material, panel=False):
 
 def _fallback(material):
     """Tint without a backdrop: dense enough to read, still lighter than an opaque window."""
-    return {"clear": QColor(255, 255, 255, 60), "clear_dark": QColor(20, 20, 22, 110), "light": QColor(250, 250, 248, 222),
+    return {"clear": QColor(255, 255, 255, 120), "clear_dark": QColor(20, 20, 22, 110), "light": QColor(250, 250, 248, 222),
             "dark": QColor(28, 28, 30, 222)}.get(material, QColor(250, 250, 248, 222))

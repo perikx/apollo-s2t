@@ -3,6 +3,12 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.6] - 2026-11-24
+
+### Overlay
+- Keep the clear panel readable over a busy desktop. The clear material uses a denser panel background, and its plain tint without a backdrop is twice as dense.
+- Capture the visible desktop when a launcher starts Apollo. A launcher can start the capture thread on a desktop that is not the visible one, and every grab then returned black, so the glass showed a dark panel instead of the desktop behind it. On the normal desktop nothing changes.
+
 ## [0.5.5] - 2026-11-24
 
 ### Privacy

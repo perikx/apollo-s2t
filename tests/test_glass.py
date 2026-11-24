@@ -22,6 +22,15 @@ class Clock:
     def sleep(self, seconds):
         raise Stop  # end the capture loop after one pass
 
+class User32:
+    """A fake user32 for the desktop attach: records the desktop the thread takes."""
+    def __init__(self, input_desktop=0, default_desktop=0):
+        self.input, self.default, self.set, self.closed = input_desktop, default_desktop, [], []
+    def OpenInputDesktop(self, flags, inherit, access): return self.input
+    def OpenDesktopW(self, name, flags, inherit, access): return self.default
+    def SetThreadDesktop(self, desktop): self.set.append(desktop); return 1
+    def CloseDesktop(self, desktop): self.closed.append(desktop); return 1
+
 
 @pytest.fixture
 def desk(monkeypatch):
@@ -35,6 +44,7 @@ def desk(monkeypatch):
         return None if data == previous else data
     monkeypatch.setattr(glass, "_grab", grab)
     monkeypatch.setattr(glass, "_input_age", lambda: desk.input_age)
+    monkeypatch.setattr(glass, "_attach_input_desktop", lambda: None)  # never move the test process's desktop
     return desk
 
 
@@ -109,3 +119,30 @@ def test_grab_returns_only_changed_pixels_and_no_failed_frame(monkeypatch):
     gdi.BitBlt = lambda *args: False
     assert glass._grab(0, 0, 2, 1) is None  # a failed capture is no frame
     assert selected == [3, 4]*4  # the old bitmap goes back into the DC every time
+
+
+def test_capture_thread_attaches_to_the_visible_desktop_once(desk, monkeypatch):
+    calls = []
+    monkeypatch.setattr(glass, "_attach_input_desktop", lambda: calls.append(1))
+    with pytest.raises(Stop): glass._Live().run()
+    assert calls == [1]  # once per capture thread, before the first grab
+
+
+def test_desktop_attach_uses_the_input_desktop(monkeypatch):
+    user32 = User32(7, 9)
+    monkeypatch.setattr(glass, "_API", (user32, None))
+    glass._attach_input_desktop()
+    assert (user32.set, user32.closed) == ([7], [7])  # the thread keeps its own reference
+
+
+def test_desktop_attach_falls_back_or_stays_quiet(monkeypatch):
+    user32 = User32(0, 9)
+    monkeypatch.setattr(glass, "_API", (user32, None))
+    glass._attach_input_desktop()
+    assert user32.set == [9]  # no input desktop: the usual name
+    quiet = User32(0, 0)
+    monkeypatch.setattr(glass, "_API", (quiet, None))
+    glass._attach_input_desktop()
+    assert (quiet.set, quiet.closed) == ([], [])  # nothing to attach: the capture never fails on it
+    monkeypatch.setattr(glass, "_API", None)
+    glass._attach_input_desktop()  # off Windows this is a no-op
