@@ -3,7 +3,15 @@
 All notable changes to Apollo s2t are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-26
+
+### Performance
+- Send a longer recording to the API in 12-second parts while the user is still speaking, cut at a quiet point, and stitch the parts in order. Only the last part is still on the wire when the key is released, so the wait no longer grows with the recording. A part that fails drops all of them and the whole recording is sent once, as before.
+- Share the quiet-point cut between the five-minute parts and the live parts, and never cut before the middle of a part.
+- Upload speech as lossless FLAC encoded in-process through Windows Media Foundation instead of uncompressed WAV (26–37% of the WAV size, zero bundled binaries or extra dependencies), falling back silently to WAV if the codec is unavailable. Local recovery files in `recovery/` stay WAV.
+- Move the checkpoint-writer join out of `Recorder.stop()` into the background save step, so releasing the dictation key no longer waits for an in-progress checkpoint `fsync`.
+- Wait after the key, measured on this machine with real recordings and the real API, before and after all of the above: a 15-second dictation drops from about 860 ms to about 400 ms, a 55-second one from about 1900 ms to about 410 ms. The same audio returns the same text.
+- Warm only the HTTP session that is actually in use (`_http`, plus `_hedge_http` only when hedging is enabled), and never touch a `requests.Session` concurrently from `warm()` or another thread while a request is in flight.
 
 ### Cleanup
 - Rewrite the F9 cleanup prompt as a corrector instead of an editor: it always removes filler sounds and hesitations, removes stutters and false starts, fixes punctuation and the grammar a disfluency broke, and must not add, drop, reorder, reword, summarize or interpret anything. Awkward but understandable wording, colloquial forms ("ich sitz") and unclear passages stay as spoken.

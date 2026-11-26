@@ -29,7 +29,8 @@ import requests
 import sounddevice as sd
 
 import apollo_models
-from apollo_api import ResponseError, RetryCancelled, http_error_hint, is_retryable, smooth, transcribe_openrouter, warm
+from apollo_api import (ResponseError, RetryCancelled, http_error_hint, is_retryable, quiet_cut, smooth,
+                        transcribe_openrouter, warm)
 from apollo_config import (ConfigError, api_key, default_config, normalize_config,
                            read_config, save_config, scan_codes_of)
 from apollo_i18n import set_language
@@ -38,7 +39,7 @@ from apollo_keyhook import KeyHook, remote_desktop_in_front
 from apollo_update import install_update, remove_old
 
 APP_NAME = "apollo s2t"
-APP_VERSION = "0.5.6"
+APP_VERSION = "0.6.0"
 BASE_DIR = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -56,6 +57,11 @@ UPDATE_IDLE_SECONDS = 120  # restart into a new version only after two quiet min
 AUTO_RETRY_DELAYS = (5, 15, 30, 60, 120)
 AUTO_RETRY_WINDOW_SECONDS = 30 * 60  # then the audio waits in Recovery
 AUTO_RETRY_PASTE_SECONDS = 60  # a later result goes to the clipboard, not into the field that has focus now
+# The uplink is the slow half of a dictation, so a long recording travels to the API in parts
+# while the user is still speaking. The last part alone decides the wait after the stop.
+LIVE_CHUNK_SECONDS = 12  # audio per part sent during the recording
+LIVE_POLL_SECONDS = 0.25  # how often that sender looks for enough new audio
+LIVE_JOIN_SECONDS = 30  # wait for a part that is still uploading when the recording stops
 PROFILES_DIR = "prompts"
 log = logging.getLogger("apollo")
 
@@ -262,11 +268,10 @@ class Recorder:
         self._frames = []
         self._byte_count = 0
         self.backup = None
-        self._checkpoint_stop = threading.Event()
+        self._checkpoint_state = None
         self._checkpoint_thread = None
         self.capture_warning = False
         self.backup_failed = False
-        self._checkpoint_cursor = 0
 
     def _callback(self, indata, frames, time_info, status):
         # Only copy bytes here. Levels for the UI come from visual_levels().
@@ -293,26 +298,28 @@ class Recorder:
                      for start in range(0, len(samples), stride)
                      if len(part := samples[start:start + stride]))
 
-    def _checkpoint(self):
-        chunks = self._frames[self._checkpoint_cursor:]
+    def _checkpoint(self, state):
+        chunks = state.frames[state.cursor:]
         if chunks:
-            self.backup.append(b"".join(chunks))
-            self._checkpoint_cursor += len(chunks)
+            state.backup.append(b"".join(chunks))
+            state.cursor += len(chunks)
 
-    def _save_periodically(self, on_error):
-        while not self._checkpoint_stop.wait(0.5):
+    def _save_periodically(self, state, on_error):
+        while not state.stop.wait(0.5):
             try:
-                self._checkpoint()
+                self._checkpoint(state)
             except Exception:
                 # The callback only copies samples; disk I/O happens on this thread.
                 # Stop capture visibly instead of silently accepting unsaved audio.
-                self.backup_failed = True
+                state.failed = True
+                if self._checkpoint_state is state:
+                    self.backup_failed = True
                 if on_error is not None:
                     threading.Thread(target=on_error, daemon=True).start()
                 return
-            stream = self._stream
-            if stream is not None and not stream.active:
-                self.capture_warning = True
+            if not state.stop.is_set() and state.stream is not None and not state.stream.active:
+                if self._checkpoint_state is state:
+                    self.capture_warning = True
                 if on_error is not None:
                     threading.Thread(target=on_error, daemon=True).start()
                 return
@@ -328,12 +335,12 @@ class Recorder:
         return stream
 
     def start(self, backup=None, on_error=None):
-        self._frames = []
+        frames = []
+        self._frames = frames
         self._byte_count = 0
         self.backup = backup
-        self._checkpoint_cursor = 0
+        self._checkpoint_state = None
         self.capture_warning = self.backup_failed = False
-        self._checkpoint_stop.clear()
         try:
             self._stream = self._open_stream()
         except Exception:
@@ -346,21 +353,25 @@ class Recorder:
             self._stream = self._open_stream()
         try:
             if backup is not None:
+                state = SimpleNamespace(backup=backup, frames=frames, cursor=0, failed=False,
+                                        stop=threading.Event(), stream=self._stream)
+                self._checkpoint_state = state
                 self._checkpoint_thread = threading.Thread(
-                    target=self._save_periodically, args=(on_error,), daemon=True, name="apollo-audio-save")
+                    target=self._save_periodically, args=(state, on_error), daemon=True, name="apollo-audio-save")
                 self._checkpoint_thread.start()
         except Exception:
+            self._checkpoint_state = None
             self._stream.close()
             self._stream = None
             raise
 
     def stop(self):
-        """Stop capture. Return (pcm, save); save() writes the last checkpoint and returns False on failure."""
+        """Stop capture. Return (pcm, save); save() joins the checkpoint writer, flushes the tail and returns False on failure."""
         stream, self._stream = self._stream, None
-        self._checkpoint_stop.set()
+        state, self._checkpoint_state = self._checkpoint_state, None
+        if state is not None:
+            state.stop.set()
         writer, self._checkpoint_thread = self._checkpoint_thread, None
-        if writer is not None and writer.ident is not None and writer is not threading.current_thread():
-            writer.join()
         try:
             if stream is not None:
                 try:
@@ -371,12 +382,16 @@ class Recorder:
             self.capture_warning = True
             log.warning("Microphone stop failed; preserving the captured audio.")
         # Copy what save() needs: the next start() reuses this Recorder while save() may still run.
-        backup, failed, cursor = self.backup, self.backup_failed, self._checkpoint_cursor
+        backup, failed_at_stop = self.backup, self.backup_failed
         frames, self._frames = self._frames, []
 
         def save():
+            if writer is not None and writer.ident is not None and writer is not threading.current_thread():
+                writer.join()
             if backup is None:
                 return True
+            failed = failed_at_stop or (state.failed if state is not None else False)
+            cursor = state.cursor if state is not None else 0
             try:
                 if not failed and frames[cursor:]:
                     backup.append(b"".join(frames[cursor:]))
@@ -390,6 +405,15 @@ class Recorder:
     @property
     def sample_count(self):
         return self._byte_count // (self.channels * 2)
+
+    def snapshot(self, start=0):
+        """The audio captured so far from byte `start`: a prefix of the final recording."""
+        parts, offset = [], 0
+        for chunk in list(self._frames):
+            if offset + len(chunk) > start:
+                parts.append(chunk[max(0, start - offset):])
+            offset += len(chunk)
+        return b"".join(parts)
 
 
 def to_wav_bytes(data, samplerate, channels):
@@ -634,6 +658,48 @@ def beep(kind, enabled):
     threading.Thread(target=_play, args=(_BEEP_CACHE[kind],), daemon=True).start()
 
 
+class _LiveParts:
+    """Transcribe a recording in parts while the user is still speaking.
+
+    Every part leaves as soon as enough audio is captured, so only the last part is still on the
+    wire when the key is released. ``sent`` is the exact byte offset of the audio that has not
+    travelled yet: the job sends the rest from there. One failed part drops all of them and the
+    job sends the whole recording, exactly as it did before.
+    """
+    def __init__(self, app, capture):
+        self.app, self.capture = app, capture
+        self.sent, self.texts, self.failed = 0, [], False
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True, name="apollo-live-stt")
+
+    def start(self):
+        self.thread.start()
+
+    def run(self):
+        app, cfg = self.app, self.capture[1]
+        rate, channels = app.samplerate, app.channels
+        part_bytes = int(LIVE_CHUNK_SECONDS * rate) * channels * 2
+        while not self.stop.wait(LIVE_POLL_SECONDS):
+            if app._closing.is_set():
+                return
+            audio = app.recorder.snapshot(self.sent)
+            if len(audio) < part_bytes:
+                continue
+            region = audio[:part_bytes]
+            keep = quiet_cut(region, rate, channels)  # never cut in the middle of a word
+            part = region[:keep * channels * 2]
+            try:
+                text = transcribe_openrouter(to_wav_bytes(part, rate, channels), cfg["openrouter_stt"],
+                                             api_key(cfg), wait=self.stop.wait)
+            except Exception:
+                self.failed = True
+                self.stop.set()
+                return
+            self.sent += len(part)
+            if text:
+                self.texts.append(text)
+
+
 class App:
     def __init__(self, config):
         self.cfg, _ = normalize_config(config)
@@ -646,6 +712,7 @@ class App:
         self._lock = threading.RLock()  # short state changes only: never disk, network, sleep or paste
         self._rec_lock = threading.RLock()  # one start or stop of a recording at a time
         self._capture = None
+        self._live = None  # the recorder's parts while a recording runs
         self._record_timer = None
         self._threads = set()  # one thread per job
         self._slots = threading.BoundedSemaphore(MAX_PENDING_RECORDINGS)
@@ -997,6 +1064,8 @@ class App:
                     self._record_timer.start()
                 beep("start", self.beep_enabled)
                 threading.Thread(target=warm, daemon=True).start()  # open the TLS connection while the user speaks
+                self._live = _LiveParts(self, capture)  # the first parts travel during the recording
+                self._live.start()
                 log.info("Recording started (%s, %s).", mode, cfg["hotkeys"][mode].upper())
             except Exception:
                 with self._lock:
@@ -1010,6 +1079,9 @@ class App:
                     pass
                 backup = self._backup
                 self.recording, self.active_mode, self._capture, self._backup = False, None, None, None
+                live, self._live = self._live, None
+                if live is not None:
+                    live.stop.set()
                 if backup is not None:
                     self._saved_status(backup, "interrupted", "Recording could not start. Check microphone, folder access and disk space.")
                     with self._lock:
@@ -1036,6 +1108,7 @@ class App:
                     self._record_timer = None
                 capture, self._capture = self._capture, None
                 backup, self._backup = self._backup, None
+                live, self._live = self._live, None
             saver = None
             try:
                 data, save = self.recorder.stop()
@@ -1053,6 +1126,8 @@ class App:
                         beep("error", self.beep_enabled)
                 if data is None or samples < self.min_samples:
                     self._slots.release()
+                    if live is not None:
+                        live.stop.set()
                     save_audio()
                     self._saved_status(backup, "too_short")
                     with self._lock:
@@ -1069,7 +1144,7 @@ class App:
                 if limit_reached:
                     log.info("Recording time limit reached. Saved audio is being processed.")
                     self.notify("Recording time limit reached. Audio saved and processing; start another recording to continue.")
-                self._start_job(capture, data, t0, backup, False, saver)
+                self._start_job(capture, data, t0, backup, False, saver, 0, live)
             except Exception:
                 self._slots.release()
                 if saver is not None:
@@ -1101,7 +1176,20 @@ class App:
                 self._threads.discard(threading.current_thread())
                 self._last_activity = time.monotonic()
 
-    def _process(self, capture, data, t0, backup, recovered=False, saver=None, attempt=0):
+    def _live_split(self, live, data, backup):
+        """(parts transcribed during the recording, audio still to send). No parts: the whole file."""
+        if live is not None:
+            live.stop.set()
+            if live.thread.is_alive():
+                live.thread.join(LIVE_JOIN_SECONDS)
+            if live.texts and not live.failed and not live.thread.is_alive() and data is not None:
+                rest = data[live.sent:]
+                if len(rest) < self.min_samples * self.channels * 2:
+                    return list(live.texts), None  # nothing worth a request after the last part
+                return list(live.texts), to_wav_bytes(rest, self.samplerate, self.channels)
+        return [], backup.path.read_bytes() if data is None else to_wav_bytes(data, self.samplerate, self.channels)
+
+    def _process(self, capture, data, t0, backup, recovered=False, saver=None, attempt=0, live=None):
         mode, cfg, prompt = capture
         # A late automatic retry must not paste into whatever field has the focus by then.
         copy_only = recovered or (attempt > 0 and time.monotonic() - t0 > AUTO_RETRY_PASTE_SECONDS)
@@ -1115,16 +1203,21 @@ class App:
             text = backup.read_transcript() if recovered else None
             cached = bool(text)
             if not cached:
-                wav = backup.path.read_bytes() if data is None else to_wav_bytes(data, self.samplerate, self.channels)
+                parts, wav = self._live_split(live, data, backup)
                 def on_retry(attempt, delay):
                     log.warning("Transcription rate limited; retry %d in %.1f seconds. Audio saved locally.", attempt, delay)
                     if delay >= 1:
                         self.notify(f"Transcription busy. Audio saved; retrying in {delay:.0f} seconds.")
                 def on_fallback(model):
                     log.info("Using fallback speech model %s for this recording.", model)
-                text = transcribe_openrouter(wav, cfg["openrouter_stt"], api_key(cfg),
-                                             on_retry=on_retry, on_fallback=on_fallback, wait=self._closing.wait,
-                                             on_attempt=lambda model, ok, s: apollo_models.record_attempt(self.stats_path, model, ok, s))
+                if parts:
+                    log.info("Sent %d part(s) during the recording; only the rest was left at the stop.", len(parts))
+                text = "" if wav is None else transcribe_openrouter(
+                    wav, cfg["openrouter_stt"], api_key(cfg),
+                    on_retry=on_retry, on_fallback=on_fallback, wait=self._closing.wait,
+                    on_attempt=lambda model, ok, s: apollo_models.record_attempt(self.stats_path, model, ok, s))
+                if parts:
+                    text = " ".join(part for part in [*parts, text] if part).strip()
             if not text:
                 durable()
                 self._saved_status(backup, "failed", "No speech detected. Check the microphone and audio signal.")

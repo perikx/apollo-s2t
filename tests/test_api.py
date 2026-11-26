@@ -1,11 +1,99 @@
+import ctypes
 import io
 import json
+import math
+import struct
+import sys
+import threading
 import wave
 from unittest.mock import Mock
 import pytest
 import requests
 import apollo_api as api
 from apollo_config import DEFAULT_STT_MODEL, DEFAULT_SMOOTHING_MODEL, default_config
+
+
+def _make_wav(pcm, rate=16000, channels=1, width=2):
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(width)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _decode_flac_mf(flac_bytes):
+    """Decode FLAC bytes to 16-bit PCM via Windows Media Foundation (no external binaries or numpy)."""
+    mf = api._mf_init()
+    assert mf is not None, "Windows Media Foundation FLAC codec unavailable"
+    GUID, wintypes, ole32_raw, mfplat, mfrw, shlwapi, g = mf
+    mfrw.MFCreateSourceReaderFromByteStream.argtypes = (
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+    )
+    mfrw.MFCreateSourceReaderFromByteStream.restype = ctypes.HRESULT
+    co = ole32_raw.CoInitializeEx(None, 0) >= 0
+    objs = []
+    try:
+        raw = ctypes.create_string_buffer(flac_bytes, len(flac_bytes))
+        istream = ctypes.c_void_p(shlwapi.SHCreateMemStream(raw, len(flac_bytes)))
+        assert istream.value
+        objs.append(istream)
+        bytestream = ctypes.c_void_p()
+        mfplat.MFCreateMFByteStreamOnStream(istream, ctypes.byref(bytestream))
+        objs.append(bytestream)
+        reader = ctypes.c_void_p()
+        mfrw.MFCreateSourceReaderFromByteStream(bytestream, None, ctypes.byref(reader))
+        objs.append(reader)
+        mt = ctypes.c_void_p()
+        mfplat.MFCreateMediaType(ctypes.byref(mt))
+        objs.append(mt)
+        set_guid = api._com_call(mt, 24, ctypes.POINTER(GUID), ctypes.POINTER(GUID))
+        set_guid(mt, ctypes.byref(g["major"]), ctypes.byref(g["audio"]))
+        set_guid(mt, ctypes.byref(g["subtype"]), ctypes.byref(g["pcm"]))
+        first_audio = 0xFFFFFFFD
+        api._com_call(reader, 7, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p)(reader, first_audio, None, mt)
+        read_sample = api._com_call(
+            reader, 9, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(ctypes.c_longlong), ctypes.POINTER(ctypes.c_void_p),
+        )
+        chunks = []
+        while True:
+            idx, flags, ts, sample = wintypes.DWORD(), wintypes.DWORD(), ctypes.c_longlong(), ctypes.c_void_p()
+            read_sample(reader, first_audio, 0, ctypes.byref(idx), ctypes.byref(flags), ctypes.byref(ts), ctypes.byref(sample))
+            if sample.value:
+                try:
+                    buf = ctypes.c_void_p()
+                    api._com_call(sample, 41, ctypes.POINTER(ctypes.c_void_p))(sample, ctypes.byref(buf))
+                    try:
+                        ptr, cur_len = ctypes.c_void_p(), wintypes.DWORD()
+                        api._com_call(buf, 3, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))(
+                            buf, ctypes.byref(ptr), None, ctypes.byref(cur_len))
+                        chunks.append(ctypes.string_at(ptr.value, cur_len.value))
+                        api._com_call(buf, 4)(buf)
+                    finally:
+                        api._com_release(buf)
+                finally:
+                    api._com_release(sample)
+            if flags.value & 2:  # MF_SOURCE_READERF_ENDOFSTREAM
+                break
+        return b"".join(chunks)
+    finally:
+        for obj in reversed(objs):
+            api._com_release(obj)
+        if co:
+            ole32_raw.CoUninitialize()
+
+
+def _decode_uploaded_pcm(file_tuple):
+    filename, payload, mime = file_tuple
+    if mime == "audio/flac":
+        assert filename == "audio.flac" and payload[:4] == b"fLaC"
+        pcm = _decode_flac_mf(payload)
+        return len(pcm) // 2, pcm
+    assert (filename, mime) == ("audio.wav", "audio/wav")
+    with wave.open(io.BytesIO(payload)) as w:
+        return w.getnframes(), w.readframes(w.getnframes())
 
 
 SMOOTHING = dict(default_config()["smoothing"], api_key="key")
@@ -116,13 +204,14 @@ def test_missing_key_fails_before_network(monkeypatch):
 def test_stt_read_timeout_scales_with_audio_length(monkeypatch):
     post, _ = respond(monkeypatch, {"text": "x"})
     seconds = 60
-    wav = io.BytesIO()
-    with wave.open(wav, "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
-        w.writeframes(bytes(16000 * 2 * seconds))
-    api.transcribe_openrouter(wav.getvalue(), {}, "key")
+    # Non-silent audio so even FLAC is large enough to scale upload timeout above the 15 s floor.
+    pcm = bytes(range(256)) * (16000 * 2 * seconds // 256)
+    wav = _make_wav(pcm)
+    api.transcribe_openrouter(wav, {}, "key")
     upload, read = post.call_args.kwargs["timeout"]
-    assert upload == pytest.approx(len(wav.getvalue()) / (32 * 1024))
+    uploaded = post.call_args.kwargs["files"]["file"][1]
+    assert upload == pytest.approx(max(15, len(uploaded) / (32 * 1024)))
+    assert upload > 15
     assert read == 45
     api.transcribe_openrouter(b"not a wav", {}, "key")  # not a WAV: base timeout
     assert post.call_args.kwargs["timeout"] == (15, 15)
@@ -130,24 +219,105 @@ def test_stt_read_timeout_scales_with_audio_length(monkeypatch):
 
 def test_long_audio_preserves_every_sample_and_returns_no_partial_result(monkeypatch):
     pcm = bytes(range(256)) * 41250  # 330 seconds at 16 kHz, 16 bit mono
-    source = io.BytesIO()
-    with wave.open(source, "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(pcm)
+    source = _make_wav(pcm)
     received = []
     def post(*args, **kwargs):
         assert kwargs["data"]["model"] == DEFAULT_STT_MODEL
-        with wave.open(io.BytesIO(kwargs["files"]["file"][1])) as w:
-            assert w.getnframes() <= api.STT_CHUNK_SECONDS * 16000
-            received.append(w.readframes(w.getnframes()))
+        nframes, decoded = _decode_uploaded_pcm(kwargs["files"]["file"])
+        assert nframes <= api.STT_CHUNK_SECONDS * 16000
+        received.append(decoded)
         return Mock(json=lambda: {"text": str(len(received))})
     monkeypatch.setattr(api._http, "post", post)
-    assert api.transcribe_openrouter(source.getvalue(), {}, "key") == "1\n\n2"
+    assert api.transcribe_openrouter(source, {}, "key") == "1\n\n2"
     assert b"".join(received) == pcm
     def fail(*args, **kwargs):
         raise requests.Timeout()
     monkeypatch.setattr(api._http, "post", fail)
     with pytest.raises(requests.Timeout):
-        api.transcribe_openrouter(source.getvalue(), {}, "key")
+        api.transcribe_openrouter(source, {}, "key")
+
+
+def test_real_wav_uploads_as_smaller_lossless_flac_and_non_wav_stays_wav(monkeypatch):
+    post, _ = respond(monkeypatch, {"text": "hello"})
+    samples = [int(12000 * math.sin(2 * math.pi * 440 * i / 16000)) for i in range(16000)]
+    pcm = struct.pack(f"<{len(samples)}h", *samples)
+    wav = _make_wav(pcm)
+    assert api.transcribe_openrouter(wav, {}, "key") == "hello"
+    filename, payload, mime = post.call_args.kwargs["files"]["file"]
+    if sys.platform == "win32":
+        assert (filename, mime) == ("audio.flac", "audio/flac")
+        assert payload[:4] == b"fLaC"
+        assert len(payload) < len(wav)
+        assert _decode_flac_mf(payload) == pcm
+    else:
+        assert (filename, payload, mime) == ("audio.wav", wav, "audio/wav")
+
+    assert api.transcribe_openrouter(b"not a wav", {}, "key") == "hello"
+    assert post.call_args.kwargs["files"]["file"] == ("audio.wav", b"not a wav", "audio/wav")
+
+
+@pytest.mark.parametrize("broken", [lambda *a, **k: None, Mock(side_effect=OSError("no encoder"))])
+def test_missing_flac_encoder_silently_falls_back_to_wav(monkeypatch, broken):
+    post, _ = respond(monkeypatch, {"text": "fallback ok"})
+    monkeypatch.setattr(api, "_encode_pcm_flac", broken)
+    wav = _make_wav(b"\x01\x00" * 8000)
+    assert api.transcribe_openrouter(wav, {}, "key") == "fallback ok"
+    assert post.call_args.kwargs["files"]["file"] == ("audio.wav", wav, "audio/wav")
+
+
+def test_warm_only_warms_sessions_in_use(monkeypatch):
+    primary_head = Mock(return_value=Mock())
+    hedge_head = Mock(return_value=Mock())
+    monkeypatch.setattr(api._http, "head", primary_head)
+    monkeypatch.setattr(api._hedge_http, "head", hedge_head)
+    monkeypatch.setattr(api, "HEDGE_SECONDS", None)
+    api.warm()
+    primary_head.assert_called_once()
+    hedge_head.assert_not_called()
+
+    monkeypatch.setattr(api, "HEDGE_SECONDS", 1.0)
+    api.warm()
+    assert primary_head.call_count == 2
+    hedge_head.assert_called_once()
+
+
+def test_warm_skips_session_while_request_is_in_flight(monkeypatch):
+    in_flight, release = threading.Event(), threading.Event()
+    primary_head = Mock(return_value=Mock())
+    monkeypatch.setattr(api._http, "head", primary_head)
+    monkeypatch.setattr(api, "HEDGE_SECONDS", None)
+    def slow_post(*args, **kwargs):
+        in_flight.set()
+        assert release.wait(3)
+        return Mock(json=lambda: {"text": "ok"})
+    monkeypatch.setattr(api._http, "post", slow_post)
+    result = []
+    worker = threading.Thread(target=lambda: result.append(api.transcribe_openrouter(b"wav", {}, "key")))
+    worker.start()
+    try:
+        assert in_flight.wait(3)
+        api.warm()
+        primary_head.assert_not_called()  # never touch _http while a job is using it
+    finally:
+        release.set()
+        worker.join(3)
+    assert result == ["ok"]
+    api.warm()
+    primary_head.assert_called_once()
+
+
+def test_concurrent_request_uses_separate_session_while_warm_holds_primary(monkeypatch):
+    # Use a fresh unpatched Session as _http so _session_post exercises the real pool path.
+    primary = requests.Session()
+    lock = threading.Lock()
+    lock.acquire()
+    try:
+        with api._session_post(session=primary, lock=lock) as send:
+            assert send.__self__ is not primary
+            assert isinstance(send.__self__, requests.Session)
+    finally:
+        lock.release()
+        primary.close()
 
 
 def test_upload_timeout_is_bounded_and_uses_one_request(monkeypatch):

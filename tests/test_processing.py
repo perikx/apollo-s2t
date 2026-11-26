@@ -14,19 +14,26 @@ import apollo
 
 
 class FakeRecorder:
-    def __init__(self, samples=8000):
+    def __init__(self, samples=8000, pcm=None):
         self.sample_count = samples
+        self.pcm = pcm
         self.starts = self.stops = 0
 
     capture_warning = backup_failed = False
+
+    def _audio(self):
+        return self.pcm if self.pcm is not None else (array("h", [self.starts]) * self.sample_count).tobytes()
 
     def start(self, backup=None, on_error=None):
         self.backup = backup
         self.starts += 1
 
+    def snapshot(self, start=0):
+        return self._audio()[start:]
+
     def stop(self):
         self.stops += 1
-        data = (array("h", [self.starts]) * self.sample_count).tobytes()
+        data = self._audio()
         backup = self.backup
         def save():
             if backup is not None:
@@ -338,3 +345,57 @@ def test_prompt_language_and_profile(tmp_path):
     prompt = apollo.build_prompt_system(cfg, str(tmp_path))
     assert "Project reference" in prompt and "Keep the language" in prompt
     assert apollo.KARPATHY_GUIDELINES in prompt
+
+
+def wait_for(condition, seconds=3):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_audio_travels_in_parts_while_the_user_speaks(app, monkeypatch):
+    """The uplink carries the recording during the capture; only the rest is left at the stop."""
+    sent, delivered = [], []
+    pcm = array("h", [500] * (16000 * 4)).tobytes()
+    app.recorder = FakeRecorder(pcm=pcm)
+    monkeypatch.setattr(apollo, "LIVE_CHUNK_SECONDS", 1)
+    monkeypatch.setattr(apollo, "LIVE_POLL_SECONDS", 0.01)
+    def transcribe(wav, cfg, key, **kwargs):
+        with wave.open(io.BytesIO(wav)) as audio:
+            sent.append(audio.readframes(audio.getnframes()))
+        return f"part{len(sent)}"
+    monkeypatch.setattr(apollo, "transcribe_openrouter", transcribe)
+    monkeypatch.setattr(app, "insert_text", lambda text, t0: delivered.append(text))
+    app.on_press("dictate")
+    assert wait_for(lambda: len(sent) >= 2), "a part must travel before the recording stops"
+    app.on_release("dictate")
+    app._join_jobs(5)
+    assert b"".join(sent) == pcm  # every sample exactly once, no gap and no repeat at the seam
+    assert delivered == [" ".join(f"part{i}" for i in range(1, len(sent) + 1))]
+
+
+def test_failed_part_falls_back_to_the_whole_recording(app, monkeypatch):
+    sent, delivered = [], []
+    pcm = array("h", [500] * (16000 * 4)).tobytes()
+    app.recorder = FakeRecorder(pcm=pcm)
+    monkeypatch.setattr(apollo, "LIVE_CHUNK_SECONDS", 1)
+    monkeypatch.setattr(apollo, "LIVE_POLL_SECONDS", 0.01)
+    attempts = []
+    def transcribe(wav, cfg, key, **kwargs):
+        with wave.open(io.BytesIO(wav)) as audio:
+            sent.append(audio.readframes(audio.getnframes()))
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise requests.Timeout("private")
+        return "whole recording"
+    monkeypatch.setattr(apollo, "transcribe_openrouter", transcribe)
+    monkeypatch.setattr(app, "insert_text", lambda text, t0: delivered.append(text))
+    app.on_press("dictate")
+    assert wait_for(lambda: len(sent) >= 1), "the first part must fail before the stop"
+    app.on_release("dictate")
+    app._join_jobs(5)
+    assert delivered == ["whole recording"]  # the failed part is not stitched into the text
+    assert sent[-1] == pcm  # the fallback sends the recording once, whole

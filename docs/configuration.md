@@ -115,6 +115,14 @@ recordings on a limited uplink. Without a fallback model, a 429 retries the same
 respects `Retry-After`. Apollo makes at most three requests in a row, within 30 seconds of the first.
 Recordings longer than five minutes are split at a quiet point and stitched; each part is sent as
 multipart audio.
+Apollo does not wait for the stop: every 12 seconds of a longer recording travel to the API while
+the user is still speaking, so only the last part is on the wire at the stop. The parts are
+stitched in order and cleaned as one text. A speech request costs about 530 ms plus 15 ms per
+second of audio, measured on the multipart era in this log; the length term is the uplink, so this
+takes the recording length out of the wait after the key. A part that fails
+drops all of them and the whole recording is sent once, exactly as before; that case pays the
+audio twice. `LIVE_CHUNK_SECONDS`, `LIVE_POLL_SECONDS` and `LIVE_JOIN_SECONDS` in `apollo.py`
+set the part length, the look-up interval and the wait for a part that is still uploading.
 
 After a primary failure, the circuit breaker opens for 5 minutes. New recordings list the fallback
 first. Authentication, credit and other HTTP errors do not switch models.
@@ -151,7 +159,9 @@ Failed automatic checks retry after one minute. Settings show failures; Debug sh
 
 Fixed limits: Apollo records 16,000 Hz mono audio. A recording under 0.3 seconds is not sent, but its
 audio stays in recovery. A recording stops and processes after 30 minutes (1,800 seconds).
-This is about 57.6 MB of uncompressed audio. Apollo sends it as multipart WAV in parts of at most five minutes, about 9.6 MB each.
+This is about 57.6 MB of uncompressed audio. Apollo compresses each upload losslessly to FLAC in memory
+using the built-in Windows Media Foundation codec (falling back to WAV if unavailable), sends parts of at most five minutes,
+and sends the first of the 12-second live parts after 12 seconds of speech. Local files in `recovery/` stay WAV.
 Provider size and processing limits still apply; failed requests keep the audio for Recovery.
 At most 3 jobs
 (the active recording plus processing jobs) run at once. A full queue rejects a new start with an error tone.
@@ -167,8 +177,9 @@ Captured audio stays in the recovery folder, including cancelled work.
 
 `recovery/` lives beside `apollo.py` for source installations or beside `apollo.exe`
 for executable installations. The folder must be writable. A separate save thread
-checkpoints captured audio about every 0.5 seconds with disk flushes (`fsync`); normal
-stop flushes the remaining audio before processing. Microphone stop/close failures
+checkpoints captured audio about every 0.5 seconds with disk flushes (`fsync`); on stop,
+a background saver joins any in-flight checkpoint and flushes the remaining audio while
+transcription starts immediately. Microphone stop/close failures
 preserve samples already captured. A checkpoint failure stops recording and reports an
 error rather than silently continuing without disk protection.
 

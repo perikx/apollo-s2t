@@ -310,3 +310,78 @@ def test_thirty_minute_limit_preserves_all_samples_and_notifies(app, monkeypatch
     assert saved[:2] == pcm_of(1, 1) and saved[-2:] == pcm_of(2, 1)
     assert app.recovery_items()[0].read_transcript() == "full recording"
     assert any("time limit reached" in notice for notice in notices)
+
+
+def test_recorder_stop_does_not_wait_for_checkpoint_fsync_and_save_preserves_order(tmp_path, monkeypatch):
+    input_stream(monkeypatch)
+    from apollo_recovery import RecoveryStore
+    store = RecoveryStore(tmp_path)
+    backup = store.create(16000, 1, "dictate")
+    recorder = apollo.Recorder(16000, 1, None)
+
+    in_checkpoint, release_checkpoint = threading.Event(), threading.Event()
+    appended = []
+    original_append = backup.append
+    def blocked_first_append(data):
+        if not appended:
+            in_checkpoint.set()
+            assert release_checkpoint.wait(3)
+        appended.append(data)
+        original_append(data)
+    monkeypatch.setattr(backup, "append", blocked_first_append)
+
+    chunk1, chunk2 = pcm_of(1, 4000), pcm_of(2, 4000)
+    recorder.start(backup)
+    recorder._callback(chunk1, 4000, None, None)
+    assert in_checkpoint.wait(3)  # checkpoint thread is inside fsync
+    recorder._callback(chunk2, 4000, None, None)
+
+    t0 = time.perf_counter()
+    pcm, save = recorder.stop()
+    stop_ms = (time.perf_counter() - t0) * 1000
+    assert stop_ms < 100  # must not wait for the blocked checkpoint thread
+    assert recorder._frames == []
+    assert pcm == chunk1 + chunk2
+
+    saved = []
+    saver = threading.Thread(target=lambda: saved.append(save()))
+    saver.start()
+    time.sleep(0.05)
+    assert appended == []  # save() must wait for the checkpoint thread before appending the tail
+    release_checkpoint.set()
+    saver.join(3)
+    assert saved == [True]
+    assert appended == [chunk1, chunk2]
+    assert read_pcm(backup.path) == chunk1 + chunk2
+
+
+def test_late_checkpoint_failure_after_stop_repairs_without_poisoning_next_recording(tmp_path, monkeypatch):
+    input_stream(monkeypatch)
+    from apollo_recovery import RecoveryStore
+    store = RecoveryStore(tmp_path)
+    backup1 = store.create(16000, 1, "dictate")
+    backup2 = store.create(16000, 1, "dictate")
+    recorder = apollo.Recorder(16000, 1, None)
+
+    in_checkpoint, release_checkpoint = threading.Event(), threading.Event()
+    def failing_append(data):
+        in_checkpoint.set()
+        assert release_checkpoint.wait(3)
+        raise OSError("disk full")
+    monkeypatch.setattr(backup1, "append", failing_append)
+
+    chunk = pcm_of(7, 4000)
+    recorder.start(backup1)
+    recorder._callback(chunk, 4000, None, None)
+    assert in_checkpoint.wait(3)
+    pcm, save = recorder.stop()
+
+    # Start a second recording immediately while the first checkpoint thread is still failing.
+    recorder.start(backup2)
+    release_checkpoint.set()
+    assert save() is False
+    backup1.replace_audio(pcm)
+    assert read_pcm(backup1.path) == chunk
+    assert recorder.backup_failed is False  # second recording was not poisoned
+    _, save2 = recorder.stop()
+    assert save2() is True

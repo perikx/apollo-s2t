@@ -28,7 +28,7 @@ retired-provider references from returning to setup, launchers or user documenta
 
 - `apollo.py`: recording, hotkey hook and dispatcher, parallel jobs, prompts, paste and the fixed constants.
 - `apollo_config.py`: one source of defaults, validation, atomic writes and dropping of removed keys.
-- `apollo_api.py`: OpenRouter transcription (multipart upload, five-minute parts, fallback, optional hedge, circuit breaker) and rewrite requests.
+- `apollo_api.py`: OpenRouter transcription (multipart FLAC upload via Windows Media Foundation with WAV fallback, quiet-point parts, fallback, optional hedge, circuit breaker, thread-safe session locking/warming) and rewrite requests.
 - `apollo_recovery.py`: local WAV checkpoints, recovery metadata and raw/final text files.
 - `apollo_overlay.py`: floating control/speech bubble and in-app settings/recovery/debug.
 - `apollo_design.py` / `apollo_widgets.py`: Qt surfaces, vector icons and selectors.
